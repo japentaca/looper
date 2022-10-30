@@ -35,6 +35,7 @@ exports.do_migrations = async function () {
 
 
   create_column_string("users", "password", 32)
+  create_column_string("users", "email", 1024)
   create_column_string("users", "name", 32)
   create_column_string("users", "ts", 21)
 
