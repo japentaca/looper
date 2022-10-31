@@ -32,12 +32,15 @@ exports.do_migrations = async function () {
   create_column_string("sets", "tags", 65535)
 
   create_column_string("files", "original_name", 256)
+  create_column_number("files", "size")
 
 
   create_column_string("users", "password", 32)
   create_column_string("users", "email", 1024)
   create_column_string("users", "name", 32)
   create_column_string("users", "ts", 21)
+  create_column_number("users", "bytes_used")
+  create_column_number("users", "max_bytes_uploaded")
 
 
 }
@@ -48,6 +51,14 @@ async function create_column_string(tabla, columna, length) {
     console.log(`Creo columna ${columna}  en tabla ${tabla}`)
     await knex.schema.alterTable(tabla, function (table) {
       table.string(columna, length)
+    })
+  }
+}
+async function create_column_number(tabla, columna) {
+  if (! await hasColumn(tabla, columna)) {
+    console.log(`Creo columna ${columna}  en tabla ${tabla}`)
+    await knex.schema.alterTable(tabla, function (table) {
+      table.integer(columna)
     })
   }
 }

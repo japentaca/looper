@@ -13,10 +13,7 @@ global.knex = require('knex')({
 
 const app_admin = require('express')();
 const server = require('http').Server(app_admin);
-const fileUpload = require('express-fileupload');
-app_admin.use(fileUpload({
-  limits: { fileSize: 5 * 1024 * 1024 },
-}))
+
 var bodyParser = require("body-parser")
 app_admin.use(bodyParser.json());
 var Session = require('express-session')
