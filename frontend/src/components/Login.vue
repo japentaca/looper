@@ -20,7 +20,7 @@
 <script setup>
 
 import { reactive } from "@vue/reactivity"
-import { store } from "../composable"
+import { store } from "../helpers/composable"
 import { login } from "../helpers/api"
 const form = reactive({
   email: "jntaca@gmail.com",

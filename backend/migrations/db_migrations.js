@@ -32,6 +32,8 @@ exports.do_migrations = async function () {
   create_column_string("sets", "tags", 65535)
 
   create_column_string("files", "original_name", 256)
+  create_column_string("files", "track_group", 256)
+  create_column_string("files", "tag", 256)
   create_column_number("files", "size")
 
 

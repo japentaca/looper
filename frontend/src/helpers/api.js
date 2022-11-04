@@ -8,6 +8,29 @@ export function login(data) {
   })
 }
 
+export function save_trackGroups(data) {
+  return request({
+    url: '/api/save_trackGroups',
+    method: 'put',
+    data
+  })
+}
+export function save_fileData(data) {
+  return request({
+    url: '/api/save_fileData',
+    method: 'put',
+    data
+  })
+}
+export function save_tags(data) {
+  return request({
+    url: '/api/save_tags',
+    method: 'put',
+    data
+  })
+}
+
+
 export function logout() {
   return request({
     url: '/api/logout',
@@ -30,6 +53,7 @@ export function get_user_data(data) {
 
   })
 }
+
 export function get_user_info(data) {
   return request({
     url: '/api/get_user_info',

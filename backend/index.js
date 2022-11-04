@@ -23,9 +23,10 @@ let redisClient = new Redis({
   port: global.config.redis_port,
   host: global.config.redis_host
 })
+global.redisClient = redisClient
 app_admin.use(Session({
   store: new RedisStore({ client: redisClient, prefix: "s_admin:" }),
-  secret: 'admin_session_secret',
+  secret: 'session_secret',
   saveUninitialized: false,
   resave: true,
 }))
