@@ -21,7 +21,9 @@
 </template>
 <script setup>
 import { ref } from 'vue';
-import { store } from "../helpers/composable"
+import { store, tags_by_id, rebuildIndexes } from "../helpers/composable"
+import { save_fileData } from '../helpers/api';
+import { genFileId } from 'element-plus';
 const props = defineProps(["index"])
 const editing = ref(false)
 let prevName = ""
@@ -66,7 +68,17 @@ function onColorChange(a) {
   //console.log(store.tags[props.index])
 }
 function deleteTag(index) {
+  let id = store.tags[index].id
   store.tags.splice(index, 1)
+  store.files.map(async (file) => {
+    if (file.tag == id) {
+      file.tag = null
+      file.tag_obj = null
+      await save_fileData({ file: file })
+    }
+  })
+  rebuildIndexes()
+
 
 }
 

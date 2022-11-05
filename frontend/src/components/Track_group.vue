@@ -20,7 +20,9 @@
 </template>
 <script setup>
 import { ref } from 'vue';
-import { store } from "../helpers/composable"
+import { save_fileData } from '../helpers/api';
+import { store, rebuildIndexes } from "../helpers/composable"
+
 const props = defineProps(["index"])
 const editing = ref(false)
 let prevName = ""
@@ -51,7 +53,17 @@ function onChange(e) {
   setEditing(false)
 }
 function deleteTrackGroup(index) {
+  let id = store.track_groups[index].id
   store.track_groups.splice(index, 1)
+  store.files.map(async (file) => {
+    if (file.track_group == id) {
+      file.track_group = null
+      file.track_group_obj = null
+      await save_fileData({ file: file })
+    }
+  })
+  rebuildIndexes()
+
 
 }
 

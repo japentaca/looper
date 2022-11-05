@@ -13,7 +13,8 @@
           </el-col>
           <el-col :span="6">
             <div v-if="store.curr_file.isPlaying" class="curr_file">Playing:{{ store.curr_file.original_name }}
-              <el-icon :size="18" class="icons" @click="playerStop()">
+              <el-icon :size="1
+              " class="icons" @click="playerStop()">
                 <VideoPause />
               </el-icon>
             </div>
@@ -34,7 +35,10 @@
           </Tag>
           <el-button @click="addTag">+</el-button>
         </el-aside>
-        <el-main>Main
+        <el-main>
+
+          <Tracks />
+
           <el-collapse v-model="activeCollapsable">
             <el-collapse-item title="Upload Files" name="1">
               <uploader />
@@ -64,26 +68,34 @@ import Tag from "./components/Tag.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
 import Uploader from "./components/Uploader.vue"
+import Tracks from "./components/Tracks.vue"
 
-import { store, doLogout, store_get_user_info } from "./helpers/composable"
+import { store, doLogout, store_get_user_info, rebuildIndexes } from "./helpers/composable"
 
 import * as uuid from "uuid"
 
 import { playerStop } from "./helpers/toneLib"
 
+
+
 function addTrackGroup() {
   let id = uuid.v4()
-  store.track_groups.push({ name: "Track Group", color: randomColor(), id: id })
+  let trg = { name: "Track Group", color: randomColor(), id: id }
+  store.track_groups.push(trg)
+  rebuildIndexes()
 
 }
 function addTag() {
-
   let id = uuid.v4()
-  store.tags.push({ name: "TAG ", color: randomColor(), id: id })
+  let tag = { name: "TG ", color: randomColor(), id: id }
+  store.tags.push(tag)
+
+  rebuildIndexes()
 
 }
 function randomColor() {
-  let r = rgbToHex(parseInt(Math.random() * 127) + 127, parseInt(Math.random() * 127) + 127, parseInt(Math.random() * 127) + 127)
+  let base = 100, rango = 155
+  let r = rgbToHex(parseInt(Math.random() * rango) + base, parseInt(Math.random() * rango) + base, parseInt(Math.random() * rango) + base)
 
   return r
 
@@ -96,8 +108,12 @@ const rgbToHex = (r, g, b) => '#' + [r, g, b].map(x => {
 const activeCollapsable = ref('2')
 const dialogLoginVisible = ref(false)
 onMounted(async () => {
-
-  let t = await store_get_user_info()
+  if (!store.alreadyMounted) {
+    store.alreadyMounted = true
+    let t = await store_get_user_info()
+  } else {
+    console.log("already mounted!!!!")
+  }
 
 
 })

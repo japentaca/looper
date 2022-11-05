@@ -1,31 +1,36 @@
 <template>
   <div class="box">
-    <div v-for="(file, index) in store.u_info.files" class="file" @dragover="ondragover($event, index)"
+    <div v-for="(file, index) in store.files" class="file" @dragover="ondragover($event, index)"
       @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
-      <p class="tag_data">{{ file.original_name }} </p>
-      <p class="tag_data">TRG:<span v-if="tgs_by_id[file.track_group]"
-          v-bind:style="{ 'background-color': tgs_by_id[file.track_group].color }">{{
-              tgs_by_id[file.track_group].name
-          }}</span></p>
-      <p class="tag_data">TAG:<span v-if="tags_by_id[file.tag]"
-          v-bind:style="{ 'background-color': tags_by_id[file.tag].color }">{{
-              tags_by_id[file.tag].name
-          }}</span></p>
-      <p class="tag_data">{{ file.duration }}</p>
-      <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
-        <Delete />
-      </el-icon>
-      <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" @click="playFile(file)">
-        <VideoPlay />
-      </el-icon>
 
+      <el-tooltip effect="dark" :content=file.original_name placement="top-start">
+        <p class="tag_data">{{ file.original_name_short }} </p>
+      </el-tooltip>
+      <p class="tag_data">{{ file.duration }}</p>
+      <p class="tag_data">TRG:<span v-if="file.track_group_obj"
+          v-bind:style="{ 'background-color': file.track_group_obj.color }">{{
+              file.track_group_obj.name
+          }}</span></p>
+      <p class="tag_data">TAG:<span v-if="file.tag_obj" v-bind:style="{ 'background-color': file.tag_obj.color }">{{
+          file.tag_obj.name
+      }}</span></p>
+      <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
+
+      <p style="background-color:#8899AA">
+        <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
+          <Delete />
+        </el-icon>
+        <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" @click="playFile(file)">
+          <VideoPlay />
+        </el-icon>
+      </p>
     </div>
   </div>
 </template>
 <script setup>
 
 import { ref, watch } from "vue"
-import { store, audio_buffers, tgs_by_id, tags_by_id } from "../helpers/composable"
+import { store, audio_buffers, track_groups_by_id, tags_by_id } from "../helpers/composable"
 import { delete_file, save_fileData } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
 
@@ -35,17 +40,25 @@ const dragoverColor = ref("#AA0000")
 const colorNormal = ref("blanchedalmond")
 const currentColor = ref(colorNormal.value)
 
+async function onChange(file) {
+  console.log("change,file", file)
+  await save_fileData({ file: file })
+}
 async function ondrop(e, index) {
-  //console.log("drop", e, index)
+  console.log("drop", e, index)
   let msg_type = e.dataTransfer.getData("msg_type")
-  console.log("msg_type", msg_type)
+  //console.log("msg_type", msg_type)
   if (msg_type == "track_group") {
-    store.u_info.files[index].track_group = e.dataTransfer.getData("id")
-    await save_fileData({ file: store.u_info.files[index] })
+    let id = e.dataTransfer.getData("id")
+    console.log("drop trg", id)
+    store.files[index].track_group = id
+    store.files[index].track_group_obj = track_groups_by_id[id]
+    await save_fileData({ file: store.files[index] })
   } else if (msg_type == "tag") {
-
-    store.u_info.files[index].tag = e.dataTransfer.getData("id")
-    await save_fileData({ file: store.u_info.files[index] })
+    let id = e.dataTransfer.getData("id")
+    store.files[index].tag = e.dataTransfer.getData("id")
+    store.files[index].tag_obj = tags_by_id[id]
+    await save_fileData({ file: store.files[index] })
 
   }
   e.preventDefault()
@@ -84,9 +97,9 @@ function deleteFile(file) {
       console.log(audio_buffers[file.id])
       audio_buffers[file.id].dispose()
       //delete store.audio_buffers[file.id]
-      store.u_info.files.splice(file.index, 1)
-      for (let i = 0; i < store.u_info.files.length; i++) {
-        store.u_info.files[i].index = i
+      store.files.splice(file.index, 1)
+      for (let i = 0; i < store.files.length; i++) {
+        store.files[i].index = i
       }
       await delete_file(file)
       ElMessage({
@@ -135,6 +148,7 @@ const iconSize = ref(18)
   grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
   gap: 9px 1em;
 
+
 }
 
 .file {
@@ -143,6 +157,7 @@ const iconSize = ref(18)
   padding-left: 2px;
   margin-left: 1px;
   background-color: blanchedalmond;
+  border-radius: 5px;
 }
 
 .file:hover {

@@ -15,7 +15,6 @@ router.use((req, res, next) => {
   next()
 })
 
-
 router.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 },
   //safeFileNames: true,
@@ -81,10 +80,10 @@ router.put("/save_trackGroups", async (req, res) => {
 
   let tgrs = [...req.body]
   prom_arr = []
-  await global.knex("user_tgs").delete().where({ user_id: req.session.u_info.id })
+  await global.knex("user_track_groups").delete().where({ user_id: req.session.u_info.id })
   tgrs.map(r => {
     r.user_id = req.session.u_info.id
-    prom_arr.push(global.knex("user_tgs").insert(r)
+    prom_arr.push(global.knex("user_track_groups").insert(r)
     )
   })
   let r = await Promise.all(prom_arr)
@@ -133,8 +132,16 @@ router.put('/save_fileData', async (req, res) => {
     return res.status(403)
   }
   let file = req.body.file
-  //console.log(req.body)
-  await global.knex("files").update({ track_group: file.track_group, tag: file.tag }).where({ id: file.id })
+  console.log(req.body)
+  const allowedFields = ["track_group", "tag", "props"]
+  let upd_obj = {}
+  for (f of allowedFields) {
+    //console.log("field", f, req.body.file[f])
+    upd_obj[f] = req.body.file[f]
+  }
+  upd_obj.props = JSON.stringify(req.body.file)
+  console.log(upd_obj)
+  await global.knex("files").update(upd_obj).where({ id: file.id })
   //console.log("req.session", req.body)
   return res.send({ stat: true })
 
@@ -253,8 +260,8 @@ async function return_user_info(req) {
     delete f.user_id
     f.name = f.id + ".mp3"
   })
-  let t = await global.knex("user_tgs").select().where({ user_id: req.session.u_info.id })
-  u_info.tgs = t.map(r => {
+  let t = await global.knex("user_track_groups").select().where({ user_id: req.session.u_info.id })
+  u_info.track_groups = t.map(r => {
     delete r.user_id
     return r
   })
