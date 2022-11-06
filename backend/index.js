@@ -2,14 +2,12 @@
 console.log("Start")
 var config = require('dotenv').config()
 global.config = config.parsed
+const { MongoClient } = require("mongodb");
+const uri = global.config.mongo_uri
+const mongo_conn = new MongoClient(uri);
+global.mongodb = mongo_conn.db(global.config.mongo_dbname)
 
-global.knex = require('knex')({
-  client: 'sqlite3',
-  useNullAsDefault: false,
-  connection: {
-    filename: global.config.db_file
-  }
-});
+
 
 const app_admin = require('express')();
 const server = require('http').Server(app_admin);
@@ -25,7 +23,7 @@ let redisClient = new Redis({
 })
 global.redisClient = redisClient
 app_admin.use(Session({
-  store: new RedisStore({ client: redisClient, prefix: "s_admin:" }),
+  store: new RedisStore({ client: redisClient, prefix: "looper_s:" }),
   secret: 'session_secret',
   saveUninitialized: false,
   resave: true,
@@ -41,11 +39,4 @@ app_admin.use("/api", require("./routes/api"))
 console.log("Listening on ", global.config.service_port)
 app_admin.listen(global.config.service_port)
 
-let migrations = require("./migrations/db_migrations")
-
-setTimeout(async () => {
-  //console.log("migrations start.")
-  await migrations.do_migrations()
-  //console.log("migrations ended")
-}, 300);
 

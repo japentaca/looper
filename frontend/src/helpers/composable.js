@@ -77,12 +77,14 @@ export const store_get_user_info = async () => {
 
     console.log("loops")
     store.track_groups.splice(0)
+    if (!store.u_info.track_groups) store.u_info.track_groups = []
     for (let i = 0; i < store.u_info.track_groups.length; i++) {
       let t = store.u_info.track_groups[i]
       store.track_groups.push(t)
     }
 
     store.tags.splice(0)
+    if (!store.u_info.tags) store.u_info.tags = []
     for (let i = 0; i < store.u_info.tags.length; i++) {
       let t = store.u_info.tags[i]
       store.tags.push(t)
@@ -108,9 +110,8 @@ export const store_get_user_info = async () => {
         //console.log("vamo tag", f.tag, f.tag_obj)
       }
 
-      if (f.props) {
-        f.props.JSON.parse(f.props)
-      } else {
+      if (!f.props) {
+
         f.props = {}
       }
       // defaultValues
@@ -141,7 +142,7 @@ export const store_get_user_info = async () => {
 
     console.log("begin loading")
 
-    await delay(1500)
+    await delay(500)
     console.log("end loading")
     store.loading = false
 

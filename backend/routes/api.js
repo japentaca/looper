@@ -5,7 +5,8 @@ const fs = require("fs/promises")
 const bcrypt = require('bcrypt');
 const uuid = require("uuid")
 const fileUpload = require('express-fileupload');
-const { default: knex } = require('knex');
+
+
 
 router.use((req, res, next) => {
   //console.log(req.session)
@@ -33,8 +34,9 @@ router.post('/login', async function (req, res) {
       return
     }
 
-    var db_res = await global.knex("users").select().where({ email: email })
-    //console.log("res", db_res[0])
+
+    let db_res = await global.mongodb.collection("users").find({ email: email }).toArray()
+    console.log("res", db_res[0])
     if (db_res[0] === undefined) {
       res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
       return
@@ -74,48 +76,26 @@ router.post('/login', async function (req, res) {
 
 //var salt = 10, pp = "jape"
 //var hashed = bcrypt.hash(pp, salt).then(p => { console.log("hashed", pp, p) })
+
 router.put("/save_trackGroups", async (req, res) => {
   if (!req.session.isLogged) return res.status(403)
-  //console.log(req.body)
 
   let tgrs = [...req.body]
-  prom_arr = []
-  await global.knex("user_track_groups").delete().where({ user_id: req.session.u_info.id })
-  tgrs.map(r => {
-    r.user_id = req.session.u_info.id
-    prom_arr.push(global.knex("user_track_groups").insert(r)
-    )
-  })
-  let r = await Promise.all(prom_arr)
+  let db_res = await global.mongodb.collection("users").updateMany({ id: req.session.u_info.id }, { $set: { "track_groups": tgrs } }, { upsert: true })
 
   res.status(200).end()
-
 
 })
 router.put("/save_tags", async (req, res) => {
   if (!req.session.isLogged) return res.status(403)
-  //console.log(req.body)
 
   let tags = [...req.body]
-  prom_arr = []
-  await global.knex("user_tags").delete().where({ user_id: req.session.u_info.id })
-  tags.map(r => {
-    r.user_id = req.session.u_info.id
-    prom_arr.push(global.knex("user_tags").insert(r)
-    )
-  })
-  let r = await Promise.all(prom_arr)
-
+  let db_res = await global.mongodb.collection("users").updateMany({ id: req.session.u_info.id }, { $set: { "tags": tags } }, { upsert: true })
   res.status(200).end()
-
 
 })
 
-router.get('/get_user_data', async (req, res) => {
-  //console.log("req.session", req.session)
-  return res.send({ stat: true })
 
-});
 
 router.put('/logout', async (req, res) => {
   if (req.session.isLogged) {
@@ -135,13 +115,18 @@ router.put('/save_fileData', async (req, res) => {
   console.log(req.body)
   const allowedFields = ["track_group", "tag", "props"]
   let upd_obj = {}
+  // upd_obj = { id: file.id }
   for (f of allowedFields) {
     //console.log("field", f, req.body.file[f])
-    upd_obj[f] = req.body.file[f]
+    if (req.body.file[f]) {
+      upd_obj["files.$." + f] = req.body.file[f]
+    }
   }
-  upd_obj.props = JSON.stringify(req.body.file)
+
   console.log(upd_obj)
-  await global.knex("files").update(upd_obj).where({ id: file.id })
+  let db_res = await global.mongodb.collection("users").updateOne({ id: req.session.u_info.id, "files.id": file.id }, { $set: upd_obj }, { upsert: true })
+  console.log(db_res)
+
   //console.log("req.session", req.body)
   return res.send({ stat: true })
 
@@ -150,14 +135,17 @@ router.put('/save_fileData', async (req, res) => {
 router.put('/delete_file', async (req, res) => {
   //console.log(req.body, "u_id,", req.session.u_info.id)
 
-  let file = await global.knex("files").select().where({ user_id: req.session.u_info.id, id: req.body.id }).first()
-  if (!file) {
+
+  if (false) { // TODO: checkear hack
     // TODO: hack
     console.log("HACK ! ! ", req.body, req.session)
     return res.status(403)
   }
-  await fs.unlink(global.config.storage_path + req.session.u_info.id + "/" + req.body.id + ".mp3")
-  await global.knex("files").delete().where({ user_id: req.session.u_info.id, id: req.body.id })
+
+  console.log(req.body.id)
+  let db_res = await global.mongodb.collection("users").updateOne({ id: req.session.u_info.id, }, { $pull: { "files": { "id": req.body.id } } })
+  console.log("delete file", db_res)
+  //await fs.unlink(global.config.storage_path + req.session.u_info.id + "/" + req.body.id + ".mp3")
 
 
   //console.log("req.session", req.session)
@@ -180,10 +168,6 @@ router.get('/get_file', async (req, res) => {
 
   try {
 
-
-    //let sess = global.redisClient.hget("TOKEN", req.query.token)
-    //if (sess == null) return res.status(403)
-
     let sessions = await req.sessionStore.all(async (error, sessions) => {
       //console.log(req.query, "error", error, "sess", sessions)
 
@@ -204,6 +188,7 @@ router.get('/get_file', async (req, res) => {
 
 });
 
+
 router.post('/upload', async (req, res) => {
   if (!req.session.isLogged) {
     console.log("sin session")
@@ -217,33 +202,34 @@ router.post('/upload', async (req, res) => {
     await fs.mkdir(global.config.storage_path + user_id)
   }
 
-
-
   //console.log("uploadaaa", req.files); // the uploaded file object
 
   let mv_files_prom_arr = []
   let insert_files_arr = []
-  let temp = await global.knex("users").select("bytes_used").where({ id: user_id }).first()
-  let total_bytes = temp.bytes_used
-  let trx = await global.knex.transaction()
+
+  let total_bytes = req.session.u_info.total_bytes || 0
+
   for (index in req.files) {
     let file_id = uuid.v4()
     let file = req.files[index]
     //console.log(file.name, file.size)
     mv_files_prom_arr.push(move_file(file, global.config.storage_path + user_id + "/" + file_id + ".mp3"))
     total_bytes += file.size
+
     insert_files_arr.push(
-      trx("files").insert({
+      {
         id: file_id,
-        user_id: user_id,
         size: file.size,
         original_name: file.name
-      }))
+      }
+    )
+
   }
+
   await Promise.all(mv_files_prom_arr)
-  await Promise.all(insert_files_arr)
-  await trx("users").update({ bytes_used: total_bytes })
-  await trx.commit()
+  await global.mongodb.collection("users").update({ id: req.session.u_info.id, }, { $push: { "files": { "$each": insert_files_arr } } }, { upsert: true })
+  await global.mongodb.collection("users").update({ id: req.session.u_info.id }, { $set: { "total_bytes": total_bytes } }, { upsert: true })
+
 
   //console.log("check path", global.config.storage_path + user_id)
 
@@ -252,27 +238,26 @@ router.post('/upload', async (req, res) => {
 });
 
 async function return_user_info(req) {
-  let u_info = { ...req.session.u_info }
+  let u_info = await global.mongodb.collection("users").findOne({ id: req.session.u_info.id })
+  //console.log("erererer", u_info)
   delete u_info.id
   delete u_info.password
-  u_info.files = await global.knex("files").select().where({ user_id: req.session.u_info.id })
-  u_info.files.map(f => {
-    delete f.user_id
-    f.name = f.id + ".mp3"
-  })
-  let t = await global.knex("user_track_groups").select().where({ user_id: req.session.u_info.id })
-  u_info.track_groups = t.map(r => {
-    delete r.user_id
-    return r
-  })
-  t = await global.knex("user_tags").select().where({ user_id: req.session.u_info.id })
-  u_info.tags = t.map(r => {
-    delete r.user_id
-    return r
-  })
+
+
+  if (u_info.files) {
+    u_info.files.map(f => {
+      delete f.user_id
+      f.name = f.id + ".mp3"
+    })
+    //u_info.files.sort((a, b) => a.original_name.localeCompare(b.original_name))
+  } else {
+    u_info.files = []
+  }
+
+
   //u_info.files.sort((a, b) => { return a.original_name < b.original_name })
 
-  u_info.files.sort((a, b) => a.original_name.localeCompare(b.original_name))
+
 
 
   return u_info
