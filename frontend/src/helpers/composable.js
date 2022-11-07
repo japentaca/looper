@@ -95,9 +95,9 @@ export const store_get_user_info = async () => {
         //console.log("vamo tgr", f.track_group, f.track_group_obj)
       }
       //console.log("f.tag", f.tag)
-      if (f.tag !== null) {
+      if (f.tag !== undefined) {
         f.tag_obj = tags_by_id[f.tag]
-        if (f.tag_obj !== undefined) f.tag = null
+        if (f.tag_obj == undefined) f.tag = null
         //console.log("vamo tag", f.tag, f.tag_obj)
       }
 

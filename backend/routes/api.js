@@ -256,7 +256,6 @@ async function return_user_info(req) {
 
   if (u_info.files) {
     u_info.files.map(f => {
-      delete f.user_id
       f.name = f.id + ".mp3"
     })
     //u_info.files.sort((a, b) => a.original_name.localeCompare(b.original_name))

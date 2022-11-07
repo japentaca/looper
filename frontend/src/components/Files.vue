@@ -46,7 +46,7 @@ async function onChange(file) {
 async function ondrop(e, index) {
   console.log("drop", e, index)
   let msg_type = e.dataTransfer.getData("msg_type")
-  //console.log("msg_type", msg_type)
+  console.log("msg_type", msg_type)
   if (msg_type == "track_group") {
     let id = e.dataTransfer.getData("id")
     console.log("drop trg", id)
