@@ -6,7 +6,7 @@
       <el-tooltip effect="dark" :content=file.original_name placement="top-start">
         <p class="tag_data">{{ file.original_name_short }} </p>
       </el-tooltip>
-      <p class="tag_data">{{ file.duration }}</p>
+      <p v-if="file.isLoaded" class="tag_data">{{ file.duration_fixed }}<span> Beats:{{ file.beats }}</span></p>
       <p class="tag_data">TRG:<span v-if="file.track_group_obj"
           v-bind:style="{ 'background-color': file.track_group_obj.color }">{{
               file.track_group_obj.name
@@ -15,7 +15,6 @@
           file.tag_obj.name
       }}</span></p>
       <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
-
       <p style="background-color:#8899AA">
         <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
           <Delete />

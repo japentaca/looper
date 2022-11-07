@@ -168,7 +168,8 @@ router.get('/get_file', async (req, res) => {
 
   try {
 
-    let sessions = await req.sessionStore.all(async (error, sessions) => {
+    //await delayrandom()
+    await req.sessionStore.all(async (error, sessions) => {
       //console.log(req.query, "error", error, "sess", sessions)
 
       let sess = sessions.find((sess) => { return sess.token = req.query.token })
@@ -187,7 +188,16 @@ router.get('/get_file', async (req, res) => {
 
 
 });
+async function delayrandom() {
+  return new Promise(async (resolve) => {
+    setTimeout(async () => {
+      resolve()
+    }, Math.random() * 100);
 
+  })
+
+
+}
 
 router.post('/upload', async (req, res) => {
   if (!req.session.isLogged) {

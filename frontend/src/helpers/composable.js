@@ -15,32 +15,19 @@ export const store = reactive({
   loading: true,
   alreadyMounted: false,
 })
-export const TrackCtrl = {
-  props: reactive({ tempo: 143, bpb: "4" }),
-  calculateBars: () => {
+export let files_by_id = []
 
-    for (let i = 0; i < store.files.length; i++) {
-      let f = store.files[i]
-      if (f.duration !== 0) {
-        let bars = ((TrackCtrl.props.tempo / 60) * parseFloat(f.duration)) * parseInt(TrackCtrl.props.bpb)
-        console.log(bars)
-        //f.bars=TrackCtrl.props.tempo
-      }
-
-    }
-
-  }
-
-}
 
 
 export let audio_buffers = {}
-export let files_by_id = {}
+
 export let tags_by_id = {}
 export let track_groups_by_id = {}
 
 
-import { reactiveComputed, watchThrottled } from '@vueuse/core'
+import { watchThrottled } from '@vueuse/core'
+import { TrackCtrl, calculateBars } from './TrackCtrl.js'
+
 
 watchThrottled(
   store.track_groups,
@@ -73,9 +60,9 @@ export const store_get_user_info = async () => {
     store.isLogged = true
 
     store.u_info = res.u_info
-    console.log("llamo rebuild")
+    //console.log("llamo rebuild")
 
-    console.log("loops")
+    //console.log("loops")
     store.track_groups.splice(0)
     if (!store.u_info.track_groups) store.u_info.track_groups = []
     for (let i = 0; i < store.u_info.track_groups.length; i++) {
@@ -90,12 +77,16 @@ export const store_get_user_info = async () => {
       store.tags.push(t)
     }
     rebuildIndexes()
-    console.log("fin loop")
+    //console.log("fin loop")
     let prom_arr = []
     //console.log("tags_by", tags_by_id)
     store.files = [...store.u_info.files]
+    TrackCtrl.isReady = false
+
+    console.log("begin loading files")
     for (let i = 0; i < store.files.length; i++) {
       let f = store.files[i]
+      files_by_id[f.id] = f
 
       //console.log("f.trg", f.track_group)
       if (f.track_group !== null) {
@@ -111,44 +102,51 @@ export const store_get_user_info = async () => {
       }
 
       if (!f.props) {
-
         f.props = {}
       }
-      // defaultValues
       if (!f.props.oneShot) f.props.oneShot = false
-
-
 
       let url = import.meta.env.VITE_APP_BACKEND + "/api/get_file?file=" + f.id + "&token=" + store.u_info.token
       //console.log(url)
       f.isLoaded = false
       f.index = i
-
-      audio_buffers[f.id] = new ToneAudioBuffer({
-        url: url, onload: (buf) => {
-          //console.log("file loaded", f.original_name)
-          files_by_id[f.id] = f
-          f.isLoaded = true
-          f.duration = buf.duration.toFixed(2)
-          f.currentTime = 0
-          f.original_name_short = f.original_name.substr(0, 20)
-          f.percent = 0
-
-
-
-        }
-      })
+      prom_arr.push(getAudioBuffer(url, f))
     }
+    console.log("llamo a promise.all")
+    let res_prom = await Promise.allSettled(prom_arr)
+    //console.log("res_prom", res_prom)
 
-    console.log("begin loading")
+    calculateBars()
 
-    await delay(500)
+
+    TrackCtrl.isReady = true
+
     console.log("end loading")
     store.loading = false
 
   }
   return res
 
+}
+async function getAudioBuffer(url, file) {
+  return new Promise(async (resolve, reject) => {
+    let tab = new ToneAudioBuffer({
+      url: url, onload: (buf) => {
+        //console.log("file loaded", file.id)
+        audio_buffers[file.id] = tab
+        file.isLoaded = true
+        file.duration = audio_buffers[file.id].duration
+        file.duration_fixed = audio_buffers[file.id].duration.toFixed(2)
+        file.bars = 0
+        file.currentTime = 0
+        file.original_name_short = file.original_name.substr(0, 20)
+        file.percent = 0
+
+
+        resolve({ tab: tab, file: file })
+      }
+    })
+  })
 }
 export function rebuildIndexes() {
   track_groups_by_id = {}
