@@ -1,6 +1,7 @@
 <template>
   <div>
     TRACK CONTROL
+    <button @click="test">TEST</button>
     <div v-show="TrackCtrl.isReady == true">
       <el-button type="success" v-if="TrackCtrl.isPlaying == false" @click="start">START</el-button>
       <el-button type="danger" v-if="TrackCtrl.isPlaying == true" @click="stop">STOP</el-button>
@@ -30,24 +31,43 @@
               track.track_group.name
           }} </span>
       </el-col>
+
       <el-col v-if="track.curr_file" :span="6">
-        <el-progress :color="track.track_group.color" type="circle" :stroke-width="3" :duration=0 :show-text=false
-          :percentage="(100 / track.curr_file.beats) * (track.remaining_beats)" :width=20 />
-        {{ track.curr_file.beats }} {{ track.curr_file.original_name_short }}
+
+        {{ track.curr_file.beats }} {{ track.remaining_beats + 1 }}
         <span v-if="track.curr_file.tag">TAG: {{ track.curr_file.tag_obj.name }}</span>
 
 
       </el-col>
+      <el-col v-if="track.curr_file" :span="6">
+        <el-progress :color="track.track_group.color" type="circle" :stroke-width="2" :duration=0 :show-text=false
+          :percentage=track.percentage :width=20>
+        </el-progress>
+
+      </el-col>
+      <el-col v-if="track.curr_file" :span="6">{{ track.curr_file.original_name_short }}</el-col>
     </el-row>
 
   </div>
 </template>
 <script setup>
+
 import * as Tone from "tone"
 import { ref, reactive } from "vue"
 import { store, track_groups_by_id, tags_by_id, audio_buffers, files_by_id } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
 
+function test() {
+
+  console.log("test")
+  for (let k in audio_buffers) {
+    //console.log(k)
+    console.log(audio_buffers[k].loaded)
+  }
+
+
+
+}
 
 let TAG_change_range = ref([5, 8])
 let players = {}
@@ -83,20 +103,16 @@ let a = 0
 const loop = new Tone.Loop((time) => {
   //console.log(a++)
   //tt2.value++
-  set_next_step(time + 0.2)
+  set_next_step(time + 0.1)
 }, "4n")
 
 
-Tone.Transport.scheduleRepeat((time) => {
-  // use the callback time to schedule events
-  //console.log("t", time)
-  //osc.start(time).stop(time + 0.1);
 
-
-}, "4n");
 
 function start() {
 
+
+  //Tone.setContext(new Tone.Context({ latencyHint: "playback" }))
 
   TrackCtrl.isPlaying = true
   Tone.Transport.timeSignature = "4/4"
@@ -143,6 +159,7 @@ function start() {
     players[value].volume.value = -12
 
     tracks.push({
+      percentage: 0,
       track_group: track_groups_by_id[value],
       curr_file: null,
       remaining_beats: 0
@@ -194,6 +211,7 @@ function get_available_files_x_tag(tag_id) {
 
 function set_next_step(time) {
 
+
   current_TAG.remaining_beats--
   //console.log("current_TAG.remaining_beats", current_TAG.remaining_beats)
   if (current_TAG.remaining_beats < 0) {
@@ -207,6 +225,7 @@ function set_next_step(time) {
     if (old_tag.id !== current_TAG.tag.id) {
       //console.log("cambió el tag")
       tracks.map(track => {
+
         //console.log("le camvio el tag al track", old_tag, track.curr_file?.tag)
         if (track.curr_file) {
           //console.log("TRack tiene current file")
@@ -222,7 +241,9 @@ function set_next_step(time) {
   }
 
   tracks.map(track => {
+
     if (track.remaining_beats == 0) {
+      if (available_files_per_TRG[track.track_group.id].length == 0) return
       //player[track.track_group.id].buffer=
       let trg = track.track_group.id
       let buffer_index = parseInt(Math.random() * (available_files_per_TRG[trg].length))
@@ -236,6 +257,7 @@ function set_next_step(time) {
 
     } else {
       track.remaining_beats--
+      track.percentage = (100 / track.curr_file.beats) * (track.remaining_beats)
     }
     //console.log(track)
 
