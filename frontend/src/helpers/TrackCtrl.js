@@ -14,7 +14,7 @@ export function calculateBars() {
       let beats = 0
       let bars = parseFloat(f.duration) / (((60 / TrackCtrl.tempo)) * parseInt(TrackCtrl.beats_x_bar))
       f.bars = bars.toFixed(2)
-      f.beats = (parseFloat(f.duration) / (((60 / TrackCtrl.tempo)))).toFixed(0)
+      f.beats = parseInt((parseFloat(f.duration) / (((60 / TrackCtrl.tempo)))).toFixed(0))
       //console.log(f.bars, f.beats)
     }
 

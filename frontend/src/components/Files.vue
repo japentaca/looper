@@ -29,7 +29,7 @@
 <script setup>
 
 import { ref, watch } from "vue"
-import { store, audio_buffers, track_groups_by_id, tags_by_id } from "../helpers/composable"
+import { store, audio_players, track_groups_by_id, tags_by_id } from "../helpers/composable"
 import { delete_file, save_fileData } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
 
@@ -93,9 +93,9 @@ function deleteFile(file) {
   )
     .then(async () => {
 
-      console.log(audio_buffers[file.id])
-      audio_buffers[file.id].dispose()
-      //delete store.audio_buffers[file.id]
+      console.log(audio_players[file.id])
+      audio_players[file.id].dispose()
+      //delete store.audio_players[file.id]
       store.files.splice(file.index, 1)
       for (let i = 0; i < store.files.length; i++) {
         store.files[i].index = i
@@ -120,7 +120,9 @@ watch(
 )
 async function playFile(file) {
 
-  await toneLib.playFile(file)
+  //await toneLib.playFile(file)
+  audio_players[file.id].start()
+
 
 }
 const iconSize = ref(18)

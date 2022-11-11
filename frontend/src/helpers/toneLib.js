@@ -1,6 +1,6 @@
 import * as Tone from 'tone'
 import { defineEmits } from 'vue'
-import { store, audio_buffers } from "../helpers/composable"
+import { store, audio_players } from "../helpers/composable"
 
 
 
@@ -30,9 +30,9 @@ export async function playFile(file) {
   await mainPlayer.stop()
   setTimeout(async () => {
     store.curr_file = file
-    //console.log(audio_buffers[file.id])
-    mainPlayer.buffer = audio_buffers[file.id]
-    mainPlayer.start()
+    //console.log(audio_players[file.id])
+
+    audio_players[file.id].start()
     store.curr_file.isPlaying = true
   }, 500);
 

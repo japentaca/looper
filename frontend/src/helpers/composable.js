@@ -19,7 +19,7 @@ export let files_by_id = []
 
 
 
-export let audio_buffers = {}
+export let audio_players = {}
 
 export let tags_by_id = {}
 export let track_groups_by_id = {}
@@ -110,10 +110,16 @@ export const store_get_user_info = async () => {
       //console.log(url)
       f.isLoaded = false
       f.index = i
-      prom_arr.push(getAudioBuffer(url, f))
+      prom_arr.push(getAudioPlayer(url, f))
+
     }
-    console.log("llamo a promise.all")
+    //console.log("llamo a promise.all")
     let res_prom = await Promise.allSettled(prom_arr)
+    res_prom.map(prom => {
+      //console.log(prom)
+      audio_players[prom.value.file.id] = prom.value.player
+    })
+
     //console.log("res_prom", res_prom)
 
     calculateBars()
@@ -128,24 +134,22 @@ export const store_get_user_info = async () => {
   return res
 
 }
-async function getAudioBuffer(url, file) {
+async function getAudioPlayer(url, file) {
   return new Promise(async (resolve, reject) => {
-    let tab = new ToneAudioBuffer({
+    let player = new Tone.Player({
       url: url, onload: (buf) => {
         //console.log("file loaded", file.id)
-        audio_buffers[file.id] = tab
+
         file.isLoaded = true
-        file.duration = audio_buffers[file.id].duration
-        file.duration_fixed = audio_buffers[file.id].duration.toFixed(2)
+        file.duration = player.buffer.duration
+        file.duration_fixed = player.buffer.duration.toFixed(2)
         file.bars = 0
         file.currentTime = 0
         file.original_name_short = file.original_name.substr(0, 20)
         file.percent = 0
-
-
-        resolve({ tab: tab, file: file })
+        resolve({ player: player, file: file })
       }
-    })
+    }).toDestination()
   })
 }
 export function rebuildIndexes() {

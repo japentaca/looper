@@ -47,7 +47,7 @@
         </el-progress>
 
       </el-col>
-      <el-col v-if="track.curr_file" :span="6">{{ track.curr_file.original_name }}</el-col>
+      <el-col v-if="track.curr_file" :span="6">{{ track.curr_file.original_name_short }}</el-col>
     </el-row>
 
   </div>
@@ -74,15 +74,12 @@ function test() {
 
 let TAG_change_range = ref([5, 6])
 
-let files_per_TRG = {}
-let available_files_per_TRG = []
-let files_per_TAG = []
+le pepe = {}
 
 let current_TAG = reactive({
   duration: 0,
   tag: null,
   curr_bar: 0,
-  old_tag: null,
 
   remaining_beats: 0
 })
@@ -113,7 +110,7 @@ Tone.Transport.scheduleRepeat((time) => {
 
 
 
-function start() {
+async function start() {
 
 
   //Tone.setContext(new Tone.Context({ latencyHint: "playback" }))
@@ -130,10 +127,10 @@ function start() {
 
 
 
-
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
     if (f.track_group) {
+
       temp_trg[f.track_group] = f.track_group
       if (!files_per_TRG[f.track_group]) {
         files_per_TRG[f.track_group] = []
@@ -164,122 +161,129 @@ function start() {
     })
 
   }
-  selectTag()
-  get_available_files_x_tag(current_TAG.tag.id)
+  for (let i = 0; i < store.files.length; i++) {
+    let f = store.files[i]
+    if (f.track_group) {
+      if (!pepe[f.track_group]) {
+        pepe[f.track_group] = {}
+      }
 
+    }
 
-  Tone.Transport.start()
-
-}
-function selectTag() {
-  //console.log("llamaron a selectTag")
-  let index = parseInt(Math.random() * available_tags.length)
-  if (current_TAG.tag == null) {
-    current_TAG.tag = { id: "nada", name: "vacio" }
-  }
-  current_TAG.old_tag = { ...current_TAG.tag }
-  current_TAG.tag = available_tags[index]
-  let base = parseInt((Math.random() * ((TAG_change_range.value[1] + 1) - (TAG_change_range.value[0]))) + (TAG_change_range.value[0]))
-  //console.log(TAG_change_range.value[0], TAG_change_range.value[1], base)
-  current_TAG.duration = Math.pow(2, base)
-  //console.log("current_TAG.duration", current_TAG.dura1tion)
-  current_TAG.remaining_beats = current_TAG.duration + 1
-
-  //console.log("current tag", current_TAG)
-
-}
-
-
-function set_next_step(time) {
-
-
-
-  //console.log("current_TAG.remaining_beats", current_TAG.remaining_beats)
-
-
-  if (current_TAG.remaining_beats == 1) {
-    //console.log("A buscar un TAG")
 
     selectTag()
-    //console.log("Seleccioné nuevo tag", current_TAG.tag, current_TAG.old_tag)
     get_available_files_x_tag(current_TAG.tag.id)
 
-    if ((current_TAG.old_tag.id !== current_TAG.tag.id)) {
 
-      //console.log("cambió el tag", current_TAG.old_tag.id)
-      tracks.map(track => {
+    await Tone.Transport.start()
 
-        //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
-        if (track.curr_file) {
-          //console.log("Track tiene current file")
-          if (track.curr_file.tag) {
 
-            //console.log("curr file tiene tag", tags_by_id[track.curr_file.tag], current_TAG.old_tag.name)
-            if (track.curr_file.tag.id !== current_TAG.tag.id) {
-              //if (true)
-              //console.log("le puse remaining beats 0")
-              track.remaining_beats = 0
-              if (audio_players[track.curr_file.id].state == "started") {
-                //console.log("estaba sonando, invoco audio stop", track.curr_file.original_name_short)
-                audio_players[track.curr_file.id].stop(-1)
-              }
-            }
-          }
-        }
-      })
-    }
+
   }
-  current_TAG.remaining_beats--
-  tracks.map(track => {
+  function selectTag() {
+    console.log("llamaron a selectTag")
+    let index = parseInt(Math.random() * available_tags.length)
+    current_TAG.tag = available_tags[index]
+    let base = parseInt((Math.random() * (TAG_change_range.value[1] - (TAG_change_range.value[0] + 1))) + (TAG_change_range.value[0]))
+    //console.log(TAG_change_range.value[0], TAG_change_range.value[1], base)
+    current_TAG.duration = Math.pow(2, base)
+    //console.log("current_TAG.duration", current_TAG.duration)
+    current_TAG.remaining_beats = current_TAG.duration
 
-    if (track.remaining_beats == 0) {
-      if (available_files_per_TRG[track.track_group.id].length == 0) return
-      //player[track.track_group.id].buffer=
-      //if (track.curr_file) {
-      // audio_players[track.curr_file.id].stop(time)
-      //}
-      let trg = track.track_group.id
-      let buffer_index = parseInt(Math.random() * (available_files_per_TRG[trg].length))
-      //console.log("Buffer index", buffer_index, available_files_per_TRG[trg].length)
-      let f = available_files_per_TRG[trg][buffer_index]
-      //console.log("vvv", f, files_by_id[f])
+    //console.log("current tag", current_TAG)
 
-      audio_players[f].start(time)
-      track.curr_file = files_by_id[f]
-      track.remaining_beats = files_by_id[f].beats - 1
+  }
+  function get_available_files_x_tag(tag_id) {
+    available_files_per_TRG = []
+    //console.log("available_trgs.length!", available_trgs.length)
+    for (let i = 0; i < available_trgs.length; i++) {
+      let trg = available_trgs[i]
+      //console.log("trg", trg)
 
-    } else {
-      track.remaining_beats--
-      track.percentage = (100 / track.curr_file.beats) * (track.remaining_beats)
-    }
-    //console.log(track)
+      if (!available_files_per_TRG[trg.id]) { available_files_per_TRG[trg.id] = [] }
 
-  })
-
-}
-function get_available_files_x_tag(tag_id) {
-  available_files_per_TRG = []
-  //console.log("available_trgs.length!", available_trgs.length)
-  for (let i = 0; i < available_trgs.length; i++) {
-    let trg = available_trgs[i]
-    //console.log("trg", trg)
-
-    if (!available_files_per_TRG[trg.id]) { available_files_per_TRG[trg.id] = [] }
-
-    for (let l = 0; l < files_per_TRG[trg.id].length; l++) {
-      let a = files_per_TRG[trg.id][l]
-      //console.log(a,)
-      let f = files_by_id[a]
-      //console.log("ee", f)
-      if (f.tag == undefined || f.tag == tag_id) {
-        available_files_per_TRG[f.track_group].push(a)
+      for (let l = 0; l < files_per_TRG[trg.id].length; l++) {
+        let a = files_per_TRG[trg.id][l]
+        //console.log(a,)
+        let f = files_by_id[a]
+        //console.log("ee", f)
+        if (f.tag == undefined || f.tag == tag_id) {
+          available_files_per_TRG[f.track_group].push(a)
+        }
       }
     }
+
+
+
   }
 
+  function set_next_step(time) {
 
 
-}
+
+    //console.log("current_TAG.remaining_beats", current_TAG.remaining_beats)
+    current_TAG.remaining_beats--
+    if (current_TAG.remaining_beats < 0) {
+      console.log("Selecciono nuevo tag")
+      let old_tag
+      if (!current_TAG.tag) {
+        old_tag = { ...current_TAG.tag }
+      } else {
+        old_tag = { id: "dummy", name: "epepe" }
+      }
+      selectTag()
+      console.log("Seleccioné nuevo tag", current_TAG.tag.name)
+      get_available_files_x_tag(current_TAG.tag.id)
+
+      if ((old_tag.id !== current_TAG.tag.id) && false) {
+        //console.log("cambió el tag")
+        tracks.map(track => {
+
+          //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
+          if (track.curr_file) {
+            //console.log("Track tiene current file")
+            if (track.curr_file.tag) {
+
+              //console.log("curr file tiene tag", tags_by_id[track.curr_file.tag], old_tag.name)
+              if (track.curr_file.tag.id !== old_tag.id)
+                //if (true)
+                //console.log("le puse remaining beats 0")
+                track.remaining_beats = 0
+              if (audio_players[track.curr_file.id].state == "started") {
+                console.log("estaba sonando, invoco audio stop", track.curr_file.original_name_short)
+                audio_players[track.curr_file.id].stop(time)
+              }
+
+            }
+          }
+        })
+      }
+    }
+
+    tracks.map(track => {
+
+      if (track.remaining_beats == 0) {
+        if (available_files_per_TRG[track.track_group.id].length == 0) return
+        //player[track.track_group.id].buffer=
+        let trg = track.track_group.id
+        let buffer_index = parseInt(Math.random() * (available_files_per_TRG[trg].length))
+        //console.log("Buffer index", buffer_index, available_files_per_TRG[trg].length)
+        let f = available_files_per_TRG[trg][buffer_index]
+        //console.log("vvv", f, files_by_id[f])
+
+        audio_players[f].start(time)
+        track.curr_file = files_by_id[f]
+        track.remaining_beats = files_by_id[f].beats - 1
+
+      } else {
+        track.remaining_beats--
+        track.percentage = (100 / track.curr_file.beats) * (track.remaining_beats)
+      }
+      //console.log(track)
+
+    })
+
+  }
 
 </script>
 
