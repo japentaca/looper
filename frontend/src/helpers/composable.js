@@ -110,6 +110,10 @@ export const store_get_user_info = async () => {
       //console.log(url)
       f.isLoaded = false
       f.index = i
+      f.bars = 0
+      f.currentTime = 0
+      f.original_name_short = f.original_name.substr(0, 20)
+      f.percent = 0
       prom_arr.push(getAudioPlayer(url, f))
 
     }
@@ -127,7 +131,7 @@ export const store_get_user_info = async () => {
 
     TrackCtrl.isReady = true
 
-    console.log("end loading")
+    //console.log("end loading", store.files)
     store.loading = false
 
   }
@@ -143,10 +147,7 @@ async function getAudioPlayer(url, file) {
         file.isLoaded = true
         file.duration = player.buffer.duration
         file.duration_fixed = player.buffer.duration.toFixed(2)
-        file.bars = 0
-        file.currentTime = 0
-        file.original_name_short = file.original_name.substr(0, 20)
-        file.percent = 0
+
         resolve({ player: player, file: file })
       }
     }).toDestination()

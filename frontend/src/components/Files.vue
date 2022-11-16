@@ -1,28 +1,61 @@
 <template>
-  <div class="box">
-    <div v-for="(file, index) in store.files" class="file" @dragover="ondragover($event, index)"
-      @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
+  <div>
+    <div>
+      <el-radio-group v-model="fileListViewMode" size="small">
+        <el-radio-button label="Box" />
+        <el-radio-button label="Table" />
 
-      <el-tooltip effect="dark" :content=file.original_name placement="top-start">
-        <p class="tag_data">{{ file.original_name_short }} </p>
-      </el-tooltip>
-      <p v-if="file.isLoaded" class="tag_data">{{ file.duration_fixed }}<span> Beats:{{ file.beats }}</span></p>
-      <p class="tag_data">TRG:<span v-if="file.track_group_obj"
-          v-bind:style="{ 'background-color': file.track_group_obj.color }">{{
-              file.track_group_obj.name
-          }}</span></p>
-      <p class="tag_data">TAG:<span v-if="file.tag_obj" v-bind:style="{ 'background-color': file.tag_obj.color }">{{
-          file.tag_obj.name
-      }}</span></p>
-      <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
-      <p style="background-color:#8899AA">
-        <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
-          <Delete />
-        </el-icon>
-        <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" @click="playFile(file)">
-          <VideoPlay />
-        </el-icon>
-      </p>
+      </el-radio-group>
+    </div>
+    <div v-show="(fileListViewMode == 'Box')" class="box">
+      <div v-for="(file, index) in store.files" class="file" @dragover="ondragover($event, index)"
+        @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
+
+        <el-tooltip effect="dark" :content=file.original_name placement="top-start">
+          <p class="tag_data">{{ file.original_name_short }} </p>
+        </el-tooltip>
+        <p v-if="file.isLoaded" class="tag_data">{{ file.duration_fixed }}<span> Beats:{{ file.beats }}</span></p>
+        <p class="tag_data">TRG:<span v-if="file.track_group_obj"
+            v-bind:style="{ 'background-color': file.track_group_obj.color }">{{
+                file.track_group_obj.name
+            }}</span></p>
+        <p class="tag_data">TAG:<span v-if="file.tag_obj" v-bind:style="{ 'background-color': file.tag_obj.color }">{{
+            file.tag_obj.name
+        }}</span></p>
+        <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
+        <p style="background-color:#8899AA">
+          <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
+            <Delete />
+          </el-icon>
+          <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" @click="playFile(file)">
+            <VideoPlay />
+          </el-icon>
+        </p>
+      </div>
+    </div>
+    <div v-show="(fileListViewMode == 'Table')">
+      <el-table :data="store.files" height="750" style="width: 100%">
+        <el-table-column sortable prop="original_name_short" label="Name" width="200" />
+        <el-table-column sortable prop="duration_fixed" label="Duration" width="90" />
+        <el-table-column sortable prop="beats" label="Beats" width="90" />
+        <el-table-column label="Track Group" prop="track_group" width="90">
+          <template #default="scope">
+            <span v-if="scope.row.track_group != null"
+              v-bind:style="{ 'background-color': scope.row.track_group_obj.color }">{{
+                  scope.row.track_group_obj.name
+              }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Tag" prop="tag" width="90">
+          <template #default="scope">
+            <span v-if="scope.row.tag != null" v-bind:style="{ 'background-color': scope.row.tag_obj.color }">{{
+                scope.row.tag_obj.name
+            }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column sortable prop="original_name" label="Name" />
+
+      </el-table>
     </div>
   </div>
 </template>
@@ -35,6 +68,8 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 
 import * as toneLib from "../helpers/toneLib"
 
+const fileListViewMode = ref("Table")
+
 const dragoverColor = ref("#AA0000")
 const colorNormal = ref("blanchedalmond")
 const currentColor = ref(colorNormal.value)
@@ -43,6 +78,7 @@ async function onChange(file) {
   console.log("change,file", file)
   await save_fileData({ file: file })
 }
+
 async function ondrop(e, index) {
   console.log("drop", e, index)
   let msg_type = e.dataTransfer.getData("msg_type")
