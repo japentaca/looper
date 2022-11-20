@@ -1,7 +1,7 @@
 <template>
   <div>
     TRACK CONTROL
-    <button @click="test">TEST</button>
+    <button @click="reset">RESET</button>
     <div v-show="TrackCtrl.isReady == true">
       <el-button type="success" v-if="TrackCtrl.isPlaying == false" @click="start">START</el-button>
       <el-button type="danger" v-if="TrackCtrl.isPlaying == true" @click="stop">STOP</el-button>
@@ -60,19 +60,28 @@ import { ref, reactive } from "vue"
 import { store, track_groups_by_id, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
 
-function test() {
-
-  console.log("test")
-  for (let k in audio_players) {
-    //console.log(k)
-    console.log(audio_players[k].loaded)
-  }
+function reset() {
 
 
+
+  tracks.map(track => {
+
+    //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
+    if (track.curr_file) {
+      track.remaining_beats = 0
+
+      stop_file(track.curr_file.id, -1)
+    }
+  })
+  selectTag()
+  //set_next_step(-1)
 
 }
 
-let TAG_change_range = ref([5, 6])
+
+
+
+let TAG_change_range = ref([6, 7])
 
 let files_per_TRG = {}
 let available_files_per_TRG = []
@@ -101,6 +110,15 @@ function onBPMSliderchange(value) {
 function stop() {
   TrackCtrl.isPlaying = false
   Tone.Transport.stop()
+  current_TAG.remaining_beats = 0
+  tracks.map(track => {
+
+    //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
+    if (track.curr_file) {
+      track.remaining_beats = 0
+      stop_file(track.curr_file.id, -1)
+    }
+  })
 }
 
 let a = 0
@@ -111,6 +129,14 @@ Tone.Transport.scheduleRepeat((time) => {
 
 }, "4n");
 
+function start_file(id, time) {
+  files_by_id[id].isPlaying = true
+  audio_players[id].start(time)
+}
+function stop_file(id, time) {
+  files_by_id[id].isPlaying = false
+  audio_players[id].stop(time)
+}
 
 
 function start() {
@@ -221,7 +247,7 @@ function set_next_step(time) {
               track.remaining_beats = 0
               if (audio_players[track.curr_file.id].state == "started") {
                 //console.log("estaba sonando, invoco audio stop", track.curr_file.original_name_short)
-                audio_players[track.curr_file.id].stop(-1)
+                stop_file(track.curr_file.id, -1)
               }
             }
           }
@@ -244,7 +270,8 @@ function set_next_step(time) {
       let f = available_files_per_TRG[trg][buffer_index]
       //console.log("vvv", f, files_by_id[f])
 
-      audio_players[f].start(time)
+
+      start_file(f, time)
       track.curr_file = files_by_id[f]
       track.remaining_beats = files_by_id[f].beats - 1
 

@@ -15,7 +15,7 @@ export const store = reactive({
   loading: true,
   alreadyMounted: false,
 })
-export let files_by_id = []
+export let files_by_id = reactive([])
 
 
 

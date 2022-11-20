@@ -20,7 +20,7 @@
 <script setup>
 
 import { reactive } from "@vue/reactivity"
-import { store } from "../helpers/composable"
+import { store, store_get_user_info } from "../helpers/composable"
 import { login } from "../helpers/api"
 const form = reactive({
   email: "jntaca@gmail.com",
@@ -34,6 +34,8 @@ async function doLogin() {
     store.loginVisible = false
     store.isLogged = true
     store.u_info = res.data.u_info
+
+    let t = await store_get_user_info()
   }
 
 }

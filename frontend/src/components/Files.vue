@@ -35,10 +35,16 @@
     </div>
     <div v-show="(fileListViewMode == 'Table')">
       <el-table :data="store.files" height="750" style="width: 100%">
-        <el-table-column sortable prop="original_name_short" label="Name" width="200" />
+        <el-table-column sortable prop="original_name_short" label="Name" width="200">
+          <template #default="scope">
+
+            {{ scope.row.original_name_short }}
+
+          </template>
+        </el-table-column>
         <el-table-column sortable prop="duration_fixed" label="Duration" width="90" />
         <el-table-column sortable prop="beats" label="Beats" width="90" />
-        <el-table-column label="Track Group" prop="track_group" width="90">
+        <el-table-column sortable label="Track Group" prop="track_group" width="90">
           <template #default="scope">
             <span v-if="scope.row.track_group != null"
               v-bind:style="{ 'background-color': scope.row.track_group_obj.color }">{{
@@ -46,12 +52,19 @@
               }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="Tag" prop="tag" width="90">
+        <el-table-column sortable label="Tag" prop="tag" width="90">
           <template #default="scope">
             <span v-if="scope.row.tag != null" v-bind:style="{ 'background-color': scope.row.tag_obj.color }">{{
                 scope.row.tag_obj.name
             }}</span>
           </template>
+        </el-table-column>
+        <el-table-column label="State" sortable v-if="store.loading == false" width="90">
+          <template #default="scope">
+            <div style="background-color: red;" v-show="audio_players[scope.row.id].state == 'started'">
+              PLAYING</div>
+          </template>
+
         </el-table-column>
         <el-table-column sortable prop="original_name" label="Name" />
 
