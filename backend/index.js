@@ -19,7 +19,10 @@ let RedisStore = require('connect-redis')(Session)
 const Redis = require("ioredis")
 let redisClient = new Redis({
   port: global.config.redis_port,
-  host: global.config.redis_host
+  host: global.config.redis_host,
+  username: global.config.redis_username,
+  password: global.config.redis_password
+
 })
 global.redisClient = redisClient
 app_admin.use(Session({

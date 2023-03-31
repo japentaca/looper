@@ -141,7 +141,7 @@ function stop_file(id, time) {
 
 function start() {
 
-
+  Tone.start()
   //Tone.setContext(new Tone.Context({ latencyHint: "playback" }))
   calculateBars()
 
