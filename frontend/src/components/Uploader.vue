@@ -1,6 +1,7 @@
 <template>
-  <el-upload v-model:file-list="fileList" ref="uploader" class="upload-demo" :with-credentials=true accept="audio/mp3"
-    drag :action=uploadPath :autoUpload="false" multiple :on-success="onSuccess" :on-change="onListChanged">
+  <el-upload v-model:file-list="fileList" ref="uploader" class="upload-demo" :with-credentials=true
+    accept="audio/mp3, audio/wav" drag :action=uploadPath :autoUpload="false" multiple :on-success="onSuccess"
+    :on-change="onListChanged">
     <el-icon class="el-icon--upload">
       <upload-filled />
     </el-icon>
@@ -16,7 +17,6 @@
   </el-upload>
   <!--el-progress v-if="progress > 0" :percentage="progress" /-->
   <el-button @click="doUpload" v-if="fileList.length > 0">UPLOAD</el-button>
-
 </template>
 
 <script setup>
@@ -49,6 +49,4 @@ function onListChanged(item) {
 
 </script>
 
-<style>
-
-</style>
+<style></style>

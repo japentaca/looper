@@ -70,7 +70,7 @@ import Login from "./components/Login.vue"
 import Uploader from "./components/Uploader.vue"
 import Tracks from "./components/Tracks.vue"
 
-import { store, doLogout, store_get_user_info, rebuildIndexes } from "./helpers/composable"
+import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups } from "./helpers/composable"
 
 import * as uuid from "uuid"
 
@@ -78,19 +78,21 @@ import { playerStop } from "./helpers/toneLib"
 
 
 
-function addTrackGroup() {
+async function addTrackGroup() {
   let id = uuid.v4()
   let trg = { name: "Track Group", color: randomColor(), id: id }
   store.track_groups.push(trg)
   rebuildIndexes()
+  await save_trackGroups()
 
 }
-function addTag() {
+async function addTag() {
   let id = uuid.v4()
   let tag = { name: "TG ", color: randomColor(), id: id }
   store.tags.push(tag)
 
   rebuildIndexes()
+  await save_tags()
 
 }
 function randomColor() {

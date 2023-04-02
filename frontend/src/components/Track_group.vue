@@ -1,27 +1,24 @@
 <template>
-
   <div :draggable="!editing" class="track_group" @dragstart="startDrag($event, props.index)">
     <el-color-picker @change="onColorChange" v-model="store.track_groups[props.index].color" />
     <span v-if="editing == false" @dblclick="setEditing(true)">{{
-        store.track_groups[props.index].name
+      store.track_groups[props.index].name
     }}
     </span>
     <span>
-      <el-input v-on:keyup.escape="escapePressed()" ref="nameInput" @change="onChange" @blur="onBlur"
-        v-show="editing == true" v-model="store.track_groups[props.index].name" placeholder="Please input" />
+      <el-input v-on:keyup.escape="escapePressed()" ref="nameInput" @blur="onBlur" v-show="editing == true"
+        v-model="store.track_groups[props.index].name" placeholder="Please input" />
     </span>
 
     <el-icon :size="14" class="icons" @click="deleteTrackGroup(props.index)">
       <Delete />
     </el-icon>
   </div>
-
-
 </template>
 <script setup>
 import { ref } from 'vue';
-import { save_fileData } from '../helpers/api';
-import { store, rebuildIndexes } from "../helpers/composable"
+import { save_fileData, } from '../helpers/api';
+import { store, rebuildIndexes, save_trackGroups } from "../helpers/composable"
 
 const props = defineProps(["index"])
 const editing = ref(false)
@@ -44,15 +41,16 @@ function escapePressed() {
   store.loading = true
 }
 
-function onBlur(e) {
+async function onBlur(e) {
   setEditing(false)
+  if (store.track_groups[props.index].name !== prevName) {
+    await save_trackGroups()
+  }
 
 
 }
-function onChange(e) {
-  setEditing(false)
-}
-function deleteTrackGroup(index) {
+
+async function deleteTrackGroup(index) {
   let id = store.track_groups[index].id
   store.track_groups.splice(index, 1)
   store.files.map(async (file) => {
@@ -63,13 +61,12 @@ function deleteTrackGroup(index) {
     }
   })
   rebuildIndexes()
+  await save_trackGroups()
 
 
 }
 
-function saveData() {
-  console.log("save data")
-}
+
 
 function startDrag(evt, index) {
   //console.log(index)
@@ -79,8 +76,9 @@ function startDrag(evt, index) {
   evt.dataTransfer.setData('id', store.track_groups[index].id)
 
 }
-function onColorChange(a) {
+async function onColorChange(a) {
   //console.log(store.track_groups[props.index])
+  await save_trackGroups()
 }
 
 </script>

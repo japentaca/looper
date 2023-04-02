@@ -28,7 +28,22 @@ export let track_groups_by_id = {}
 import { watchThrottled } from '@vueuse/core'
 import { TrackCtrl, calculateBars } from './TrackCtrl.js'
 
+export async function save_tags() {
+  let res = await api.save_tags(store.tags)
+  if (res.stat) {
+    console.log("tags saved")
+  }
+}
+export async function save_trackGroups() {
+  console.log(JSON.parse(JSON.stringify(store.track_groups)))
+  let res = await api.save_trackGroups(store.track_groups)
+  if (res.stat) {
+    console.log("track groups saved")
+  }
+}
 
+
+/*
 watchThrottled(
   store.track_groups,
   async () => {
@@ -52,6 +67,7 @@ watchThrottled(
   },
   { throttle: 1100, deep: true },
 )
+*/
 
 export const store_get_user_info = async () => {
   let res = await api.get_user_info()
@@ -86,6 +102,7 @@ export const store_get_user_info = async () => {
     console.log("begin loading files")
     for (let i = 0; i < store.files.length; i++) {
       let f = store.files[i]
+      //console.log(JSON.parse(JSON.stringify(f)))
       files_by_id[f.id] = f
 
       //console.log("f.trg", f.track_group)

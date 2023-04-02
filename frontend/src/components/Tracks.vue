@@ -15,13 +15,13 @@
 
       <el-slider class="slider" @change="onBPMSliderchange" v-model="TrackCtrl.tempo" :min="10" :max="160" />
       <span>{{
-          store.tempo
-      
+        store.tempo
+
       }} </span>
     </span>
     <div v-if="current_TAG.tag !== null">TAG=<span v-bind:style="{ 'background-color': current_TAG.tag.color }">{{
-        current_TAG.tag.name
-    
+      current_TAG.tag.name
+
     }}</span><span>Duration:{{ current_TAG.duration }} Remaining:{{ current_TAG.remaining_beats }} </span></div>
     <span>TAG Time in bars. MIN={{ Math.pow(2, TAG_change_range[0]) }} MAX={{ Math.pow(2, TAG_change_range[1]) }}</span>
     <el-slider class="slider" v-model="TAG_change_range" range show-stops :show-tooltip="false" :min="5" :max="9" />
@@ -30,7 +30,7 @@
     <el-row :gutter="20" v-for="(track, index) in tracks">
       <el-col :span="2" v-if="track.track_group"><span class="track"
           v-bind:style="{ 'background-color': track.track_group.color }"> {{
-              track.track_group.name
+            track.track_group.name
           }} </span>
       </el-col>
 
@@ -103,7 +103,7 @@ let available_trgs = []
 let tracks = reactive([])
 
 function onBPMSliderchange(value) {
-  Tone.Transport.bpm = value
+  Tone.Transport.bpm.value = value
   calculateBars()
 }
 

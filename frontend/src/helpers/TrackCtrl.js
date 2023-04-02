@@ -1,7 +1,7 @@
 import { store } from "./composable"
 import { reactive, ref } from "vue"
 export const TrackCtrl = reactive({
-  tempo: 143,
+  tempo: 138,
   beats_x_bar: "4",
   isPlaying: false,
   isReady: false
