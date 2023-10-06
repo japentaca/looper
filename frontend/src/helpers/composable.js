@@ -129,7 +129,7 @@ export const store_get_user_info = async () => {
       f.index = i
       f.bars = 0
       f.currentTime = 0
-      f.original_name_short = f.original_name.substr(0, 20)
+      f.original_name_short = f.original_name.substr(0, 15)
       f.percent = 0
       prom_arr.push(getAudioPlayer(url, f))
 

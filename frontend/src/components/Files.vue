@@ -17,10 +17,10 @@
         <p v-if="file.isLoaded" class="tag_data">{{ file.duration_fixed }}<span> Beats:{{ file.beats }}</span></p>
         <p class="tag_data">TRG:<span v-if="file.track_group_obj"
             v-bind:style="{ 'background-color': file.track_group_obj.color }">{{
-                file.track_group_obj.name
+              file.track_group_obj.name
             }}</span></p>
         <p class="tag_data">TAG:<span v-if="file.tag_obj" v-bind:style="{ 'background-color': file.tag_obj.color }">{{
-            file.tag_obj.name
+          file.tag_obj.name
         }}</span></p>
         <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
         <p style="background-color:#8899AA">
@@ -29,6 +29,10 @@
           </el-icon>
           <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" @click="playFile(file)">
             <VideoPlay />
+          </el-icon>
+
+          <el-icon :size="iconSize" class="icons">
+            <EditPen />
           </el-icon>
         </p>
       </div>
@@ -48,14 +52,14 @@
           <template #default="scope">
             <span v-if="scope.row.track_group != null"
               v-bind:style="{ 'background-color': scope.row.track_group_obj.color }">{{
-                  scope.row.track_group_obj.name
+                scope.row.track_group_obj.name
               }}</span>
           </template>
         </el-table-column>
         <el-table-column sortable label="Tag" prop="tag" width="90">
           <template #default="scope">
             <span v-if="scope.row.tag != null" v-bind:style="{ 'background-color': scope.row.tag_obj.color }">{{
-                scope.row.tag_obj.name
+              scope.row.tag_obj.name
             }}</span>
           </template>
         </el-table-column>
@@ -185,7 +189,7 @@ const iconSize = ref(18)
 
 .icons {
 
-  padding: 2px;
+  padding: 7px;
 }
 
 
