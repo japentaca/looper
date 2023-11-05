@@ -43,31 +43,6 @@ export async function save_trackGroups() {
 }
 
 
-/*
-watchThrottled(
-  store.track_groups,
-  async () => {
-    console.log('track groups changed ! ', store.loading)
-    if (!store.loading) {
-      await api.save_trackGroups(store.track_groups)
-      console.log('track groups saved')
-    }
-  },
-  { throttle: 1000, deep: true },
-)
-watchThrottled(
-  store.tags,
-  async () => {
-    console.log('tags changed!', store.loading)
-    if (!store.loading) {
-      await api.save_tags(store.tags)
-      console.log('tags saved')
-    }
-
-  },
-  { throttle: 1100, deep: true },
-)
-*/
 
 export const store_get_user_info = async () => {
   let res = await api.get_user_info()

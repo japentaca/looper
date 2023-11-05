@@ -32,6 +32,7 @@ export async function playFile(file) {
     store.curr_file = file
     mainPlayer.buffer.set(audio_players[file.id].buffer)
     //console.log(audio_players[file.id])
+    mainPlayer.volume.value = file.props.volume
     mainPlayer.start()
     //audio_players[file.id].start()
     store.curr_file.isPlaying = true

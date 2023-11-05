@@ -131,6 +131,7 @@ Tone.Transport.scheduleRepeat((time) => {
 
 function start_file(id, time) {
   files_by_id[id].isPlaying = true
+  audio_players[id].volume.value = files_by_id[id].props.volume
   audio_players[id].start(time)
 }
 function stop_file(id, time) {
