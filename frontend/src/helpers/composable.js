@@ -122,7 +122,7 @@ export const store_get_user_info = async () => {
         f.props = {}
       }
       if (!f.props.oneShot) f.props.oneShot = false
-
+      if (!f.props.volume) f.props.volume = -6
       let url = import.meta.env.VITE_APP_BACKEND + "/api/get_file?file=" + f.id + "&token=" + store.u_info.token
       //console.log(url)
       f.isLoaded = false

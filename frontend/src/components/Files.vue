@@ -31,7 +31,7 @@
             <VideoPlay />
           </el-icon>
 
-          <el-icon :size="iconSize" class="icons">
+          <el-icon :size="iconSize" class="icons" @click="editFile(file)">
             <EditPen />
           </el-icon>
         </p>
@@ -75,6 +75,44 @@
       </el-table>
     </div>
   </div>
+
+
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="30%"
+    draggable>
+    <p v-if="curr_edit_file.isLoaded" class="tag_data">Duration: {{ curr_edit_file.duration_fixed }}<span> Beats:{{
+      curr_edit_file.beats }}</span></p>
+    <p class="tag_data">TRG:<span v-if="curr_edit_file.track_group_obj"
+        v-bind:style="{ 'background-color': curr_edit_file.track_group_obj.color }">{{
+          curr_edit_file.track_group_obj.name
+        }}</span></p>
+    <p class="tag_data">TAG:<span v-if="curr_edit_file.tag_obj"
+        v-bind:style="{ 'background-color': curr_edit_file.tag_obj.color }">{{
+          curr_edit_file.tag_obj.name
+        }}</span></p>
+    <p>
+      <el-slider v-model="curr_edit_file.props.volume" :debounce="500" :min="-50" :max="0" label="Volume" size="small"
+        @change="onChange(curr_edit_file)" />
+    </p>
+    <el-checkbox @change="onChange(curr_edit_file)" v-model="curr_edit_file.props.oneShot" label="OneShot" size="small" />
+    <p style="background-color:#8899AA">
+      <el-icon :size="iconSize" class="icons" @click="deleteFile(curr_edit_file)">
+        <Delete />
+      </el-icon>
+      <el-icon v-if="curr_edit_file.isLoaded" :size="iconSize" class="icons" @click="playFile(curr_edit_file)">
+        <VideoPlay />
+      </el-icon>
+
+    </p>
+
+    <template #footer>
+      <span class="dialog-footer">
+
+        <el-button type="primary" @click="dialogVisible = false">
+          CLOSE
+        </el-button>
+      </span>
+    </template>
+  </el-dialog>
 </template>
 <script setup>
 
@@ -91,6 +129,14 @@ const dragoverColor = ref("#AA0000")
 const colorNormal = ref("blanchedalmond")
 const currentColor = ref(colorNormal.value)
 
+const dialogVisible = ref(false)
+const curr_edit_file = ref(null)
+
+async function editFile(file) {
+  //console.log("editFile", file)
+  curr_edit_file.value = file
+  dialogVisible.value = true
+}
 async function onChange(file) {
   console.log("change,file", file)
   await save_fileData({ file: file })
@@ -168,13 +214,13 @@ function deleteFile(file) {
 watch(
   () => store.curr_file.isPlaying,
   (value) => {
-    console.log("store curr_file", store.curr_file.original_name, value)
+    //console.log("store curr_file is playing", store.curr_file.original_name, value)
   }
 )
 async function playFile(file) {
 
-  //await toneLib.playFile(file)
-  audio_players[file.id].start()
+  await toneLib.playFile(file)
+  //audio_players[file.id].start()
 
 
 }

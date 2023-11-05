@@ -30,9 +30,10 @@ export async function playFile(file) {
   await mainPlayer.stop()
   setTimeout(async () => {
     store.curr_file = file
+    mainPlayer.buffer.set(audio_players[file.id].buffer)
     //console.log(audio_players[file.id])
-
-    audio_players[file.id].start()
+    mainPlayer.start()
+    //audio_players[file.id].start()
     store.curr_file.isPlaying = true
   }, 500);
 

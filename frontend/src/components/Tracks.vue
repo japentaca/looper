@@ -42,7 +42,7 @@
 
       </el-col>
       <el-col v-if="track.curr_file" :span="6">
-        <el-progress :color="track.track_group.color" type="circle" :stroke-width="2" :duration=0 :show-text=false
+        <el-progress :color="track.track_group.color" type="circle" :stroke-width="2" :duration=1 :show-text=false
           :percentage=track.percentage :width=20>
         </el-progress>
 

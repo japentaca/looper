@@ -13,8 +13,8 @@
           </el-col>
           <el-col :span="6">
             <div v-if="store.curr_file.isPlaying" class="curr_file">Playing:{{ store.curr_file.original_name }}
-              <el-icon :size="1
-              " class="icons" @click="playerStop()">
+              <el-icon :size="22" class="icons" @click="playerStop()">
+
                 <VideoPause />
               </el-icon>
             </div>
@@ -31,7 +31,7 @@
           <el-button @click="addTrackGroup">+</el-button>
           <el-divider />
           <div>TAGS</div>
-          <Tag v-for="(tag, index) in store.tags" class="file" :name="tag.name" :color="tag.color" :index=index>
+          <Tag v-for="(tag, index) in store.tags" class="file" :index=index>
           </Tag>
           <el-button @click="addTag">+</el-button>
         </el-aside>
