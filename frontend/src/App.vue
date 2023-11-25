@@ -1,7 +1,7 @@
 <template>
   <div class="common-layout">
     <el-container>
-      <el-header class="header">
+      <el-header>
         <el-row :gutter="20">
           <el-col :span="6">
             <el-button v-if="store.isLogged == false" type="success" @click="store.loginVisible = true">Login
@@ -23,7 +23,7 @@
       </el-header>
 
       <el-container>
-        <el-aside width="200px">
+        <el-aside>
           <div>TRACK GROUPS</div>
           <Track_group v-for="(track_group, index) in store.track_groups" class="file" :name="track_group.name"
             :color="track_group.color" :index=index>
@@ -52,7 +52,9 @@
 
 
         </el-main>
+
       </el-container>
+      <el-footer>Footer</el-footer>
     </el-container>
 
     <Login :visible="store.loginVisible" />
@@ -76,7 +78,7 @@ import * as uuid from "uuid"
 
 import { playerStop } from "./helpers/toneLib"
 
-
+import { weightedRandom } from './helpers/utils'
 
 async function addTrackGroup() {
   let id = uuid.v4()
@@ -129,9 +131,36 @@ onMounted(async () => {
   border-radius: 8px;
 }
 
+header {
+  border-style: outset;
+  border-width: 2px;
+  background-color: rgb(9, 126, 132);
+}
+
 .header {
   border-style: outset;
   border-width: 2px;
+
+}
+
+footer {
+
+  border-style: outset;
+  border-width: 2px;
+  background-color: rgb(132, 108, 9);
+}
+
+aside {
+  width: 200px;
+  background: #ccc;
+  overflow: auto;
+  min-height: 0;
+
+}
+
+main {
+  position: relative;
+  overflow: scroll;
 
 }
 </style>

@@ -22,7 +22,9 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { UploadFilled } from '@element-plus/icons-vue'
-import { store_get_user_info } from '../helpers/composable';
+import { store, store_get_user_info } from '../helpers/composable';
+import { ElMessageBox, ElMessage } from 'element-plus'
+
 const uploadPath = ref(import.meta.env.VITE_APP_BACKEND + "/api/upload")
 const uploader = ref(null)
 const fileList = ref([])
@@ -39,6 +41,22 @@ async function doUpload() {
   await uploader.value.submit()
 }
 function onListChanged(item) {
+  console.log(item)
+  let existe = false
+  store.files.map(f => {
+    if (f.original_name == item.name) {
+      existe = true
+    }
+
+  })
+
+  if (existe) {
+    ElMessage({
+      type: 'error',
+      message: 'Archivo ya existe',
+    })
+    uploader.value.handleRemove(item)
+  }
 
   if (item.size > 1024 * 1024 * 40) { //30 mb
     //console.log("item excedido ", item)

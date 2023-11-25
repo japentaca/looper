@@ -44,7 +44,7 @@ export default async function do_migrations() {
   create_column_number("users", "bytes_used")
   create_column_number("users", "max_bytes_uploaded")
 
-
+  create_column_string("user_track_groups", "silences", 4096)
 }
 
 

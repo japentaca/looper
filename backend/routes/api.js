@@ -135,7 +135,7 @@ router.put('/save_fileData', async (req, res) => {
   const allowedFields = ["track_group", "tag", "props"]
   let upd_obj = {}
   for (let f of allowedFields) {
-    console.log("field", f, req.body.file[f])
+    //console.log("field", f, req.body.file[f])
     upd_obj[f] = req.body.file[f]
   }
   upd_obj.props = JSON.stringify(req.body.file.props)
