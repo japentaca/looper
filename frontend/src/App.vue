@@ -35,27 +35,29 @@
           </Tag>
           <el-button @click="addTag">+</el-button>
         </el-aside>
+
         <el-main>
+          <el-scrollbar>
+            <Tracks />
 
-          <Tracks />
+            <el-collapse v-model="activeCollapsable">
+              <el-collapse-item title="Upload Files" name="1">
+                <uploader />
+              </el-collapse-item>
+              <el-collapse-item title="Files" name="2">
 
-          <el-collapse v-model="activeCollapsable">
-            <el-collapse-item title="Upload Files" name="1">
-              <uploader />
-            </el-collapse-item>
-            <el-collapse-item title="Files" name="2">
-              <el-scrollbar height="700px">
                 <Files />
-              </el-scrollbar>
-            </el-collapse-item>
-          </el-collapse>
 
+              </el-collapse-item>
+            </el-collapse>
 
+          </el-scrollbar>
         </el-main>
 
       </el-container>
-      <el-footer>Footer</el-footer>
+
     </el-container>
+    <el-footer>Footer</el-footer>
 
     <Login :visible="store.loginVisible" />
 
@@ -137,11 +139,7 @@ header {
   background-color: rgb(9, 126, 132);
 }
 
-.header {
-  border-style: outset;
-  border-width: 2px;
 
-}
 
 footer {
 

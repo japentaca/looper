@@ -23,7 +23,7 @@
 import { ref, computed } from 'vue';
 import { UploadFilled } from '@element-plus/icons-vue'
 import { store, store_get_user_info } from '../helpers/composable';
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 const uploadPath = ref(import.meta.env.VITE_APP_BACKEND + "/api/upload")
 const uploader = ref(null)

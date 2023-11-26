@@ -37,12 +37,12 @@
       <el-col v-if="track.curr_file" :span="6">
 
         {{ track.curr_file.beats }} {{ track.remaining_beats + 1 }}
-        <span v-if="track.curr_file.tag">TAG: {{ track.curr_file.tag_obj.name }}</span>
+
 
 
       </el-col>
       <el-col v-if="track.curr_file" :span="6">
-        <el-progress :color="track.track_group.color" type="circle" :stroke-width="2" :duration=1 :show-text=false
+        <el-progress :color="track.track_group.color" type="circle" :stroke-width="3" :duration=6 :show-text=false
           :percentage=track.percentage :width=20>
         </el-progress>
 
