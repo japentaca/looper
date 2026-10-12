@@ -12,7 +12,7 @@
             <div v-if="store.isLogged == true">User:{{ store.u_info.name }}</div>
           </el-col>
           <el-col :span="6">
-            <div v-if="store.curr_file.isPlaying" class="curr_file">Playing:{{ store.curr_file.original_name }}
+            <div v-if="store.curr_file.isPreviewing" class="curr_file">Playing:{{ store.curr_file.original_name }}
               <el-icon :size="22" class="icons" @click="playerStop()">
 
                 <VideoPause />

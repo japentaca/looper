@@ -40,8 +40,6 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 - 🟠 Si `GET /get_file` no encuentra una sesión, el handler lanza dentro del callback de
   `sessionStore.all` y la request queda colgada: el audio no dispara `onerror` y la app no queda
   lista. Se resuelve junto con el arreglo de seguridad de `get_file`.
-- 🟡 El preview y el motor comparten el flag `isPlaying` del objeto archivo: escuchar en preview un
-  archivo que está sonando en un track (o viceversa) puede dejar el indicador desfasado.
 
 ## Entorno
 

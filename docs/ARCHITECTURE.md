@@ -81,7 +81,7 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
 - `store.files`: archivos del usuario, enriquecidos en el cliente con `track_group_obj`, `tag_obj`,
   `isLoaded`, `duration`, `duration_fixed`, `beats`, `bars`, `index`, `original_name_short`, etc.
   Estos campos **no** existen en la DB.
-- `store.track_groups`, `store.tags`, `store.u_info`, `store.curr_file` (preview), `store.loading`.
+- `store.track_groups`, `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
 `files_by_id`, `track_groups_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`).

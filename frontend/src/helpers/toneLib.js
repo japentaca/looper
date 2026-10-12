@@ -13,7 +13,7 @@ let ended = 0
 function onstop() {
   ended++
   if (ended >= started) {
-    store.curr_file.isPlaying = false
+    store.curr_file.isPreviewing = false
   }
 }
 
@@ -24,11 +24,11 @@ export async function playerStop() {
 
 export async function playFile(file) {
   mainPlayer.stop()
-  if (store.curr_file !== file) store.curr_file.isPlaying = false
+  if (store.curr_file !== file) store.curr_file.isPreviewing = false
   store.curr_file = file
   mainPlayer.buffer.set(audio_players[file.id].buffer)
   mainPlayer.volume.value = file.props.volume
   mainPlayer.start()
   started++
-  store.curr_file.isPlaying = true
+  store.curr_file.isPreviewing = true
 }

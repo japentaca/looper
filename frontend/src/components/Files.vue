@@ -209,7 +209,7 @@ function deleteFile(file) {
 }
 
 watch(
-  () => store.curr_file.isPlaying,
+  () => store.curr_file.isPreviewing,
   (value) => {
     //console.log("store curr_file is playing", store.curr_file.original_name, value)
   }
