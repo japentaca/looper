@@ -1,24 +1,21 @@
 import * as Tone from 'tone'
-import { defineEmits } from 'vue'
 import { store, audio_players } from "../helpers/composable"
 
 
 
 export const mainPlayer = new Tone.Player({ onstop: onstop }).toDestination()
 
+// cada start() crea una fuente que termina una sola vez (por stop o al llegar al final):
+// si terminaron tantas como se iniciaron, no queda nada sonando
+let started = 0
+let ended = 0
 
-async function onstop(e) {
-  //console.log(e)
-  store.curr_file.isPlaying = false
-}
-let tmr_clock = setInterval(() => {
-  if (store.curr_file.isPlaying) {
-    store.curr_file.currentTime = mainPlayer.context.currentTime.toFixed()
-    //store.curr_file.percent = parseInt((100 / store.curr_file.duration) * parseInt(mainPlayer.context.currentTime))
-    //console.log(store.curr_file.duration, store.curr_file.currentTime)
-
+function onstop() {
+  ended++
+  if (ended >= started) {
+    store.curr_file.isPlaying = false
   }
-}, 100);
+}
 
 export async function playerStop() {
   await mainPlayer.stop()
@@ -26,18 +23,12 @@ export async function playerStop() {
 }
 
 export async function playFile(file) {
-
-  await mainPlayer.stop()
-  setTimeout(async () => {
-    store.curr_file = file
-    mainPlayer.buffer.set(audio_players[file.id].buffer)
-    //console.log(audio_players[file.id])
-    mainPlayer.volume.value = file.props.volume
-    mainPlayer.start()
-    //audio_players[file.id].start()
-    store.curr_file.isPlaying = true
-  }, 500);
-
-
-
+  mainPlayer.stop()
+  if (store.curr_file !== file) store.curr_file.isPlaying = false
+  store.curr_file = file
+  mainPlayer.buffer.set(audio_players[file.id].buffer)
+  mainPlayer.volume.value = file.props.volume
+  mainPlayer.start()
+  started++
+  store.curr_file.isPlaying = true
 }

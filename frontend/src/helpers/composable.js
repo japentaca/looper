@@ -4,6 +4,7 @@ import * as Tone from 'tone'
 import { ToneAudioBuffer } from 'tone'
 
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 export const store = reactive({
   files: [],
   loginVisible: false,
@@ -29,17 +30,19 @@ import { watchThrottled } from '@vueuse/core'
 import { TrackCtrl, calculateBars } from './TrackCtrl.js'
 
 export async function save_tags() {
-  let res = await api.save_tags(store.tags)
-  if (res.stat) {
-    console.log("tags saved")
-  }
+  await save_collection(api.save_tags, store.tags, "los tags")
 }
 export async function save_trackGroups() {
-  console.log(JSON.parse(JSON.stringify(store.track_groups)))
-  let res = await api.save_trackGroups(store.track_groups)
-  if (res.stat) {
-    console.log("track groups saved")
+  await save_collection(api.save_trackGroups, store.track_groups, "los track groups")
+}
+async function save_collection(api_fn, data, label) {
+  try {
+    let res = await api_fn(data)
+    if (res.stat) return
+  } catch (e) {
+    console.log("Error guardando", label, e)
   }
+  ElMessage({ type: 'error', message: `No se pudieron guardar ${label}` })
 }
 
 
@@ -120,6 +123,15 @@ export const store_get_user_info = async () => {
 
     calculateBars()
 
+    let failed = store.files.filter(f => f.loadError)
+    if (failed.length > 0) {
+      ElMessage({
+        type: 'warning',
+        duration: 0,
+        showClose: true,
+        message: `No se pudieron cargar ${failed.length} archivo(s): ${failed.map(f => f.original_name).join(", ")}`,
+      })
+    }
 
     TrackCtrl.isReady = true
 
@@ -140,6 +152,12 @@ async function getAudioPlayer(url, file) {
         file.duration = player.buffer.duration
         file.duration_fixed = player.buffer.duration.toFixed(2)
 
+        resolve({ player: player, file: file })
+      },
+      // si un audio falla igual se resuelve, para que la app quede lista con el resto
+      onerror: (err) => {
+        console.log("Error cargando", file.original_name, err)
+        file.loadError = true
         resolve({ player: player, file: file })
       }
     }).toDestination()

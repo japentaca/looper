@@ -2,22 +2,12 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [vue()],
-  build: {
-    //target: 'esnext',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-      },
-    },
+  server: {
+    port: 31201,
+    strictPort: true,
   },
-
-  resolve: {
-    extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.vue'],
-    alias: {
-      "@": "./src",
-    },
-  },
-})
+  // en el build de producción se eliminan console.* y debugger (en dev se mantienen)
+  esbuild: command === 'build' ? { drop: ['console', 'debugger'] } : {},
+}))

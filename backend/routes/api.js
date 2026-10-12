@@ -17,8 +17,10 @@ router.use((req, res, next) => {
   next()
 })
 
+// mismo límite que MAX_UPLOAD_MB en frontend/src/components/Uploader.vue
 router.use(fileUpload({
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 40 * 1024 * 1024 },
+  abortOnLimit: true, // responde 413 en vez de guardar el archivo truncado
   //safeFileNames: true,
   useTempFiles: true,
   //tempFileDir: global.config.storage_path
@@ -37,7 +39,6 @@ router.post('/login', async function (req, res) {
 
 
     var db_res = await global.knex("users").select().where({ email: email })
-    console.log("res", db_res[0])
     if (db_res[0] === undefined) {
       res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
       return
@@ -54,11 +55,10 @@ router.post('/login', async function (req, res) {
 
       req.session.isLogged = true
       u_info.token = uuid()
-      console.log("otkn", u_info.token)
       req.session.u_info = { ...u_info }
       global.redisClient.hset("TOKEN:", u_info.token, req.session.id)
       req.session.save()
-      let ui = return_user_info(req)
+      let ui = await return_user_info(req)
       var res_data = {
         stat: true,
         data: {
@@ -77,42 +77,32 @@ router.post('/login', async function (req, res) {
 
 })
 
-//var salt = 10, pp = "jape"
-//var hashed = bcrypt.hash(pp, salt).then(p => { console.log("hashed", pp, p) })
 
 router.put("/save_trackGroups", async (req, res) => {
-  if (!req.session.isLogged) return res.status(403)
-  console.log("req.body", req.body)
-  let tgrs = [...req.body]
-  console.log("tgrs", tgrs)
-  let prom_arr = []
-  await global.knex("user_track_groups").delete().where({ user_id: req.session.u_info.id })
-  tgrs.map(r => {
-    r.user_id = req.session.u_info.id
-    prom_arr.push(global.knex("user_track_groups").insert(r)
-    )
-  })
-  let r = await Promise.all(prom_arr)
-
-
-  res.status(200).end()
-
+  await replace_user_rows("user_track_groups", req, res)
 })
 router.put("/save_tags", async (req, res) => {
-  if (!req.session.isLogged) return res.status(403)
-
-  let tags = [...req.body]
-  let prom_arr = []
-  await global.knex("user_tags").delete().where({ user_id: req.session.u_info.id })
-  tags.map(r => {
-    r.user_id = req.session.u_info.id
-    prom_arr.push(global.knex("user_tags").insert(r)
-    )
-  })
-  let r = await Promise.all(prom_arr)
-  res.status(200).end()
-
+  await replace_user_rows("user_tags", req, res)
 })
+
+// reemplaza todas las filas del usuario en la tabla por las recibidas, en una transacción
+// para no perder la colección si falla un insert
+async function replace_user_rows(table, req, res) {
+  if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
+  let user_id = req.session.u_info.id
+  try {
+    await global.knex.transaction(async trx => {
+      await trx(table).delete().where({ user_id: user_id })
+      for (let r of req.body) {
+        await trx(table).insert({ ...r, user_id: user_id })
+      }
+    })
+    res.send({ stat: true })
+  } catch (e) {
+    console.log("Error guardando", table, e)
+    res.status(500).send({ stat: false, text: "Error interno" })
+  }
+}
 
 
 
@@ -126,53 +116,55 @@ router.put('/logout', async (req, res) => {
 });
 
 router.put('/save_fileData', async (req, res) => {
-  if (!req.session.isLogged) {
-    console.log("sin session")
-    return res.status(403)
+  if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
+  try {
+    let file = req.body.file
+    const allowedFields = ["track_group", "tag", "props"]
+    let upd_obj = {}
+    for (let f of allowedFields) {
+      upd_obj[f] = req.body.file[f]
+    }
+    upd_obj.props = JSON.stringify(req.body.file.props)
+    await global.knex("files").update(upd_obj).where({ id: file.id })
+    return res.send({ stat: true })
+  } catch (e) {
+    console.log("Error save_fileData", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
   }
-  let file = req.body.file
-  //console.log(req.body)
-  const allowedFields = ["track_group", "tag", "props"]
-  let upd_obj = {}
-  for (let f of allowedFields) {
-    //console.log("field", f, req.body.file[f])
-    upd_obj[f] = req.body.file[f]
-  }
-  upd_obj.props = JSON.stringify(req.body.file.props)
-  //console.log(upd_obj)
-  await global.knex("files").update(upd_obj).where({ id: file.id })
-  //console.log("req.session", req.body)
-  return res.send({ stat: true })
 
 });
 
 router.put('/delete_file', async (req, res) => {
-  //console.log(req.body, "u_id,", req.session.u_info.id)
-
-
-  let file = await global.knex("files").select().where({ user_id: req.session.u_info.id, id: req.body.id }).first()
-  if (!file) {
-    // TODO: hack
-    console.log("HACK ! ! ", req.body, req.session)
-    return res.status(403)
+  if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
+  let user_id = req.session.u_info.id
+  try {
+    let file = await global.knex("files").select().where({ user_id: user_id, id: req.body.id }).first()
+    if (!file) {
+      console.log("delete_file: archivo inexistente o de otro usuario", req.body.id)
+      return res.status(403).send({ stat: false, text: "Archivo inexistente" })
+    }
+    try {
+      await fs.unlink(global.config.storage_path + user_id + "/" + req.body.id + ".mp3")
+    } catch (e) {
+      // si ya no estaba en disco, igual se borra la fila
+      if (e.code !== "ENOENT") throw e
+    }
+    await global.knex("files").delete().where({ user_id: user_id, id: req.body.id })
+    return res.send({ stat: true })
+  } catch (e) {
+    console.log("Error delete_file", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
   }
-  await fs.unlink(global.config.storage_path + req.session.u_info.id + "/" + req.body.id + ".mp3")
-  await global.knex("files").delete().where({ user_id: req.session.u_info.id, id: req.body.id })
-
-
-  //console.log("req.session", req.session)
-  return res.send({ stat: true })
-
-
 });
 
 router.get('/get_user_info', async (req, res) => {
-  //console.log("req.sess", req.session)
-  if (req.session?.isLogged) {
+  if (!req.session?.isLogged) return res.send({ stat: false })
+  try {
     let ui = await return_user_info(req)
     return res.send({ stat: true, u_info: ui })
-  } else {
-    return res.send({ stat: false })
+  } catch (e) {
+    console.log("Error get_user_info", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
   }
 
 });
@@ -181,7 +173,6 @@ router.get('/get_file', async (req, res) => {
 
   try {
 
-    //await delayrandom()
     await req.sessionStore.all(async (error, sessions) => {
       //console.log(req.query, "error", error, "sess", sessions)
 
@@ -201,69 +192,70 @@ router.get('/get_file', async (req, res) => {
 
 
 });
-async function delayrandom() {
-  return new Promise(async (resolve) => {
-    setTimeout(async () => {
-      resolve()
-    }, Math.random() * 100);
-
-  })
-
-
-}
 
 router.post('/upload', async (req, res) => {
-  if (!req.session.isLogged) {
-    console.log("sin session")
-    return res.status(403)
-  }
+  if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
   let user_id = req.session.u_info.id
 
-  let exists = await isDirExist(global.config.storage_path + user_id)
-  if (!exists) {
-    console.log("creo path", global.config.storage_path + user_id)
-    await fs.mkdir(global.config.storage_path + user_id)
-  }
-
-
-
-  console.log("uploadaaa", req.files); // the uploaded file object
-
-  let mv_files_prom_arr = []
-  let insert_files_arr = []
-
-  let temp = await global.knex("users").select("bytes_used").where({ id: user_id }).first()
-  let total_bytes = temp.bytes_used
-  let trx = await global.knex.transaction()
-  for (let index in req.files) {
-    let file_id = uuid()
-    let file = req.files[index]
-
-    //console.log(file.name, file.size)
-    let fn = global.config.storage_path + user_id + "/" + file_id + ".mp3"
-    if (utils.get_file_extension(file.name) == "wav") {
-      mv_files_prom_arr.push(utils.convert_file(file.tempFilePath, fn))
-    } else {
-      mv_files_prom_arr.push(move_file(file, fn))
+  let failed = []
+  let total_bytes
+  let trx
+  try {
+    let exists = await isDirExist(global.config.storage_path + user_id)
+    if (!exists) {
+      console.log("creo path", global.config.storage_path + user_id)
+      await fs.mkdir(global.config.storage_path + user_id)
     }
 
-    total_bytes += file.size
-    insert_files_arr.push(
-      trx("files").insert({
+    let temp = await global.knex("users").select("bytes_used").where({ id: user_id }).first()
+    total_bytes = temp.bytes_used || 0
+    trx = await global.knex.transaction()
+  } catch (e) {
+    console.log("Error upload", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+  try {
+    for (let index in req.files) {
+      let file_id = uuid()
+      let file = req.files[index]
+
+      let fn = global.config.storage_path + user_id + "/" + file_id + ".mp3"
+      let ok
+      if (utils.get_file_extension(file.name) == "wav") {
+        ok = await utils.convert_file(file.tempFilePath, fn).then(() => true, (err) => {
+          console.log("Error convirtiendo", file.name, err.message)
+          return false
+        })
+      } else {
+        ok = await move_file(file, fn)
+      }
+      // solo se registra el archivo si quedó en disco
+      if (!ok) {
+        failed.push(file.name)
+        continue
+      }
+
+      // tamaño real en disco (en wav es el del mp3 convertido)
+      let size = (await fs.stat(fn)).size
+      total_bytes += size
+      await trx("files").insert({
         id: file_id,
         user_id: user_id,
-        size: file.size,
+        size: size,
         original_name: file.name
-      }))
+      })
+    }
+    await trx("users").update({ bytes_used: total_bytes }).where({ id: user_id })
+    await trx.commit()
+  } catch (e) {
+    await trx.rollback()
+    console.log("Error upload", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
   }
-  await Promise.all(mv_files_prom_arr)
-  await Promise.all(insert_files_arr)
-  await trx("users").update({ bytes_used: total_bytes })
-  await trx.commit()
 
-  //console.log("check path", global.config.storage_path + user_id)
-
-
+  if (failed.length > 0) {
+    return res.status(500).send({ stat: false, text: "No se pudieron guardar: " + failed.join(", ") })
+  }
   return res.status(200).end()
 });
 
@@ -319,6 +311,3 @@ async function move_file(file, dest) {
   })
 }
 
-/* let p = "pepe"
-let rr = bcrypt.hashSync(p, 10)
-console.log(rr) */

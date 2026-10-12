@@ -38,7 +38,7 @@ function setEditing(valor) {
 function escapePressed() {
   store.track_groups[props.index].name = prevName
   editing.value = false
-  store.loading = true
+  store.loading = false
 }
 
 async function onBlur(e) {

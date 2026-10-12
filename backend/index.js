@@ -14,11 +14,8 @@ global.knex = Knex({
 });
 import express from 'express'
 const app_server = express();
-import http from 'http'
-const server = http.Server(app_server);
 import Redis from 'ioredis'
-import bodyParser from "body-parser"
-app_server.use(bodyParser.json());
+app_server.use(express.json());
 import Session from "express-session"
 import RedisStore from 'connect-redis'
 
@@ -43,7 +40,7 @@ app_server.use(Session({
   resave: true,
 }))
 import cors from 'cors'
-let cors_origin = ["http://localhost:5173"]
+let cors_origin = (global.config.cors_origin || "http://localhost:31201").split(",")
 var corsOptions = {
   credentials: true,
   origin: cors_origin
@@ -51,16 +48,11 @@ var corsOptions = {
 app_server.use(cors(corsOptions))
 import api from './routes/api.js'
 app_server.use("/api", api)
-console.log("Listening on ", global.config.service_port)
-app_server.listen(global.config.service_port)
-
 
 import do_migrations from "./db_migrations.js"
+// el esquema tiene que estar completo antes de aceptar requests
+await do_migrations()
 
-
-setTimeout(async () => {
-  //console.log("migrations start.")
-  await do_migrations()
-  //console.log("migrations ended")
-}, 300);
+console.log("Listening on ", global.config.service_port)
+app_server.listen(global.config.service_port)
 

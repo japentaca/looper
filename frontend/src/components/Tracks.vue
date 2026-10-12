@@ -14,12 +14,9 @@
     <span>
 
       <el-slider class="slider" @change="onBPMSliderchange" v-model="TrackCtrl.tempo" :min="10" :max="160" />
-      <span>{{
-        store.tempo
-
-      }} </span>
+      <span>{{ TrackCtrl.tempo }} BPM</span>
     </span>
-    <div v-if="current_TAG.tag !== null">TAG=<span v-bind:style="{ 'background-color': current_TAG.tag.color }">{{
+    <div v-if="current_TAG.tag">TAG=<span v-bind:style="{ 'background-color': current_TAG.tag.color }">{{
       current_TAG.tag.name
 
     }}</span><span>Duration:{{ current_TAG.duration }} Remaining:{{ current_TAG.remaining_beats }} </span></div>
@@ -54,7 +51,6 @@
 </template>
 <script setup>
 
-import { concat, toNumber } from "lodash";
 import * as Tone from "tone"
 import { ref, reactive } from "vue"
 import { store, track_groups_by_id, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
@@ -147,19 +143,22 @@ function start() {
   calculateBars()
 
   TrackCtrl.isPlaying = true
-  Tone.Transport.timeSignature = "4/4"
+  Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
   Tone.Transport.bpm.value = TrackCtrl.tempo
   let selected_tgs = []
   let temp_trg = {}
   let temp_tag = {}
   tracks.splice(0)
   files_per_TRG = []
+  files_per_TAG = []
+  available_tags = []
 
 
 
 
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
+    if (!f.isLoaded) continue // sin buffer, Tone no lo puede reproducir
     if (f.track_group) {
       temp_trg[f.track_group] = f.track_group
       if (!files_per_TRG[f.track_group]) {
@@ -192,7 +191,7 @@ function start() {
 
   }
   selectTag()
-  get_available_files_x_tag(current_TAG.tag.id)
+  get_available_files_x_tag(current_TAG.tag?.id)
 
 
   Tone.Transport.start()
@@ -205,7 +204,7 @@ function selectTag() {
     current_TAG.tag = { id: "nada", name: "vacio" }
   }
   current_TAG.old_tag = { ...current_TAG.tag }
-  current_TAG.tag = available_tags[index]
+  current_TAG.tag = available_tags[index] ?? null
   let base = parseInt((Math.random() * ((TAG_change_range.value[1] + 1) - (TAG_change_range.value[0]))) + (TAG_change_range.value[0]))
   //console.log(TAG_change_range.value[0], TAG_change_range.value[1], base)
   current_TAG.duration = Math.pow(2, base)
@@ -229,9 +228,9 @@ function set_next_step(time) {
 
     selectTag()
     //console.log("Seleccioné nuevo tag", current_TAG.tag, current_TAG.old_tag)
-    get_available_files_x_tag(current_TAG.tag.id)
+    get_available_files_x_tag(current_TAG.tag?.id)
 
-    if ((current_TAG.old_tag.id !== current_TAG.tag.id)) {
+    if ((current_TAG.old_tag.id !== current_TAG.tag?.id)) {
 
       //console.log("cambió el tag", current_TAG.old_tag.id)
       tracks.map(track => {
@@ -242,7 +241,8 @@ function set_next_step(time) {
           if (track.curr_file.tag) {
 
             //console.log("curr file tiene tag", tags_by_id[track.curr_file.tag], current_TAG.old_tag.name)
-            if (track.curr_file.tag.id !== current_TAG.tag.id) {
+            // file.tag es el id (string); solo se cortan los loops de un tag distinto al nuevo
+            if (track.curr_file.tag !== current_TAG.tag?.id) {
               //if (true)
               //console.log("le puse remaining beats 0")
               track.remaining_beats = 0

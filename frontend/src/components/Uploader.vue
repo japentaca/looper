@@ -1,7 +1,7 @@
 <template>
   <el-upload v-model:file-list="fileList" ref="uploader" class="upload-demo" :with-credentials=true
     accept="audio/mp3, audio/wav" drag :action=uploadPath :autoUpload="false" multiple :on-success="onSuccess"
-    :on-change="onListChanged">
+    :on-change="onListChanged" :on-error="onError">
     <el-icon class="el-icon--upload">
       <upload-filled />
     </el-icon>
@@ -10,7 +10,7 @@
     </div>
     <template #tip>
       <div class="el-upload__tip">
-        mp3 files with a size less than 2mb
+        mp3 / wav, máximo {{ MAX_UPLOAD_MB }} MB por archivo
       </div>
     </template>
 
@@ -28,6 +28,8 @@ import { ElMessage } from 'element-plus'
 const uploadPath = ref(import.meta.env.VITE_APP_BACKEND + "/api/upload")
 const uploader = ref(null)
 const fileList = ref([])
+// mismo límite que fileUpload en backend/routes/api.js
+const MAX_UPLOAD_MB = 40
 
 
 function onSuccess(a) {
@@ -56,12 +58,23 @@ function onListChanged(item) {
       message: 'Archivo ya existe',
     })
     uploader.value.handleRemove(item)
+    return
   }
 
-  if (item.size > 1024 * 1024 * 40) { //30 mb
-    //console.log("item excedido ", item)
+  if (item.size > 1024 * 1024 * MAX_UPLOAD_MB) {
+    ElMessage({
+      type: 'error',
+      message: `${item.name} supera los ${MAX_UPLOAD_MB} MB`,
+    })
     uploader.value.handleRemove(item)
   }
+}
+
+function onError(error, file) {
+  ElMessage({
+    type: 'error',
+    message: `No se pudo subir ${file.name}` + (error.status == 413 ? ` (supera los ${MAX_UPLOAD_MB} MB)` : ''),
+  })
 }
 
 

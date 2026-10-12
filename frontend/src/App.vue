@@ -67,7 +67,7 @@
 </template>
 <script setup>
 import { ref, onMounted, reactive } from "vue"
-import Track_group from "./components/Track_group"
+import Track_group from "./components/Track_group.vue"
 import Tag from "./components/Tag.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
