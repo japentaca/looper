@@ -110,7 +110,7 @@ Flujo:
    track group con archivos; elige un Tag (`selectTag`) y calcula archivos disponibles por track
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**.
-3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango del slider
+3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX
    (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
@@ -118,10 +118,17 @@ Flujo:
    - Por cada track con `remaining_beats == 0`: elige al azar un archivo disponible de su track
      group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
      `remaining_beats = beats - 1`. Si no, decrementa y actualiza el progreso.
+5. Después de `set_next_step`, el mismo callback agenda con `Tone.Draw.schedule(..., time)` la
+   actualización de `beat` (`n` = número de beat del transporte, `downbeat` = primer tiempo del
+   compás), que hace destellar los LEDs del panel de Tracks cuando el beat suena de verdad. Las
+   tiras de canal muestran el beat del loop (`beats - remaining_beats`) en un medidor de LEDs y un LCD.
+   El TAG actual se muestra en un LCD con `current_TAG.remaining_beats` como cuenta regresiva
+   (de `duration` a 1) y un LED que destella en los últimos 4 beats antes del cambio.
 
 Reglas para modificar el motor:
 - Todo lo que suene debe programarse con el `time` del callback (no con `Date`/`setTimeout`), si no
-  se pierde la sincronía.
+  se pierde la sincronía. Lo visual que deba coincidir con el audio va con `Tone.Draw.schedule`
+  (usa `requestAnimationFrame`: con la pestaña oculta no se dibuja, pero el audio sigue).
 - `Tone.start()` debe llamarse desde un gesto del usuario (política de autoplay del navegador).
 - Los volúmenes están en dB (`props.volume`), aplicados al `Tone.Player` antes de `start`.
 

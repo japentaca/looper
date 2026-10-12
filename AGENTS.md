@@ -38,6 +38,7 @@ frontend/src/
     SidebarItem.vue  # item de sidebar editable y draggable; prop kind="track_group"|"tag" (config en KINDS)
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login
+    hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás) y cálculo de beats/compases
@@ -113,6 +114,12 @@ Imitar el estilo existente al editar:
 - Estilo visual: tema oscuro (`<html class="dark">` + `element-plus/theme-chalk/dark/css-vars.css`). Los colores,
   radios y tipografía base son variables CSS en `frontend/src/style.css` (`--bg`, `--panel`, `--border`, `--accent`...);
   los componentes las usan en su `<style scoped>` en vez de colores sueltos.
+  Los controles del motor imitan un sampler tipo MPC: componentes propios en `components/hw/` (sin librería de
+  controles), variables `--hw_*`, clases globales `.hw_panel` (chasis con tornillos), `.hw_plate` (placa de aluminio
+  para faders) y `.silk` (serigrafía). El volumen del diálogo de edición de Files también es un `Fader`. El LCD usa
+  la fuente DSEG7 local (`src/assets/fonts/`, OFL). Las texturas son imágenes en `frontend/public/textures/`
+  (`chassis.jpg`, `metal.jpg`, `plastic_black.jpg`) usadas como `background-image` con color sólido de respaldo si faltan.
+  Diálogos y tablas siguen con Element Plus.
 - Idioma: UI mayormente en inglés, mensajes al usuario y comentarios en español. Commits en español,
   cortos y descriptivos.
 - Hay mucho `console.log` comentado; no es necesario limpiarlo salvo que la tarea lo pida.

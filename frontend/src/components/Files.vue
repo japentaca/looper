@@ -67,34 +67,42 @@
   </div>
 
 
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="440px"
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="540px"
     align-center draggable>
-    <div class="edit_info">
-      <span class="info_label">Duración</span>
-      <span v-if="curr_edit_file.isLoaded">{{ curr_edit_file.duration_fixed }} s · {{ curr_edit_file.beats }} beats</span>
-      <span v-else class="muted">cargando…</span>
+    <div class="edit_body">
+      <div class="edit_left">
+        <div class="edit_info">
+          <span class="info_label">Duración</span>
+          <span v-if="curr_edit_file.isLoaded">{{ curr_edit_file.duration_fixed }} s · {{ curr_edit_file.beats }} beats</span>
+          <span v-else class="muted">cargando…</span>
 
-      <span class="info_label">Track group</span>
-      <span>
-        <span v-if="curr_edit_file.track_group_obj" class="chip"
-          :style="{ background: curr_edit_file.track_group_obj.color }">{{ curr_edit_file.track_group_obj.name }}</span>
-        <span v-else class="muted">sin asignar</span>
-      </span>
+          <span class="info_label">Track group</span>
+          <span>
+            <span v-if="curr_edit_file.track_group_obj" class="chip"
+              :style="{ background: curr_edit_file.track_group_obj.color }">{{ curr_edit_file.track_group_obj.name }}</span>
+            <span v-else class="muted">sin asignar</span>
+          </span>
 
-      <span class="info_label">Tag</span>
-      <span>
-        <span v-if="curr_edit_file.tag_obj" class="chip" :style="{ background: curr_edit_file.tag_obj.color }">{{
-          curr_edit_file.tag_obj.name }}</span>
-        <span v-else class="muted">sin asignar</span>
-      </span>
+          <span class="info_label">Tag</span>
+          <span>
+            <span v-if="curr_edit_file.tag_obj" class="chip" :style="{ background: curr_edit_file.tag_obj.color }">{{
+              curr_edit_file.tag_obj.name }}</span>
+            <span v-else class="muted">sin asignar</span>
+          </span>
+        </div>
+
+        <el-checkbox class="one_shot" @change="onChange(curr_edit_file)" v-model="curr_edit_file.props.oneShot"
+          label="OneShot" size="small" />
+      </div>
+
+      <!-- volumen del archivo (dB) como fader sobre placa de aluminio -->
+      <div class="hw_plate volume">
+        <span class="silk">Volume</span>
+        <Fader v-model="curr_edit_file.props.volume" :min="-50" :max="0" :length="150" :marks="volume_marks"
+          @change="onChange(curr_edit_file)" />
+        <Lcd small :digits="3" :value="curr_edit_file.props.volume" unit="dB" />
+      </div>
     </div>
-
-    <div class="edit_section">
-      <span class="info_label">Volumen</span>
-      <el-slider v-model="curr_edit_file.props.volume" :debounce="500" :min="-50" :max="0" label="Volume" size="small"
-        @change="onChange(curr_edit_file)" />
-    </div>
-    <el-checkbox @change="onChange(curr_edit_file)" v-model="curr_edit_file.props.oneShot" label="OneShot" size="small" />
 
     <template #footer>
       <div class="dialog_footer">
@@ -116,12 +124,16 @@
 import { ref, watch } from "vue"
 import { store, audio_players, track_groups_by_id, tags_by_id } from "../helpers/composable"
 import { delete_file, save_fileData } from "../helpers/api"
+import Fader from "./hw/Fader.vue"
+import Lcd from "./hw/Lcd.vue"
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 import * as toneLib from "../helpers/toneLib"
 
 const fileListViewMode = ref("Table")
 
+
+const volume_marks = [0, -10, -20, -30, -40, -50].map(v => ({ value: v, label: v }))
 
 const dialogVisible = ref(false)
 const curr_edit_file = ref(null)
@@ -304,8 +316,19 @@ const iconSize = ref(18)
   color: var(--muted);
 }
 
-.edit_section {
-  margin: 18px 0 8px;
+.edit_body {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.edit_left {
+  flex: 1;
+  min-width: 0;
+}
+
+.one_shot {
+  margin-top: 18px;
 }
 
 .dialog_footer {

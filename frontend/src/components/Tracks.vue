@@ -1,52 +1,78 @@
 <template>
   <div class="tracks_panel">
-    <section class="card controls">
-      <div class="transport">
-        <div v-show="TrackCtrl.isReady == true">
-          <el-button type="success" size="large" v-if="TrackCtrl.isPlaying == false" @click="start">START</el-button>
-          <el-button type="danger" size="large" v-if="TrackCtrl.isPlaying == true" @click="stop">STOP</el-button>
+    <section class="hw_panel controls">
+      <div class="brand silk">LOOPER <span>random loop sampler</span></div>
+
+      <div class="group transport">
+        <LedButton size="big" led="green" :lit="TrackCtrl.isPlaying" :disabled="TrackCtrl.isReady != true"
+          :text="TrackCtrl.isPlaying ? 'STOP' : 'START'" label="Play / stop"
+          @click="TrackCtrl.isPlaying ? stop() : start()" />
+        <LedButton text="RESET" label="New tag" @click="reset" />
+      </div>
+
+      <div class="group tempo">
+        <Knob v-model="TrackCtrl.tempo" :min="10" :max="160" label="Tempo" @change="onBPMSliderchange" />
+        <Lcd :value="TrackCtrl.tempo" :digits="3" unit="BPM" />
+      </div>
+
+      <div class="group">
+        <ToggleSwitch v-model="TrackCtrl.beats_x_bar" label="Time sig"
+          :options="[{ value: '3', label: '3/4' }, { value: '4', label: '4/4' }]" @change="onSignatureChange" />
+      </div>
+
+      <div class="group">
+        <!-- placa de aluminio con los dos faders del rango de cambio de TAG -->
+        <div class="hw_plate tag_range">
+          <span class="silk plate_title">Tag change</span>
+          <div class="faders">
+            <Fader v-model="tag_range_min" :min="5" :max="9" :marks="tag_range_marks" :length="104" label="Min" />
+            <Fader v-model="tag_range_max" :min="5" :max="9" :marks="tag_range_marks" :length="104" label="Max" />
+          </div>
+          <span class="silk plate_value">{{ Math.pow(2, TAG_change_range[0]) }}–{{ Math.pow(2, TAG_change_range[1]) }}
+            beats</span>
         </div>
-        <el-button size="large" @click="reset">RESET</el-button>
       </div>
 
-      <div class="control">
-        <span class="label">Compás</span>
-        <el-radio-group v-model="TrackCtrl.beats_x_bar" @change="onSignatureChange">
-          <el-radio-button label="3">3/4</el-radio-button>
-          <el-radio-button label="4">4/4</el-radio-button>
-        </el-radio-group>
-      </div>
-
-      <div class="control grow">
-        <span class="label">Tempo <b class="value">{{ TrackCtrl.tempo }} BPM</b></span>
-        <el-slider @change="onBPMSliderchange" v-model="TrackCtrl.tempo" :min="10" :max="160" />
-      </div>
-
-      <div class="control grow">
-        <span class="label">Cambio de TAG cada (beats, 2^n)
-          <b class="value">{{ Math.pow(2, TAG_change_range[0]) }} – {{ Math.pow(2, TAG_change_range[1]) }}</b></span>
-        <el-slider v-model="TAG_change_range" range show-stops :show-tooltip="false" :min="5" :max="9" />
+      <!-- TAG actual: cuenta regresiva de beats hasta el próximo cambio -->
+      <div class="group tag_now">
+        <div class="tag_lcd">
+          <span class="silk">Current tag</span>
+          <Lcd :value="TrackCtrl.isPlaying ? current_TAG.remaining_beats : ''" :digits="3"
+            :unit="current_TAG.tag ? '/' + current_TAG.duration + ' BEATS' : '/--- BEATS'">
+            <span class="lcd_label">Tag</span>
+            <span class="tag_name">
+              <span v-if="current_TAG.tag" class="tag_color" :style="{ background: current_TAG.tag.color }"></span>{{
+                current_TAG.tag?.name ?? "----" }}
+            </span>
+          </Lcd>
+        </div>
+        <!-- aviso de cambio de TAG: destella en los últimos 4 beats -->
+        <div class="warn">
+          <Led color="red" :pulse="TrackCtrl.isPlaying && current_TAG.remaining_beats <= 4 ? beat.n : null" />
+          <span class="silk dim">Change</span>
+        </div>
       </div>
     </section>
 
-    <section class="card tag_now" v-if="current_TAG.tag">
-      <span class="label">TAG actual</span>
-      <span class="chip" :style="{ background: current_TAG.tag.color }">{{ current_TAG.tag.name }}</span>
-      <el-progress class="tag_progress" :percentage="tag_percent" :show-text="false" :stroke-width="6" />
-      <span class="muted">{{ current_TAG.remaining_beats }} / {{ current_TAG.duration }} beats</span>
-    </section>
-
-    <section class="card tracks_list" v-if="tracks.length">
-      <div class="label">Tracks</div>
-      <div class="track_row" v-for="(track, index) in tracks" :key="index">
-        <span class="chip track_name" v-if="track.track_group" :style="{ background: track.track_group.color }">{{
-          track.track_group.name }}</span>
-        <template v-if="track.curr_file">
-          <span class="beats">{{ track.remaining_beats + 1 }} / {{ track.curr_file.beats }}</span>
-          <el-progress class="track_progress" :color="track.track_group.color" :percentage="track.percentage"
-            :show-text="false" :stroke-width="6" />
-          <span class="file_name">{{ track.curr_file.original_name }}</span>
-        </template>
+    <section class="hw_panel tracks_list" v-if="tracks.length">
+      <div class="strips_head">
+        <span class="silk">Tracks</span>
+        <Led color="green" :pulse="beat.downbeat ? null : beat.n" />
+        <Led color="red" :pulse="beat.downbeat ? beat.n : null" />
+        <span class="silk dim">Beat</span>
+      </div>
+      <div class="strips">
+        <div class="strip" v-for="(track, index) in tracks" :key="index" :title="track.curr_file?.original_name">
+          <span class="strip_color" :style="{ background: track.track_group?.color }"></span>
+          <span class="silk strip_name">{{ track.track_group?.name }}</span>
+          <!-- LED de actividad: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
+          <Led :color="track.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
+            :pulse="track.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
+          <LedMeter :value="track.curr_file && TrackCtrl.isPlaying ? track_beat(track) / track.curr_file.beats : 0" />
+          <Lcd small :digits="2" :value="track.curr_file ? track_beat(track) : ''"
+            :unit="track.curr_file ? '/' + track.curr_file.beats : ''" />
+          <span class="file_name">{{ track.curr_file?.original_name ?? "—" }}</span>
+        </div>
       </div>
     </section>
   </div>
@@ -57,6 +83,13 @@ import * as Tone from "tone"
 import { ref, reactive, computed } from "vue"
 import { store, track_groups_by_id, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
+import Knob from "./hw/Knob.vue"
+import Lcd from "./hw/Lcd.vue"
+import ToggleSwitch from "./hw/ToggleSwitch.vue"
+import LedButton from "./hw/LedButton.vue"
+import Led from "./hw/Led.vue"
+import LedMeter from "./hw/LedMeter.vue"
+import Fader from "./hw/Fader.vue"
 
 function reset() {
 
@@ -81,6 +114,17 @@ function reset() {
 
 let TAG_change_range = ref([6, 7])
 
+// faders del rango (exponente n de 2^n beats): mover uno empuja al otro para que siempre min <= max
+const tag_range_marks = [5, 6, 7, 8, 9].map(n => ({ value: n, label: Math.pow(2, n) }))
+const tag_range_min = computed({
+  get: () => TAG_change_range.value[0],
+  set: (v) => { TAG_change_range.value = [v, Math.max(v, TAG_change_range.value[1])] }
+})
+const tag_range_max = computed({
+  get: () => TAG_change_range.value[1],
+  set: (v) => { TAG_change_range.value = [Math.min(v, TAG_change_range.value[0]), v] }
+})
+
 let files_per_TRG = {}
 let available_files_per_TRG = []
 let files_per_TAG = []
@@ -92,13 +136,6 @@ let current_TAG = reactive({
   old_tag: null,
 
   remaining_beats: 0
-})
-
-// porcentaje del TAG ya transcurrido (la barra avanza de 0 a 100)
-const tag_percent = computed(() => {
-  if (!current_TAG.duration) return 0
-  let hecho = current_TAG.duration - current_TAG.remaining_beats
-  return Math.min(100, Math.max(0, (100 / current_TAG.duration) * hecho))
 })
 
 let available_tags = []
@@ -136,7 +173,21 @@ Tone.Transport.scheduleRepeat((time) => {
   // use the callback time to schedule events
   set_next_step(time)
 
+  // indicadores visuales: Tone.Draw los dispara cuando el beat suena de verdad (no en el lookahead)
+  let n = Math.round(Tone.Transport.getTicksAtTime(time) / Tone.Transport.PPQ)
+  Tone.Draw.schedule(() => {
+    beat.downbeat = n % parseInt(TrackCtrl.beats_x_bar) == 0
+    beat.n = n
+  }, time)
 }, "4n")
+
+// beat del transporte (para los LEDs); downbeat = primer tiempo del compás
+const beat = reactive({ n: 0, downbeat: false })
+
+// beat actual (1..beats) del loop que suena en la pista
+function track_beat(track) {
+  return track.curr_file.beats - track.remaining_beats
+}
 
 function start_file(id, time) {
   files_by_id[id].isPlaying = true
@@ -342,88 +393,156 @@ function get_available_files_x_tag(tag_id) {
 .controls {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 20px 28px;
+  align-items: center;
+  gap: 18px 0;
+  padding-top: 34px;
 }
 
-.transport {
+/* cada sección del panel separada por una línea serigrafiada */
+.group {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  border-left: 1px solid rgba(228, 225, 216, 0.18);
 }
 
-.control {
+.group:nth-child(2) {
+  border-left: 0;
+  padding-left: 4px;
+}
+
+.faders {
+  display: flex;
+  gap: 6px;
+}
+
+.plate_value {
+  letter-spacing: 1px;
+}
+
+.brand {
+  position: absolute;
+  top: 10px;
+  left: 30px;
+  font-size: 12px;
+  letter-spacing: 3px;
+}
+
+.brand span {
+  margin-left: 8px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  opacity: 0.6;
+}
+
+.tag_now {
+  margin-left: auto;
+}
+
+.tag_lcd {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.control.grow {
-  flex: 1;
-  min-width: 220px;
-  padding: 0 8px;
+.lcd_label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  opacity: 0.75;
 }
 
-.label {
-  font-size: 11px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.value {
-  margin-left: 6px;
-  color: var(--text);
-  letter-spacing: 0;
-}
-
-.muted {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.tag_now {
+.tag_name {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  letter-spacing: 1px;
 }
 
-.tag_progress {
-  flex: 1;
+/* color del TAG como una pegatina sobre el LCD */
+.tag_color {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
 }
 
-.tracks_list {
+.warn {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.track_row {
-  display: grid;
-  grid-template-columns: 120px 70px 1fr minmax(0, 260px);
   align-items: center;
-  gap: 12px;
-  padding: 6px 0;
-  border-top: 1px solid var(--border);
+  gap: 6px;
 }
 
-.track_name {
-  justify-self: start;
+/* el panel de tracks ocupa solo el ancho de sus tiras */
+.tracks_list {
+  align-self: flex-start;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.strips_head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+}
+
+.dim {
+  opacity: 0.6;
+}
+
+.strips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* tira de canal: plástico negro hundido en el chasis */
+.strip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 112px;
+  padding: 14px 8px 10px;
+  border-radius: 4px;
+  background: var(--hw_tex_plastic) center / cover, #151517;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.strip_color {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+}
+
+.strip_name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file_name {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.beats {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.file_name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--hw_silk);
+  opacity: 0.6;
+  font-size: 10px;
 }
 </style>
