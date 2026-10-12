@@ -8,7 +8,7 @@
       </el-radio-group>
     </div>
     <div v-show="(fileListViewMode == 'Box')" class="box">
-      <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y del Tag -->
+      <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags -->
       <div v-for="(file, index) in store.files" :key="file.id" class="cart"
         :class="{ playing: is_sounding(file), drag_over: drag_index === index }" @dragover="ondragover($event, index)"
         @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
@@ -18,7 +18,9 @@
         <div class="label">
           <div class="bands">
             <span :style="{ background: file.track_group_obj?.color ?? 'transparent' }"></span>
-            <span :style="{ background: file.tag_obj?.color ?? 'transparent' }"></span>
+            <span class="tag_bands">
+              <span v-for="tag in file.tag_objs" :key="tag.id" :style="{ background: tag.color }"></span>
+            </span>
           </div>
           <el-tooltip effect="dark" :content="file.original_name" placement="top-start">
             <p class="name">{{ file.original_name }}</p>
@@ -30,8 +32,9 @@
           <p class="tags">
             <span class="chip" :class="{ empty: !file.track_group_obj }"
               :style="{ background: file.track_group_obj?.color }">{{ file.track_group_obj?.name ?? "no group" }}</span>
-            <span class="chip" :class="{ empty: !file.tag_obj }" :style="{ background: file.tag_obj?.color }">{{
-              file.tag_obj?.name ?? "no tag" }}</span>
+            <span v-for="tag in file.tag_objs" :key="tag.id" class="chip" :style="{ background: tag.color }">{{
+              tag.name }}</span>
+            <span v-if="file.tag_objs.length == 0" class="chip empty">no tag</span>
           </p>
         </div>
         <div class="cart_foot">
@@ -64,11 +67,13 @@
               }}</span>
           </template>
         </el-table-column>
-        <el-table-column sortable label="Tag" prop="tag" width="120">
+        <!-- se ordena por el nombre del primer tag -->
+        <el-table-column sortable label="Tags" :sort-by="(row) => row.tag_objs[0]?.name ?? ''" width="170">
           <template #default="scope">
-            <span v-if="scope.row.tag != null" class="chip" :style="{ background: scope.row.tag_obj.color }">{{
-              scope.row.tag_obj.name
-            }}</span>
+            <span class="chip_list">
+              <span v-for="tag in scope.row.tag_objs" :key="tag.id" class="chip" :style="{ background: tag.color }">{{
+                tag.name }}</span>
+            </span>
           </template>
         </el-table-column>
         <!-- sin v-if en la columna: el-table mezcla las celdas si una columna aparece después -->
@@ -117,11 +122,15 @@
             <span v-else class="muted">sin asignar</span>
           </span>
 
-          <span class="info_label">Tag</span>
-          <span>
-            <span v-if="curr_edit_file.tag_obj" class="chip" :style="{ background: curr_edit_file.tag_obj.color }">{{
-              curr_edit_file.tag_obj.name }}</span>
-            <span v-else class="muted">sin asignar</span>
+          <span class="info_label">Tags</span>
+          <span class="chip_list">
+            <span v-for="tag in curr_edit_file.tag_objs" :key="tag.id" class="chip" :style="{ background: tag.color }">{{
+              tag.name }}<span class="chip_remove" title="Quitar tag" @click="toggleTag(curr_edit_file, tag.id)">✕</span></span>
+            <el-select v-if="unassigned_tags.length > 0" class="add_tag" :model-value="null" placeholder="+ tag"
+              size="small" @change="(id) => toggleTag(curr_edit_file, id)">
+              <el-option v-for="tag in unassigned_tags" :key="tag.id" :label="tag.name" :value="tag.id" />
+            </el-select>
+            <span v-else-if="curr_edit_file.tag_objs.length == 0" class="muted">no hay tags creados</span>
           </span>
         </div>
 
@@ -157,8 +166,8 @@
 </template>
 <script setup>
 
-import { ref, watch } from "vue"
-import { store, audio_players, track_groups_by_id, tags_by_id } from "../helpers/composable"
+import { ref, watch, computed } from "vue"
+import { store, audio_players, track_groups_by_id, toggle_file_tag } from "../helpers/composable"
 import { delete_file, save_fileData } from "../helpers/api"
 import Fader from "./hw/Fader.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -181,6 +190,13 @@ async function editFile(file) {
   curr_edit_file.value = file
   dialogVisible.value = true
 }
+// tags que se pueden agregar al archivo del diálogo de edición
+const unassigned_tags = computed(() => store.tags.filter(t => !curr_edit_file.value?.tags.includes(t.id)))
+
+async function toggleTag(file, id) {
+  toggle_file_tag(file, id)
+  await save_fileData({ file: file })
+}
 async function onChange(file) {
   console.log("change,file", file)
   await save_fileData({ file: file })
@@ -198,10 +214,8 @@ async function ondrop(e, index) {
     store.files[index].track_group_obj = track_groups_by_id[id]
     await save_fileData({ file: store.files[index] })
   } else if (msg_type == "tag") {
-    let id = e.dataTransfer.getData("id")
-    store.files[index].tag = e.dataTransfer.getData("id")
-    store.files[index].tag_obj = tags_by_id[id]
-    await save_fileData({ file: store.files[index] })
+    // un archivo puede tener varios tags: soltar un tag que ya tiene lo quita
+    await toggleTag(store.files[index], e.dataTransfer.getData("id"))
 
   }
   e.preventDefault()
@@ -376,7 +390,7 @@ const iconSize = ref(18)
   color: #1e1f22;
 }
 
-/* bandas de color del Track Group (arriba) y del Tag (abajo) en el borde de la etiqueta */
+/* bandas de color del Track Group (arriba) y de los Tags (abajo, repartidos) en el borde de la etiqueta */
 .bands {
   position: absolute;
   top: 0;
@@ -388,7 +402,16 @@ const iconSize = ref(18)
   border-right: 1px solid rgba(0, 0, 0, 0.12);
 }
 
-.bands span {
+.bands > span {
+  flex: 1;
+}
+
+.tag_bands {
+  display: flex;
+  flex-direction: column;
+}
+
+.tag_bands span {
   flex: 1;
 }
 
@@ -462,6 +485,27 @@ const iconSize = ref(18)
 
 .muted {
   color: var(--muted);
+}
+
+.chip_list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.chip_remove {
+  margin-left: 6px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.chip_remove:hover {
+  opacity: 1;
+}
+
+.add_tag {
+  width: 96px;
 }
 
 .edit_body {

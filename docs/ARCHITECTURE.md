@@ -61,7 +61,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 | Tabla | Columnas | Notas |
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded` | `max_bytes_uploaded` no se usa |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tag` (id), `size`, `props` (JSON en texto) | sin PK; `props = { volume: dB (-50..0, default -6), oneShot: bool }` |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6), oneShot: bool }`. Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `silences` | `silences` no se usa |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
@@ -78,9 +78,12 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
 
 `helpers/composable.js` exporta un `store` reactivo global (no hay Pinia):
 
-- `store.files`: archivos del usuario, enriquecidos en el cliente con `track_group_obj`, `tag_obj`,
+- `store.files`: archivos del usuario, enriquecidos en el cliente con `track_group_obj`, `tag_objs`
+  (objetos de `store.tags` de cada id de `tags`; se mantienen con `set_file_tags` / `toggle_file_tag`),
   `isLoaded`, `duration`, `duration_fixed`, `beats`, `bars`, `index`, `original_name_short`, etc.
   Estos campos **no** existen en la DB.
+  Los tags se asignan arrastrando un pad de Tag sobre un archivo (toggle: si ya lo tiene, lo quita)
+  o desde el diálogo de edición de `Files.vue` (✕ en cada chip y un select para agregar).
 - `store.track_groups`, `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
@@ -90,7 +93,8 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
 
 `App.vue` `onMounted` → `store_get_user_info()`:
 1. `GET /api/get_user_info` trae usuario + archivos + track groups + tags.
-2. Arma índices y resuelve `track_group_obj` / `tag_obj` de cada archivo.
+2. Arma índices y resuelve `track_group_obj` / `tag_objs` de cada archivo (descarta ids de tags
+   que ya no existen).
 3. Crea un `Tone.Player` por archivo con URL `get_file?file=<id>&token=<token>` y espera a que
    todos carguen (`Promise.allSettled`).
 4. `calculateBars()` calcula `beats` y `bars` de cada archivo según el tempo.
@@ -100,8 +104,9 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
 
 Conceptos:
 - **Track** = un Track Group en uso; cada track reproduce un archivo a la vez.
-- **Tag activo** (`current_TAG`) = filtra qué archivos pueden sonar. Un archivo sin tag es compatible
-  con cualquier Tag.
+- **Tag activo** (`current_TAG`) = filtra qué archivos pueden sonar. Un archivo puede tener varios
+  tags y es compatible con el Tag activo si lo incluye; un archivo sin tags es compatible con cualquier Tag.
+  Los Tags que se sortean son la unión de los tags de todos los archivos cargados.
 - **Beats de un archivo** = `round(duration / (60 / tempo))` (`TrackCtrl.js`). Los loops deben estar
   cortados a compás para que el encastre sea correcto.
 
@@ -114,7 +119,8 @@ Flujo:
    (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
-     tracks cuyo archivo tiene un tag distinto al nuevo (los de tag igual o sin tag siguen sonando).
+     tracks cuyo archivo no incluye el tag nuevo (los que lo incluyen o no tienen tags siguen
+     sonando: un loop con tags A y B atraviesa el cambio de A a B).
    - Por cada track con `remaining_beats == 0`: elige al azar un archivo disponible de su track
      group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
      `remaining_beats = beats - 1`. Si no, decrementa y actualiza el progreso.

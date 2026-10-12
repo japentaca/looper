@@ -15,9 +15,10 @@ export default async function do_migrations() {
   await create_column_string("files", "user_id", 36)
   await create_column_string("files", "original_name", 256)
   await create_column_string("files", "track_group", 256)
-  await create_column_string("files", "tag", 256)
+  await create_column_string("files", "tag", 256) // obsoleto: reemplazado por `tags`, queda como respaldo
   await create_column_number("files", "size")
   await create_column_string("files", "props", 4096) // JSON
+  await migrate_file_tags()
 
   await create_table("user_track_groups")
   await create_column_string("user_track_groups", "user_id", 36)
@@ -35,6 +36,19 @@ export default async function do_migrations() {
   await create_column_string("sets", "name", 64)
   await create_column_string("sets", "tracks", 65535)
   await create_column_string("sets", "tags", 65535)
+}
+
+// un archivo puede tener varios tags: `files.tags` es un array JSON de ids de user_tags.
+// Al crear la columna se copia el `tag` único de cada archivo (solo corre una vez).
+async function migrate_file_tags() {
+  if (await global.knex.schema.hasColumn("files", "tags")) return
+  console.log("Creo columna tags en tabla files y migro files.tag")
+  await global.knex.schema.alterTable("files", function (table) {
+    table.string("tags", 4096)
+  })
+  await global.knex("files").update({ tags: "[]" })
+  await global.knex("files").whereNotNull("tag").whereNot("tag", "")
+    .update({ tags: global.knex.raw("json_array(tag)") })
 }
 
 // crea la tabla solo con la PK `id` (uuid); las columnas se agregan con create_column_*

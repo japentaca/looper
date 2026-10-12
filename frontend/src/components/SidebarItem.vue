@@ -1,11 +1,13 @@
 <template>
   <!-- pad de goma tipo MPC: se ilumina con su color mientras su Track Group suena o su Tag está activo -->
-  <div :draggable="!editing" class="pad" :class="{ lit }" @dragstart="startDrag($event)">
+  <!-- doble clic en cualquier parte del pad (salvo color y borrar) para renombrar -->
+  <div :draggable="!editing" class="pad" :class="{ lit }" title="Doble clic para renombrar" @dragstart="startDrag($event)"
+    @dblclick="onPadDblclick">
     <el-color-picker size="small" @change="onColorChange" v-model="item.color" />
     <el-icon :size="13" class="icons" title="Delete" @click="deleteItem">
       <Delete />
     </el-icon>
-    <span v-if="editing == false" class="pad_name" title="Doble clic para renombrar" @dblclick="setEditing(true)">{{
+    <span v-if="editing == false" class="pad_name">{{
       item.name }}</span>
     <span class="pad_input" v-show="editing == true">
       <el-input v-on:keyup.escape="escapePressed()" ref="nameInput" @blur="onBlur" v-model="item.name" size="small"
@@ -18,17 +20,29 @@
 // y para Tags (kind="tag"). Lo que cambia entre ambos está en KINDS.
 import { ref, computed } from 'vue'
 import { save_fileData } from '../helpers/api'
-import { store, rebuildIndexes, save_tags, save_trackGroups } from "../helpers/composable"
+import { store, rebuildIndexes, save_tags, save_trackGroups, set_file_tags } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
 
 const KINDS = {
   track_group: {
-    list: () => store.track_groups, save: save_trackGroups, file_field: "track_group", file_obj_field: "track_group_obj",
+    list: () => store.track_groups, save: save_trackGroups,
+    // quita el item del archivo; devuelve true si el archivo cambió
+    unassign: (file, id) => {
+      if (file.track_group != id) return false
+      file.track_group = null
+      file.track_group_obj = null
+      return true
+    },
     // suena si algún track de ese grupo tiene un archivo reproduciéndose
     is_lit: (id) => TrackCtrl.tracks.some(t => t.track_group?.id == id && t.curr_file?.isPlaying)
   },
   tag: {
-    list: () => store.tags, save: save_tags, file_field: "tag", file_obj_field: "tag_obj",
+    list: () => store.tags, save: save_tags,
+    unassign: (file, id) => {
+      if (!file.tags.includes(id)) return false
+      set_file_tags(file, file.tags.filter(t => t !== id))
+      return true
+    },
     is_lit: (id) => TrackCtrl.current_TAG.tag?.id == id
   },
 }
@@ -49,6 +63,10 @@ function setEditing(valor) {
     prevName = item.value.name
     nameInput.value.focus()
   }
+}
+function onPadDblclick(e) {
+  if (editing.value || e.target.closest(".el-color-picker, .icons")) return
+  setEditing(true)
 }
 function escapePressed() {
   item.value.name = prevName
@@ -77,9 +95,7 @@ async function deleteItem() {
   cfg.list().splice(props.index, 1)
   // los archivos que tenían este item quedan sin asignar
   store.files.map(async (file) => {
-    if (file[cfg.file_field] == id) {
-      file[cfg.file_field] = null
-      file[cfg.file_obj_field] = null
+    if (cfg.unassign(file, id)) {
       await save_fileData({ file: file })
     }
   })
@@ -129,9 +145,9 @@ async function deleteItem() {
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 1.2px;
+  letter-spacing: 1px;
   text-transform: uppercase;
   display: -webkit-box;
   -webkit-line-clamp: 2;

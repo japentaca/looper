@@ -86,12 +86,7 @@ export const store_get_user_info = async () => {
         if (f.track_group_obj == undefined) f.track_group = null
         //console.log("vamo tgr", f.track_group, f.track_group_obj)
       }
-      //console.log("f.tag", f.tag)
-      if (f.tag !== undefined) {
-        f.tag_obj = tags_by_id[f.tag]
-        if (f.tag_obj == undefined) f.tag = null
-        //console.log("vamo tag", f.tag, f.tag_obj)
-      }
+      set_file_tags(f, f.tags)
 
       if (!f.props) {
         f.props = {}
@@ -159,6 +154,20 @@ async function getAudioPlayer(url, file) {
       }
     }).toDestination()
   })
+}
+// un archivo puede tener varios tags: `tags` son los ids (lo que se guarda) y `tag_objs` los
+// objetos de store.tags (solo cliente). Se descartan los ids de tags que ya no existen.
+export function set_file_tags(file, ids) {
+  file.tags = (Array.isArray(ids) ? ids : []).filter(id => tags_by_id[id])
+  file.tag_objs = file.tags.map(id => tags_by_id[id])
+}
+// agrega el tag si el archivo no lo tiene y lo quita si ya lo tenía
+export function toggle_file_tag(file, id) {
+  if (file.tags.includes(id)) {
+    set_file_tags(file, file.tags.filter(t => t !== id))
+  } else {
+    set_file_tags(file, [...file.tags, id])
+  }
 }
 export function rebuildIndexes() {
   track_groups_by_id = {}

@@ -232,11 +232,11 @@ function start() {
       }
       files_per_TRG[f.track_group].push(f.id)
     }
-    //console.log(f.tag)
-    if (f.tag) {
-      temp_tag[f.tag] = f.tag
-      if (!files_per_TAG[f.tag]) { files_per_TAG[f.tag] = [] }
-      files_per_TAG[f.tag].push(f.id)
+    // un archivo puede tener varios tags: cuenta en cada uno
+    for (let tag of f.tags) {
+      temp_tag[tag] = tag
+      if (!files_per_TAG[tag]) { files_per_TAG[tag] = [] }
+      files_per_TAG[tag].push(f.id)
     }
   }
 
@@ -304,11 +304,11 @@ function set_next_step(time) {
         //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
         if (track.curr_file) {
           //console.log("Track tiene current file")
-          if (track.curr_file.tag) {
+          if (track.curr_file.tags.length > 0) {
 
-            //console.log("curr file tiene tag", tags_by_id[track.curr_file.tag], current_TAG.old_tag.name)
-            // file.tag es el id (string); solo se cortan los loops de un tag distinto al nuevo
-            if (track.curr_file.tag !== current_TAG.tag?.id) {
+            // solo se cortan los loops que no tienen el tag nuevo; los que tienen varios tags
+            // (p.ej. A y B) siguen sonando al pasar de A a B
+            if (!track.curr_file.tags.includes(current_TAG.tag?.id)) {
               //if (true)
               //console.log("le puse remaining beats 0")
               track.remaining_beats = 0
@@ -365,7 +365,8 @@ function get_available_files_x_tag(tag_id) {
       //console.log(a,)
       let f = files_by_id[a]
       //console.log("ee", f)
-      if (f.tag == undefined || f.tag == tag_id) {
+      // sin tags = compatible con cualquier tag
+      if (f.tags.length == 0 || f.tags.includes(tag_id)) {
         available_files_per_TRG[f.track_group].push(a)
       }
     }

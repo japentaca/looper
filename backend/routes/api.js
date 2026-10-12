@@ -119,13 +119,14 @@ router.put('/save_fileData', async (req, res) => {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
   try {
     let file = req.body.file
-    const allowedFields = ["track_group", "tag", "props"]
-    let upd_obj = {}
-    for (let f of allowedFields) {
-      upd_obj[f] = req.body.file[f]
+    let upd_obj = {
+      track_group: file.track_group ?? null,
+      // array de ids de tags; se descarta lo que no sea string
+      tags: JSON.stringify(Array.isArray(file.tags) ? file.tags.filter(t => typeof t == "string") : []),
+      props: JSON.stringify(file.props)
     }
-    upd_obj.props = JSON.stringify(req.body.file.props)
-    await global.knex("files").update(upd_obj).where({ id: file.id })
+    let n = await global.knex("files").update(upd_obj).where({ id: file.id, user_id: req.session.u_info.id })
+    if (n == 0) return res.status(403).send({ stat: false, text: "Archivo inexistente" })
     return res.send({ stat: true })
   } catch (e) {
     console.log("Error save_fileData", e)
@@ -248,7 +249,8 @@ router.post('/upload', async (req, res) => {
         id: file_id,
         user_id: user_id,
         size: size,
-        original_name: file.name
+        original_name: file.name,
+        tags: "[]"
       })
     }
     await trx("users").update({ bytes_used: total_bytes }).where({ id: user_id })
@@ -277,6 +279,8 @@ async function return_user_info(req) {
     if (f.props) {
       f.props = JSON.parse(f.props)
     } else { f.props = {} }
+    f.tags = parse_tags(f.tags)
+    delete f.tag // columna obsoleta, reemplazada por `tags`
     f.name = f.id + ".mp3"
   })
 
@@ -298,6 +302,15 @@ async function return_user_info(req) {
 
   return u_info
 
+}
+
+function parse_tags(text) {
+  try {
+    let tags = JSON.parse(text)
+    return Array.isArray(tags) ? tags : []
+  } catch {
+    return []
+  }
 }
 
 const isDirExist = async path => await fs.access(path).then(() => true).catch(() => false)

@@ -15,8 +15,6 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   `HGET "TOKEN:" <token>` → session id (ya se guarda en el login) o firmar URLs.
 - 🔴 **Path traversal en `get_file`.** `req.query.file` se concatena a la ruta sin sanitizar
   (`../` permite salir del directorio del usuario, siempre con extensión `.mp3`).
-- 🔴 **`PUT /save_fileData` no filtra por usuario**: `update(...).where({ id })` permite modificar
-  archivos de otros usuarios si se conoce el id.
 - 🔴 **Credenciales por defecto en `Login.vue`**: el formulario viene precargado con un email y
   clave reales (y la clave está en el historial de git). Quitar los valores y cambiar la clave.
   El input de password tampoco usa `type="password"`.
