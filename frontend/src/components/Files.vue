@@ -38,23 +38,17 @@
     </div>
     <div v-show="(fileListViewMode == 'Table')">
       <el-table :data="store.files" style="width: 100%">
-        <el-table-column sortable prop="original_name_short" label="Name" width="200">
-          <template #default="scope">
-
-            {{ scope.row.original_name_short }}
-
-          </template>
-        </el-table-column>
-        <el-table-column sortable prop="duration_fixed" label="Duration" width="90" />
-        <el-table-column sortable prop="beats" label="Beats" width="90" />
-        <el-table-column sortable label="Track Group" prop="track_group" width="90">
+        <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
+        <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
+        <el-table-column sortable prop="beats" label="Beats" width="80" />
+        <el-table-column sortable label="Track Group" prop="track_group" width="130">
           <template #default="scope">
             <span v-if="scope.row.track_group != null" class="chip" :style="{ background: scope.row.track_group_obj.color }">{{
                 scope.row.track_group_obj.name
               }}</span>
           </template>
         </el-table-column>
-        <el-table-column sortable label="Tag" prop="tag" width="90">
+        <el-table-column sortable label="Tag" prop="tag" width="120">
           <template #default="scope">
             <span v-if="scope.row.tag != null" class="chip" :style="{ background: scope.row.tag_obj.color }">{{
               scope.row.tag_obj.name
@@ -67,45 +61,53 @@
           </template>
 
         </el-table-column>
-        <el-table-column sortable prop="original_name" label="Name" />
-
+        
       </el-table>
     </div>
   </div>
 
 
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="30%"
-    draggable>
-    <p v-if="curr_edit_file.isLoaded" class="tag_data">Duration: {{ curr_edit_file.duration_fixed }}<span> Beats:{{
-      curr_edit_file.beats }}</span></p>
-    <p class="tag_data">TRG:<span v-if="curr_edit_file.track_group_obj" class="chip" :style="{ background: curr_edit_file.track_group_obj.color }">{{
-          curr_edit_file.track_group_obj.name
-        }}</span></p>
-    <p class="tag_data">TAG:<span v-if="curr_edit_file.tag_obj" class="chip" :style="{ background: curr_edit_file.tag_obj.color }">{{
-          curr_edit_file.tag_obj.name
-        }}</span></p>
-    <p>
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="440px"
+    align-center draggable>
+    <div class="edit_info">
+      <span class="info_label">Duración</span>
+      <span v-if="curr_edit_file.isLoaded">{{ curr_edit_file.duration_fixed }} s · {{ curr_edit_file.beats }} beats</span>
+      <span v-else class="muted">cargando…</span>
+
+      <span class="info_label">Track group</span>
+      <span>
+        <span v-if="curr_edit_file.track_group_obj" class="chip"
+          :style="{ background: curr_edit_file.track_group_obj.color }">{{ curr_edit_file.track_group_obj.name }}</span>
+        <span v-else class="muted">sin asignar</span>
+      </span>
+
+      <span class="info_label">Tag</span>
+      <span>
+        <span v-if="curr_edit_file.tag_obj" class="chip" :style="{ background: curr_edit_file.tag_obj.color }">{{
+          curr_edit_file.tag_obj.name }}</span>
+        <span v-else class="muted">sin asignar</span>
+      </span>
+    </div>
+
+    <div class="edit_section">
+      <span class="info_label">Volumen</span>
       <el-slider v-model="curr_edit_file.props.volume" :debounce="500" :min="-50" :max="0" label="Volume" size="small"
         @change="onChange(curr_edit_file)" />
-    </p>
+    </div>
     <el-checkbox @change="onChange(curr_edit_file)" v-model="curr_edit_file.props.oneShot" label="OneShot" size="small" />
-    <p class="dialog_actions">
-      <el-icon :size="iconSize" class="icons" @click="deleteFile(curr_edit_file)">
-        <Delete />
-      </el-icon>
-      <el-icon v-if="curr_edit_file.isLoaded" :size="iconSize" class="icons" @click="playFile(curr_edit_file)">
-        <VideoPlay />
-      </el-icon>
-
-    </p>
 
     <template #footer>
-      <span class="dialog-footer">
-
-        <el-button type="primary" @click="dialogVisible = false">
-          CLOSE
-        </el-button>
-      </span>
+      <div class="dialog_footer">
+        <span class="dialog_actions">
+          <el-icon v-if="curr_edit_file.isLoaded" :size="iconSize" class="icons" @click="playFile(curr_edit_file)">
+            <VideoPlay />
+          </el-icon>
+          <el-icon :size="iconSize" class="icons" @click="deleteFile(curr_edit_file)">
+            <Delete />
+          </el-icon>
+        </span>
+        <el-button type="primary" @click="dialogVisible = false">CLOSE</el-button>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -282,6 +284,34 @@ const iconSize = ref(18)
 
 .playing_chip {
   background: var(--accent);
+}
+
+.edit_info {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.info_label {
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.edit_section {
+  margin: 18px 0 8px;
+}
+
+.dialog_footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .dialog_actions {

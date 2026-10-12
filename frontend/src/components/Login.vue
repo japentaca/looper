@@ -1,19 +1,16 @@
 <template>
-  <el-dialog v-model="store.loginVisible" title="Login">
-    <el-form size="large" :model="form" label-width="120px">
+  <el-dialog v-model="store.loginVisible" title="Login" width="380px" align-center>
+    <el-form :model="form" label-position="top" @submit.prevent="doLogin">
       <el-form-item label="Email">
         <el-input v-model="form.email" />
       </el-form-item>
       <el-form-item label="Password">
-        <el-input v-model="form.password" />
+        <el-input v-model="form.password" type="password" show-password @keyup.enter="doLogin" />
       </el-form-item>
     </el-form>
-    <el-row :gutter="20">
-      <el-col :span="12" :offset="6">
-        <el-button @click="doLogin">LOGIN</el-button>
-
-      </el-col>
-    </el-row>
+    <template #footer>
+      <el-button class="login_btn" type="success" size="large" @click="doLogin">LOGIN</el-button>
+    </template>
   </el-dialog>
 </template>
 
@@ -49,6 +46,8 @@ async function doLogin() {
 
 </script>
 
-<style>
-
+<style scoped>
+.login_btn {
+  width: 100%;
+}
 </style>
