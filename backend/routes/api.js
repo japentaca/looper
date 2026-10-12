@@ -149,7 +149,13 @@ router.put('/delete_file', async (req, res) => {
       // si ya no estaba en disco, igual se borra la fila
       if (e.code !== "ENOENT") throw e
     }
-    await global.knex("files").delete().where({ user_id: user_id, id: req.body.id })
+    await global.knex.transaction(async trx => {
+      await trx("files").delete().where({ user_id: user_id, id: req.body.id })
+      // se descuenta el tamaño del archivo, sin bajar de 0
+      await trx("users").where({ id: user_id }).update({
+        bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [file.size || 0])
+      })
+    })
     return res.send({ stat: true })
   } catch (e) {
     console.log("Error delete_file", e)

@@ -14,7 +14,7 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 | PUT | `/save_trackGroups` | sí | array `[{ id, name, color }]` | `{ stat: true }` |
 | PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }` |
 | PUT | `/save_fileData` | sí | `{ file: { id, track_group, tag, props } }` | `{ stat: true }` |
-| PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }` |
+| PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
 | GET | `/get_file` | token | `?file=<file_id>&token=<u_info.token>` | archivo mp3 |
 | POST | `/upload` | sí | multipart, uno o más archivos (mp3/wav) | 200 sin cuerpo |
 

@@ -27,9 +27,8 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 ## Backend
 
-- 🟠 `users.bytes_used` no es confiable: `delete_file` no lo descuenta y en oct 2026 marcaba
-  97,8 MB contra 125,7 MB reales (`sum(files.size)`). Hoy no se usa para nada (tampoco
-  `max_bytes_uploaded`); si se implementa una cuota, recalcularlo desde `files`.
+- 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026 y descontado en `delete_file`),
+  pero no se usa para nada; tampoco `max_bytes_uploaded`. Si se implementa una cuota, validarlo en `upload`.
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
