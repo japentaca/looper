@@ -10,6 +10,7 @@ export default async function do_migrations() {
   await create_column_string("users", "ts", 21)
   await create_column_number("users", "bytes_used")
   await create_column_number("users", "max_bytes_uploaded")
+  await create_column_string("users", "props", 4096) // JSON: config global (tempo, beats_x_bar, delay)
 
   await create_table("files")
   await create_column_string("files", "user_id", 36)

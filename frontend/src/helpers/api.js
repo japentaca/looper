@@ -15,6 +15,14 @@ export function save_trackGroups(data) {
     data
   })
 }
+// config global del usuario (tempo, compás, delay): objeto, se guarda en users.props
+export function save_user_props(data) {
+  return request({
+    url: '/api/save_user_props',
+    method: 'put',
+    data
+  })
+}
 export function save_fileData(data) {
   return request({
     url: '/api/save_fileData',

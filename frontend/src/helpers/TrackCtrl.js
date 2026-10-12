@@ -1,8 +1,27 @@
 import { store } from "./composable"
 import { reactive } from "vue"
+
+// --- delay global (ver mixer.js) ---
+// tipos: pingpong = ping-pong estéreo, stereo = la misma repetición en los dos canales,
+// dotted = L con la división y R con 1.5 × la división, tape = cada repetición más oscura
+export const DELAY_TYPES = ["pingpong", "stereo", "dotted", "tape"]
+// divisiones (notación de Tone) → duración en beats (negras). El tiempo del delay se calcula con el tempo.
+export const DELAY_DIVISIONS = { "16n": 0.25, "8t": 1 / 3, "8n": 0.5, "8n.": 0.75, "4n": 1, "4n.": 1.5, "2n": 2 }
+export const DELAY_FEEDBACK_MAX = 0.9 // el feedback nunca llega a 1 (las repeticiones siempre se apagan)
+export const DELAY_LEVEL_MIN = -24 // nivel de retorno del delay en dB (DELAY_LEVEL_MIN..DELAY_LEVEL_MAX)
+export const DELAY_LEVEL_MAX = 6
+export function delay_default() {
+  return { type: "pingpong", division: "8n.", feedback: 0.4, level: 0 }
+}
+export const TEMPO_DEFAULT = 138
+export const BEATS_X_BAR_DEFAULT = "4"
+
+// tempo, compás y delay son la config global del usuario: se guardan en users.props
+// (save_user_props_debounced en composable.js) y se aplican al cargar el usuario
 export const TrackCtrl = reactive({
-  tempo: 138,
-  beats_x_bar: "4",
+  tempo: TEMPO_DEFAULT,
+  beats_x_bar: BEATS_X_BAR_DEFAULT,
+  delay: delay_default(),
   isPlaying: false,
   isReady: false,
   // estado del motor (lo escribe Tracks.vue; los pads de la barra lateral lo leen)

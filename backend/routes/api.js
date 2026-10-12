@@ -121,6 +121,31 @@ async function replace_user_rows(table, req, res) {
 
 
 
+// config global del usuario (users.props): solo se guardan estas claves (lista blanca), el resto
+// se ignora. Reemplaza lo guardado (el front manda siempre la config completa).
+const USER_PROPS_KEYS = ["tempo", "beats_x_bar", "delay"]
+const USER_PROPS_MAX_LENGTH = 4096 // tamaño de la columna
+router.put("/save_user_props", async (req, res) => {
+  if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
+  let body = req.body
+  if (!body || typeof body != "object" || Array.isArray(body)) {
+    return res.status(400).send({ stat: false, text: "Datos inválidos" })
+  }
+  let props = {}
+  for (let k of USER_PROPS_KEYS) {
+    if (body[k] !== undefined) props[k] = body[k]
+  }
+  let text = JSON.stringify(props)
+  if (text.length > USER_PROPS_MAX_LENGTH) return res.status(400).send({ stat: false, text: "Datos inválidos" })
+  try {
+    await global.knex("users").update({ props: text }).where({ id: req.session.u_info.id })
+    return res.send({ stat: true })
+  } catch (e) {
+    console.log("Error save_user_props", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
 router.put('/logout', async (req, res) => {
   if (req.session.isLogged) {
     req.session.destroy()
@@ -287,6 +312,9 @@ async function return_user_info(req) {
   //console.log("erererer", u_info)
   delete u_info.id
   delete u_info.password
+  // props se lee de la base (la copia de la sesión es la del login y puede estar desactualizada)
+  let user = await global.knex("users").select("props").where({ id: req.session.u_info.id }).first()
+  u_info.props = parse_props(user?.props)
 
   u_info.files = await global.knex("files").select().where({ user_id: req.session.u_info.id })
   u_info.files.map(f => {
@@ -321,7 +349,7 @@ async function return_user_info(req) {
 
 }
 
-// props JSON de un track group: {} si es null o inválido
+// props JSON (de un track group o del usuario): {} si es null o inválido
 function parse_props(text) {
   try {
     let props = JSON.parse(text)

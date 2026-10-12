@@ -12,6 +12,7 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 | PUT | `/logout` | — | — | `{ stat: true }` |
 | GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` o `{ stat: false }` |
 | PUT | `/save_trackGroups` | sí | array `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array |
+| PUT | `/save_user_props` | sí | objeto `{ tempo, beats_x_bar, delay }` | `{ stat: true }`; 400 si el body no es un objeto o si el JSON pasa de 4096 caracteres |
 | PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }`; 400 si el body no es un array |
 | PUT | `/save_fileData` | sí | `{ file: { id, track_group, tags, props } }` | `{ stat: true }` |
 | PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
@@ -25,9 +26,11 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 ```js
 {
   email, name, ts, bytes_used, max_bytes_uploaded,
+  props: { tempo, beats_x_bar, delay: { type, division, feedback, level } }, // config global; {} si no hay nada guardado
+                                                                             // (el front completa los defaults)
   token,                       // para get_file
   files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3" }], // props.oneShot viejo puede venir: se ignora
-  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode, on_tag_change, density, reverb, drift } }], // props: {} si no hay nada guardado
+  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode, on_tag_change, density, reverb, drift, delay } }], // props: {} si no hay nada guardado
                                                                                 // (el front completa los defaults)
   tags: [{ id, name, color }]
 }
@@ -42,8 +45,17 @@ falla, no se pierde nada y responden 500). Mandar siempre la colección
 completa. De cada objeto solo se guardan las columnas de una lista blanca (`id, name, color, props`
 para track groups, `id, name, color` para tags); el resto de los campos se ignora. `props` de un
 track group se guarda como JSON (`JSON.stringify`) y `get_user_info` lo devuelve parseado.
-`props.reverb` es un número en dB o `null` (= sin reverb; no se usa `-Infinity` porque no es JSON
-válido) y `props.drift` un número 0..1. El backend no valida el contenido de `props`.
+`props.reverb` y `props.delay` (sends a la reverb y al delay global) son un número en dB o `null`
+(= nada; no se usa `-Infinity` porque no es JSON válido) y `props.drift` un número 0..1. El backend no valida el contenido de `props`.
+
+### `save_user_props`
+
+Guarda la config global del usuario en `users.props` (JSON), reemplazando lo anterior. De lo recibido
+solo se guardan las claves `tempo` (BPM), `beats_x_bar` (`"3"` | `"4"`) y `delay`
+(`{ type: "pingpong" | "stereo" | "dotted" | "tape", division: "16n" | "8t" | "8n" | "8n." | "4n" | "4n." | "2n", feedback: 0..0.9, level: dB }`);
+el resto se ignora. El backend no valida los valores: el front los acota al cargar
+(`apply_user_props` en `composable.js`). `get_user_info` lo devuelve parseado en `u_info.props`, leído
+de la base en cada llamada (no de la copia de `users` que quedó en la sesión al hacer login).
 
 ### `save_fileData`
 

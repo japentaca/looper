@@ -60,9 +60,9 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 
 | Tabla | Columnas | Notas |
 |---|---|---|
-| `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded` | `max_bytes_uploaded` no se usa |
+| `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto) | `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 
@@ -99,6 +99,11 @@ Los campos extra que el cliente agrega a los objetos se ignoran.
 
 `App.vue` `onMounted` → `store_get_user_info()`:
 1. `GET /api/get_user_info` trae usuario + archivos + track groups + tags.
+   La config global (`u_info.props`: tempo, compás, delay) se aplica enseguida a `TrackCtrl` y a
+   `Tone.Transport` (`apply_user_props`, con defaults para lo que falte o sea inválido), **antes** de
+   cargar los audios, así `calculateBars()` (paso 4) calcula los beats con el tempo guardado. Cargar
+   no guarda nada. En una recarga con el transporte en marcha o con un guardado pendiente no se
+   aplica (lo que está en pantalla es más nuevo que lo de la base).
 2. Arma índices y resuelve `track_group_obj` / `tag_objs` de cada archivo (descarta ids de tags
    que ya no existen).
 3. Crea un `Tone.Player` por archivo con URL `get_file?file=<id>&token=<token>` y espera a que
@@ -252,7 +257,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 - **Efectos por pista**: la cadena es `player → Tone.Filter (lowpass) → Tone.Channel`
   (`route_player` conecta el player al filtro). El filtro es `Gain → BiquadFilter → Gain` nativos
   (estéreo, a diferencia del `Panner` del Channel, que por eso lleva `channelCount: 2`); en reposo
-  queda abierto a 20 kHz, Q 0, −12 dB/oct, y no colorea. `remove_channel` dispone también filtro y send.
+  queda abierto a 20 kHz, Q 0, −12 dB/oct, y no colorea. `remove_channel` dispone también filtro y sends (reverb y delay).
 - **Reverb compartida**: un único `Tone.Reverb` (decay 6 s, `wet = 1`: solo la cola) conectado a
   `Destination` (pasa por el limitador). Cada canal tiene un send: un `Tone.Gain` (lineal) colgado de
   la **salida** del canal → reverb. Es lo mismo que hace `Tone.Channel.send()` por dentro, pero no se
@@ -272,7 +277,36 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   send = `props.reverb` (con el transporte detenido se aplica en el momento). En STOP todas las
   pistas vuelven a la base con una rampa de 0.5 s. Mover "Rev" aplica el send nuevo con una rampa
   de 50 ms (cancela la rampa en curso; el drift sigue en el compás siguiente).
-  Los knobs chicos "Rev" y "Drift" van en una fila propia de la tira (entran dos de 36 px en 112 px).
+  Los knobs chicos "Rev", "Dly" y "Drift" van en una fila propia de la tira (tres de 36 px con 2 px
+  de separación ocupan justo los 112 px).
+- **Delay global** (config en `TrackCtrl.delay`, guardada en `users.props.delay`): un único bus como
+  la reverb: sends → `delay_in` → delay activo → `fade` → `delay_out` (`Tone.Volume`, nivel de retorno
+  `delay.level` en dB) → `Destination` (pasa por el limitador). Solo devuelve las repeticiones (wet = 1).
+  No va a la reverb y el drift no lo modula. Tipos (`delay.type`):
+  - `pingpong` (default): `Tone.PingPongDelay`, las repeticiones alternan L/R.
+  - `stereo`: `Tone.FeedbackDelay`, la misma repetición en los dos canales.
+  - `dotted`: `Tone.Split` → un `FeedbackDelay` por canal → `Tone.Merge`; L con la división y R con
+    1.5 × la división (con puntillo).
+  - `tape`: lazo armado a mano (`Tone.Delay` → `Tone.OnePoleFilter` lowpass 2 kHz → salida, y del
+    filtro un `Tone.Gain` de feedback de vuelta al delay): cada repetición más oscura. Es un filtro de
+    un polo (ganancia ≤ 1, sin resonancia; un biquad con Q tiene un pico que con feedback 0.9 podía
+    pasar de 1), así la ganancia del lazo siempre es < 1.
+  Solo hay **un** delay armado (el del tipo elegido). Al cambiar de tipo se arma el nuevo, el anterior
+  se desconecta de la entrada, su salida baja a 0 en 300 ms y se libera con
+  `Tone.getContext().setTimeout`: **las repeticiones que venían sonando se cortan con ese fundido** (no
+  pasan al tipo nuevo).
+  Tiempo sincronizado: `delay.division` en notación de Tone (`16n`, `8t`, `8n`, `8n.` (default: el
+  clásico corchea con puntillo), `4n`, `4n.`, `2n`), convertido a segundos **a mano** con
+  `TrackCtrl.tempo` (`DELAY_DIVISIONS` en `TrackCtrl.js`, en beats) y no con `Tone.Time`, que congela
+  el valor con el bpm del momento. Un `watch` sobre `TrackCtrl.tempo` y la división recalcula el tiempo
+  con una rampa de 100 ms (sin clics; las repeticiones en curso se "estiran" un instante, como una
+  cinta). Como el knob Tempo cambia `TrackCtrl.tempo` mientras se arrastra y el transporte recién al
+  soltarlo, el delay sigue al knob durante el arrastre. Tope 6 s (`DELAY_MAX_S`): con tempos muy lentos
+  y divisiones largas el tiempo se recorta. `delay.feedback` 0..0.9 (default 0.4).
+  Send por pista: `props.delay` en dB (`null` = nada), un `Tone.Gain` colgado de la salida del canal
+  (post-fader, post-mute y post-solo, igual que la reverb). Knob "Dly" en la tira: −40..0 dB, el mínimo = `null`.
+  Controles globales en el panel Transport: LCD con tipo y división, botones TYPE y TIME (ciclan) y
+  knobs Feedback y Level. Cambios de tempo, compás y delay se guardan con `save_user_props_debounced()` (500 ms).
 - **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
   (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
   pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.

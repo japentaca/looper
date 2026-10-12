@@ -22,6 +22,29 @@
           :options="[{ value: '3', label: '3/4' }, { value: '4', label: '4/4' }]" @change="onSignatureChange" />
       </div>
 
+      <!-- delay global sincronizado al tempo (TrackCtrl.delay, guardado en users.props). Cada pista le
+        manda señal con su knob "Dly" -->
+      <div class="group delay">
+        <div class="delay_sel">
+          <span class="silk">Delay</span>
+          <Lcd small :digits="0">
+            <span class="delay_lcd">{{ DELAY_TYPE_LABELS[TrackCtrl.delay.type] }} {{
+              DELAY_DIVISION_LABELS[TrackCtrl.delay.division] }}</span>
+          </Lcd>
+          <div class="delay_btns">
+            <LedButton size="small" text="TYPE" title="Tipo de delay (cicla)" @click="cycle_delay('type', DELAY_TYPES)" />
+            <LedButton size="small" text="TIME" title="División del tempo (cicla)"
+              @click="cycle_delay('division', Object.keys(DELAY_DIVISIONS))" />
+          </div>
+        </div>
+        <Knob :model-value="TrackCtrl.delay.feedback" :min="0" :max="DELAY_FEEDBACK_MAX" :step="0.05" :size="48"
+          label="Feedback" :title="'Feedback ' + Math.round(TrackCtrl.delay.feedback * 100) + '%'"
+          @update:model-value="v => set_delay_cfg('feedback', Math.round(v * 100) / 100)" />
+        <Knob :model-value="TrackCtrl.delay.level" :min="DELAY_LEVEL_MIN" :max="DELAY_LEVEL_MAX" :step="1" :size="48"
+          label="Level" :title="'Delay return ' + TrackCtrl.delay.level + ' dB'"
+          @update:model-value="v => set_delay_cfg('level', v)" />
+      </div>
+
       <div class="group">
         <!-- placa de aluminio con los dos faders del rango de cambio de TAG -->
         <div class="hw_plate tag_range">
@@ -104,12 +127,15 @@
           <!-- volumen de la pista (dB, guardado en props.volume) -->
           <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
             label="Vol" :title="trg.props.volume + ' dB'" @update:model-value="v => set_volume(trg.id, v)" />
-          <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada) y modulación lenta
-            del filtro y del send (props.drift, 0..1) -->
+          <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada), send al delay global
+            (props.delay, ídem) y modulación lenta del filtro y del send de reverb (props.drift, 0..1) -->
           <div class="fx_ctrls">
             <Knob :model-value="trg.props.reverb ?? REV_OFF_DB" :min="REV_OFF_DB" :max="0" :step="1" :size="36"
               label="Rev" :title="trg.props.reverb == null ? 'Reverb: off' : 'Reverb send ' + trg.props.reverb + ' dB'"
               @update:model-value="v => set_reverb(trg.id, v)" />
+            <Knob :model-value="trg.props.delay ?? DLY_OFF_DB" :min="DLY_OFF_DB" :max="0" :step="1" :size="36"
+              label="Dly" :title="trg.props.delay == null ? 'Delay: off' : 'Delay send ' + trg.props.delay + ' dB'"
+              @update:model-value="v => set_delay(trg.id, v)" />
             <Knob :model-value="trg.props.drift ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Drift"
               :title="'Drift ' + Math.round((trg.props.drift ?? 0) * 100) + '%'"
               @update:model-value="v => set_drift(trg.id, Math.round(v * 100) / 100)" />
@@ -136,8 +162,12 @@
 
 import * as Tone from "tone"
 import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
-import { store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced } from "../helpers/composable"
-import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
+import {
+  store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_user_props_debounced
+} from "../helpers/composable"
+import {
+  TrackCtrl, calculateBars, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
+} from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import ToggleSwitch from "./hw/ToggleSwitch.vue"
@@ -147,7 +177,7 @@ import LedMeter from "./hw/LedMeter.vue"
 import StepLeds from "./hw/StepLeds.vue"
 import {
   levels, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
-  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB
+  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB, set_delay, DLY_OFF_DB
 } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
 
@@ -241,14 +271,30 @@ function strip_file(trg, track) {
   return is_oneshot(trg) ? track?.last_shot : track?.curr_file
 }
 
+// el tiempo del delay sigue a TrackCtrl.tempo solo (watch en mixer.js), también mientras se mueve el knob
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
   calculateBars()
+  save_user_props_debounced()
 }
 
 function onSignatureChange(value) {
   Tone.Transport.timeSignature = parseInt(value)
   calculateBars()
+  save_user_props_debounced()
+}
+
+// --- delay global (TrackCtrl.delay; mixer.js lo aplica con watchers) ---
+const DELAY_TYPE_LABELS = { pingpong: "PING", stereo: "STEREO", dotted: "DOTTED", tape: "TAPE" }
+const DELAY_DIVISION_LABELS = { "16n": "1/16", "8t": "1/8T", "8n": "1/8", "8n.": "1/8.", "4n": "1/4", "4n.": "1/4.", "2n": "1/2" }
+function set_delay_cfg(key, v) {
+  TrackCtrl.delay[key] = v
+  save_user_props_debounced()
+}
+// los botones TYPE y TIME pasan a la opción siguiente (vuelven a la primera después de la última)
+function cycle_delay(key, options) {
+  let i = options.indexOf(TrackCtrl.delay[key])
+  set_delay_cfg(key, options[(i + 1) % options.length])
 }
 
 function stop() {
@@ -785,7 +831,11 @@ function get_available_files_x_tag(tag_id) {
 
 /* pista que no se escucha (mute, u otra en solo): se apaga el nombre y el archivo */
 .strip.silenced .strip_name,
-.strip.silenced /* overlay "Click to start": cubre toda la ventana (el clic en cualquier parte cuenta como gesto) */
+.strip.silenced .file_name {
+  opacity: 0.3;
+}
+
+/* overlay "Click to start": cubre toda la ventana (el clic en cualquier parte cuenta como gesto) */
 .gesture_overlay {
   position: fixed;
   inset: 0;
@@ -809,19 +859,39 @@ function get_available_files_x_tag(tag_id) {
   letter-spacing: 4px;
 }
 
-.file_name {
-  opacity: 0.3;
-}
-
 .oneshot_ctrls {
   display: flex;
   align-items: flex-end;
   gap: 4px;
 }
 
+/* Rev, Dly y Drift: tres knobs de 36 px entran justo en los 112 px de la tira */
 .fx_ctrls {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+}
+
+.delay_sel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.delay_btns {
+  display: flex;
+  gap: 6px;
+}
+
+/* ancho fijo para que el LCD no cambie de tamaño al ciclar (el texto más largo es "DOTTED 1/16") */
+.delay_lcd {
+  display: inline-block;
+  min-width: 11ch;
+  font-family: var(--font_mono);
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 1px;
+  white-space: nowrap;
 }
 
 .mute_solo {

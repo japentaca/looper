@@ -29,7 +29,10 @@ export let tags_by_id = {}
 export let track_groups_by_id = {}
 
 
-import { TrackCtrl, calculateBars } from './TrackCtrl.js'
+import {
+  TrackCtrl, calculateBars, delay_default, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX,
+  DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, BEATS_X_BAR_DEFAULT
+} from './TrackCtrl.js'
 import { on_session_lost } from './request'
 
 // una respuesta 401/403 "Sin sesión" de cualquier endpoint marca la sesión como perdida. No se
@@ -69,9 +72,10 @@ export async function save_trackGroups() {
 // on_tag_change = al empezar cada Tag, density = probabilidad 0..1 de disparar en cada compás.
 // reverb = nivel del send a la reverb compartida en dB (null = nada; no se usa -Infinity porque
 // JSON.stringify lo vuelve null igual); drift = modulación lenta 0..1 de filtro y send (ver mixer.js).
+// delay = nivel del send al delay global en dB (null = nada, igual que reverb).
 export function trg_default_props() {
   return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop", on_tag_change: false, density: 0,
-    reverb: null, drift: 0 }
+    reverb: null, drift: 0, delay: null }
 }
 // guardado diferido de los track groups (para controles que cambian seguido: mute, solo, volumen)
 let save_trg_timer = null
@@ -82,6 +86,47 @@ export function save_trackGroups_debounced(ms = 500) {
     save_trackGroups()
   }, ms)
 }
+// --- config global del usuario (users.props): tempo, compás y delay ---
+// guardado diferido: se llama al cambiar tempo, compás o el delay (no al cargar)
+let save_user_props_timer = null
+export function save_user_props_debounced(ms = 500) {
+  clearTimeout(save_user_props_timer)
+  save_user_props_timer = setTimeout(async () => {
+    save_user_props_timer = null
+    try {
+      let res = await api.save_user_props({
+        tempo: TrackCtrl.tempo, beats_x_bar: TrackCtrl.beats_x_bar, delay: { ...TrackCtrl.delay }
+      })
+      if (res.stat) return
+    } catch (e) {
+      console.log("Error guardando la config", e)
+    }
+    ElMessage({ type: 'error', message: "No se pudo guardar la configuración (tempo / delay)" })
+  }, ms)
+}
+function clamp(v, min, max, def) {
+  v = Number(v)
+  return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def
+}
+// aplica la config guardada (con defaults para lo que falte o sea inválido) a TrackCtrl y al transporte.
+// El delay de mixer.js sigue a TrackCtrl con watchers. Va antes de calculateBars (los beats de los
+// archivos dependen del tempo). No guarda nada: solo se guarda al tocar un control.
+function apply_user_props(props) {
+  let p = props ?? {}
+  TrackCtrl.tempo = Math.round(clamp(p.tempo, 10, 160, TEMPO_DEFAULT)) // mismo rango que el knob Tempo
+  TrackCtrl.beats_x_bar = ["3", "4"].includes(String(p.beats_x_bar)) ? String(p.beats_x_bar) : BEATS_X_BAR_DEFAULT
+  let def = delay_default()
+  let d = p.delay && typeof p.delay == "object" ? p.delay : {}
+  Object.assign(TrackCtrl.delay, {
+    type: DELAY_TYPES.includes(d.type) ? d.type : def.type,
+    division: DELAY_DIVISIONS[d.division] ? d.division : def.division,
+    feedback: clamp(d.feedback, 0, DELAY_FEEDBACK_MAX, def.feedback),
+    level: clamp(d.level, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, def.level),
+  })
+  Tone.Transport.bpm.value = TrackCtrl.tempo
+  Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
+}
+
 async function save_collection(api_fn, data, label) {
   try {
     let res = await api_fn(data)
@@ -103,6 +148,9 @@ export const store_get_user_info = async () => {
     start_session_check()
 
     store.u_info = res.u_info
+    // config global (tempo, compás, delay). En una recarga con el transporte en marcha o con un
+    // guardado pendiente no se aplica: lo que está en pantalla es más nuevo que lo de la base.
+    if (!TrackCtrl.isPlaying && !save_user_props_timer) apply_user_props(res.u_info.props)
     //console.log("llamo rebuild")
 
     //console.log("loops")
