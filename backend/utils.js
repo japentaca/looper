@@ -5,12 +5,12 @@ const exec = util.promisify(child_process.exec);
 async function convert_file(in_file, out_file) {
   let command = global.config.path_to_ffmpeg + ` -i ${in_file} -vn -ar 44100 -ac 2 -b:a 192k ${out_file}`
   console.log(command)
-  let res = await runCommand(command)
-  console.log("resconvert", res)
-  await unlink(in_file)
-  return res
-
-
+  try {
+    return await runCommand(command)
+  } finally {
+    // el temporal se borra aunque la conversión falle
+    await unlink(in_file).catch(() => { })
+  }
 }
 
 async function runCommand(command) {
