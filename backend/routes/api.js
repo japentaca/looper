@@ -85,16 +85,31 @@ router.put("/save_tags", async (req, res) => {
   await replace_user_rows("user_tags", req, res)
 })
 
+// columnas que se guardan de cada objeto recibido (lista blanca): los campos que el cliente agrega
+// a los objetos (o columnas sin uso como `silences`) se ignoran, si no romperían el insert.
+// Las columnas JSON se serializan con JSON.stringify.
+const USER_ROWS_COLUMNS = {
+  user_track_groups: { columns: ["id", "name", "color", "props"], json: ["props"] },
+  user_tags: { columns: ["id", "name", "color"], json: [] },
+}
+
 // reemplaza todas las filas del usuario en la tabla por las recibidas, en una transacción
 // para no perder la colección si falla un insert
 async function replace_user_rows(table, req, res) {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
+  if (!Array.isArray(req.body)) return res.status(400).send({ stat: false, text: "Datos inválidos" })
   let user_id = req.session.u_info.id
+  let { columns, json } = USER_ROWS_COLUMNS[table]
   try {
     await global.knex.transaction(async trx => {
       await trx(table).delete().where({ user_id: user_id })
       for (let r of req.body) {
-        await trx(table).insert({ ...r, user_id: user_id })
+        let row = { user_id: user_id }
+        for (let c of columns) {
+          if (r[c] === undefined) continue
+          row[c] = json.includes(c) ? JSON.stringify(r[c] ?? {}) : r[c]
+        }
+        await trx(table).insert(row)
       }
     })
     res.send({ stat: true })
@@ -289,6 +304,8 @@ async function return_user_info(req) {
   let t = await global.knex("user_track_groups").select().where({ user_id: req.session.u_info.id })
   u_info.track_groups = t.map(r => {
     delete r.user_id
+    delete r.silences // columna sin uso
+    r.props = parse_props(r.props)
     return r
   })
   t = await global.knex("user_tags").select().where({ user_id: req.session.u_info.id })
@@ -302,6 +319,16 @@ async function return_user_info(req) {
 
   return u_info
 
+}
+
+// props JSON de un track group: {} si es null o inválido
+function parse_props(text) {
+  try {
+    let props = JSON.parse(text)
+    return props && typeof props == "object" && !Array.isArray(props) ? props : {}
+  } catch {
+    return {}
+  }
 }
 
 function parse_tags(text) {

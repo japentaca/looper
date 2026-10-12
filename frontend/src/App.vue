@@ -45,12 +45,12 @@
 
     <div class="body">
       <aside class="sidebar">
-        <div class="side_title">Track groups</div>
+        <div class="side_title">Tracks</div>
         <div class="pads">
           <SidebarItem v-for="(track_group, index) in store.track_groups" :key="track_group.id" kind="track_group"
             :index="index" />
         </div>
-        <el-button class="add_btn" size="small" @click="addTrackGroup">+ Track group</el-button>
+        <el-button class="add_btn" size="small" @click="addTrackGroup">+ Track</el-button>
 
         <div class="side_title">Tags</div>
         <div class="pads">
@@ -94,7 +94,7 @@ import LedMeter from "./components/hw/LedMeter.vue"
 import { levels } from "./helpers/mixer"
 import { TrackCtrl } from "./helpers/TrackCtrl"
 
-import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups } from "./helpers/composable"
+import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups, trg_default_props } from "./helpers/composable"
 
 import * as uuid from "uuid"
 
@@ -103,7 +103,7 @@ import { playerStop } from "./helpers/toneLib"
 
 async function addTrackGroup() {
   let id = uuid.v4()
-  let trg = { name: "Track Group", color: randomColor(), id: id }
+  let trg = { name: "Track", color: randomColor(), id: id, props: trg_default_props() }
   store.track_groups.push(trg)
   rebuildIndexes()
   await save_trackGroups()

@@ -1,9 +1,10 @@
-// Mixer de las pistas: un canal por track group (Tone.Channel, con mute y solo) y su vúmetro.
+// Mixer de las pistas: un canal por track group (Tone.Channel, con volumen, mute y solo) y su vúmetro.
 // Los players de los archivos del grupo se enrutan al canal en vez de ir directo a la salida.
 // Además hay un vúmetro estéreo en la salida master. Los Meter solo analizan: no cambian el audio.
+// El volumen, mute y solo de cada pista viven en trg.props (se guardan con save_trackGroups).
 import * as Tone from "tone"
 import { reactive, watch } from "vue"
-import { store, audio_players, files_by_id } from "./composable"
+import { store, audio_players, files_by_id, save_trackGroups_debounced } from "./composable"
 import { TrackCtrl } from "./TrackCtrl"
 
 const FLOOR_DB = -48 // nivel que queda en 0 (abajo de esto el medidor está apagado)
@@ -28,14 +29,19 @@ function new_level() {
 // niveles 0..1 para los LedMeter: levels.trgs[trg_id] y levels.master[0|1] (L/R)
 export const levels = reactive({ trgs: {}, master: [new_level(), new_level()] })
 
-// estado de mute/solo por track group; vive acá (y no en los tracks, que se rearman en cada START)
-// para que se mantenga entre corridas. Varios grupos pueden estar en solo a la vez.
-export const mixer = reactive({ mute: {}, solo: {} })
+// props de la pista (track group); {} si no existe. Se busca en store.track_groups (y no en el índice)
+// para no depender de que rebuildIndexes() ya haya corrido, y para que sea reactivo.
+function trg_props(trg) {
+  return store.track_groups.find(t => t.id === trg)?.props ?? {}
+}
 
 function get_channel(trg) {
   if (!channels_by_trg[trg]) {
+    let p = trg_props(trg)
     // channelCount 2: si no, Tone.Channel pasa el audio a mono
-    let channel = new Tone.Channel({ channelCount: 2, mute: !!mixer.mute[trg], solo: !!mixer.solo[trg] }).toDestination()
+    let channel = new Tone.Channel({
+      channelCount: 2, volume: p.volume ?? 0, mute: !!p.mute, solo: !!p.solo
+    }).toDestination()
     // vúmetro post-mute: muestra lo que realmente se escucha de la pista
     let meter = new Tone.Meter({ smoothing: 0.8 })
     channel.connect(meter)
@@ -44,6 +50,26 @@ function get_channel(trg) {
   }
   return channels_by_trg[trg].channel
 }
+
+function remove_channel(trg) {
+  let ch = channels_by_trg[trg]
+  if (!ch) return
+  ch.channel.solo = false // así los demás canales dejan de quedar callados por este solo
+  ch.channel.dispose()
+  ch.meter.dispose()
+  delete channels_by_trg[trg]
+  delete levels.trgs[trg]
+}
+
+// un canal por cada track group: se crean al cargar (con lo guardado en props) o al agregar un pad,
+// y se eliminan al borrarlo. Así el solo de una pista sin archivos sonando ya calla a las demás.
+watch(() => store.track_groups.map(t => t.id).join(","), () => {
+  let ids = store.track_groups.map(t => t.id)
+  for (const trg of Object.keys(channels_by_trg)) {
+    if (!ids.includes(trg)) remove_channel(trg)
+  }
+  for (const trg of ids) get_channel(trg)
+}, { immediate: true })
 
 // enruta el player del archivo al canal de su track group (una sola vez; si el archivo cambió
 // de grupo se pasa al canal nuevo)
@@ -57,19 +83,31 @@ export function route_player(file_id) {
 }
 
 export function toggle_mute(trg) {
-  mixer.mute[trg] = !mixer.mute[trg]
-  if (channels_by_trg[trg]) channels_by_trg[trg].channel.mute = mixer.mute[trg]
+  let p = trg_props(trg)
+  p.mute = !p.mute
+  get_channel(trg).mute = p.mute
+  save_trackGroups_debounced()
 }
 
 export function toggle_solo(trg) {
-  mixer.solo[trg] = !mixer.solo[trg]
-  if (channels_by_trg[trg]) channels_by_trg[trg].channel.solo = mixer.solo[trg]
+  let p = trg_props(trg)
+  p.solo = !p.solo
+  get_channel(trg).solo = p.solo
+  save_trackGroups_debounced()
+}
+
+// volumen de la pista en dB (se llama mientras se mueve el fader; el guardado es diferido)
+export function set_volume(trg, db) {
+  let p = trg_props(trg)
+  p.volume = db
+  get_channel(trg).volume.value = db
+  save_trackGroups_debounced()
 }
 
 // true si la pista no se escucha: está en mute u otra pista está en solo
 export function is_silenced(trg) {
-  if (mixer.mute[trg]) return true
-  return !mixer.solo[trg] && Object.values(mixer.solo).some(v => v)
+  if (trg_props(trg).mute) return true
+  return !trg_props(trg).solo && store.track_groups.some(t => t.props?.solo)
 }
 
 function db_to_level(db) {

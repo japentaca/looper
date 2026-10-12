@@ -34,6 +34,20 @@ export async function save_tags() {
 export async function save_trackGroups() {
   await save_collection(api.save_trackGroups, store.track_groups, "los track groups")
 }
+// config de cada pista (track group), guardada en user_track_groups.props.
+// volume en dB (va al Tone.Channel); rest y mode son para fases futuras del motor.
+export function trg_default_props() {
+  return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop" }
+}
+// guardado diferido de los track groups (para controles que cambian seguido: mute, solo, volumen)
+let save_trg_timer = null
+export function save_trackGroups_debounced(ms = 500) {
+  clearTimeout(save_trg_timer)
+  save_trg_timer = setTimeout(() => {
+    save_trg_timer = null
+    save_trackGroups()
+  }, ms)
+}
 async function save_collection(api_fn, data, label) {
   try {
     let res = await api_fn(data)
@@ -60,6 +74,7 @@ export const store_get_user_info = async () => {
     if (!store.u_info.track_groups) store.u_info.track_groups = []
     for (let i = 0; i < store.u_info.track_groups.length; i++) {
       let t = store.u_info.track_groups[i]
+      t.props = { ...trg_default_props(), ...(t.props ?? {}) }
       store.track_groups.push(t)
     }
 

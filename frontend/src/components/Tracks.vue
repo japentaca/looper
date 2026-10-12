@@ -56,7 +56,8 @@
       </div>
     </section>
 
-    <section class="hw_panel tracks_list" v-if="tracks.length">
+    <!-- una tira por track group (pista), también con el transporte detenido y sin archivos -->
+    <section class="hw_panel tracks_list" v-if="strips.length">
       <div class="strips_head">
         <span class="silk">Tracks</span>
         <Led color="green" :pulse="beat.downbeat ? null : beat.n" />
@@ -64,28 +65,28 @@
         <span class="silk dim">Beat</span>
       </div>
       <div class="strips">
-        <div class="strip" v-for="(track, index) in tracks" :key="index" :title="track.curr_file?.original_name"
-          :class="{ silenced: track.track_group && is_silenced(track.track_group.id) }">
-          <span class="strip_color" :style="{ background: track.track_group?.color }"></span>
-          <span class="silk strip_name">{{ track.track_group?.name }}</span>
+        <div class="strip" v-for="{ trg, track } in strips" :key="trg.id" :title="track?.curr_file?.original_name"
+          :class="{ silenced: is_silenced(trg.id) }">
+          <span class="strip_color" :style="{ background: trg.color }"></span>
+          <span class="silk strip_name">{{ trg.name }}</span>
           <!-- LED de actividad: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
-          <Led :color="track.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
-            :pulse="track.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
+          <Led :color="track?.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
+            :pulse="track?.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
           <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
-          <LedMeter :value="levels.trgs[track.track_group?.id]?.level ?? 0"
-            :peak="levels.trgs[track.track_group?.id]?.peak ?? 0" />
-          <Lcd small :digits="2" :value="track.curr_file ? track_beat(track) : ''"
-            :unit="track.curr_file ? '/' + track.curr_file.beats : ''" />
+          <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
+          <Lcd small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
+            :unit="track?.curr_file ? '/' + track.curr_file.beats : ''" />
           <!-- posición dentro del loop -->
-          <StepLeds :pos="track.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
-            :beats="track.curr_file?.beats ?? 0" />
-          <span class="file_name">{{ track.curr_file?.original_name ?? "—" }}</span>
-          <!-- mute / solo de la pista (se mantienen entre START y START) -->
+          <StepLeds :pos="track?.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
+            :beats="track?.curr_file?.beats ?? 0" />
+          <span class="file_name">{{ track?.curr_file?.original_name ?? "—" }}</span>
+          <!-- volumen de la pista (dB, guardado en props.volume) -->
+          <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
+            label="Vol" :title="trg.props.volume + ' dB'" @update:model-value="v => set_volume(trg.id, v)" />
+          <!-- mute / solo de la pista (guardados en props) -->
           <div class="mute_solo">
-            <LedButton size="small" text="M" led="red" :lit="!!mixer.mute[track.track_group?.id]"
-              @click="toggle_mute(track.track_group.id)" />
-            <LedButton size="small" text="S" led="yellow" :lit="!!mixer.solo[track.track_group?.id]"
-              @click="toggle_solo(track.track_group.id)" />
+            <LedButton size="small" text="M" led="red" :lit="!!trg.props.mute" @click="toggle_mute(trg.id)" />
+            <LedButton size="small" text="S" led="yellow" :lit="!!trg.props.solo" @click="toggle_solo(trg.id)" />
           </div>
         </div>
       </div>
@@ -96,7 +97,7 @@
 
 import * as Tone from "tone"
 import { ref, reactive, computed } from "vue"
-import { store, track_groups_by_id, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
+import { store, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -105,7 +106,7 @@ import LedButton from "./hw/LedButton.vue"
 import Led from "./hw/Led.vue"
 import LedMeter from "./hw/LedMeter.vue"
 import StepLeds from "./hw/StepLeds.vue"
-import { levels, mixer, route_player, toggle_mute, toggle_solo, is_silenced } from "../helpers/mixer"
+import { levels, route_player, toggle_mute, toggle_solo, set_volume, is_silenced } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
 
 function reset() {
@@ -154,6 +155,13 @@ let available_tags = []
 let available_trgs = []
 
 let tracks = TrackCtrl.tracks
+
+// tiras a mostrar: todos los track groups, con el estado de su track si el transporte ya arrancó
+const strips = computed(() => store.track_groups.map(trg => ({
+  trg,
+  track: tracks.find(t => t.track_group?.id === trg.id) ?? null
+})))
+const strip_volume_marks = [0, -12, -24, -48].map(v => ({ value: v, label: v }))
 
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
@@ -228,7 +236,6 @@ function start() {
   TrackCtrl.isPlaying = true
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
   Tone.Transport.bpm.value = TrackCtrl.tempo
-  let temp_trg = {}
   let temp_tag = {}
   tracks.splice(0)
   files_per_TRG = []
@@ -242,7 +249,6 @@ function start() {
     let f = store.files[i]
     if (!f.isLoaded) continue // sin buffer, Tone no lo puede reproducir
     if (f.track_group) {
-      temp_trg[f.track_group] = f.track_group
       if (!files_per_TRG[f.track_group]) {
         files_per_TRG[f.track_group] = []
       }
@@ -261,16 +267,16 @@ function start() {
   }
 
   available_trgs = []
-  for (const value of Object.values(temp_trg)) {
-    available_trgs.push(track_groups_by_id[value])
-    // key y value traen el tag_id
+  // un track por cada track group, tenga o no archivos (sin archivos queda en silencio)
+  for (const trg of store.track_groups) {
+    if (!files_per_TRG[trg.id]) files_per_TRG[trg.id] = []
+    available_trgs.push(trg)
     tracks.push({
       percentage: 0,
-      track_group: track_groups_by_id[value],
+      track_group: trg,
       curr_file: null,
       remaining_beats: 0
     })
-
   }
   selectTag()
   get_available_files_x_tag(current_TAG.tag?.id)
@@ -342,7 +348,8 @@ function set_next_step(time) {
   tracks.map(track => {
 
     if (track.remaining_beats == 0) {
-      if (available_files_per_TRG[track.track_group.id].length == 0) return
+      // pista sin archivos (o sin ninguno compatible con el Tag): queda en silencio
+      if (!available_files_per_TRG[track.track_group.id]?.length) return
       //player[track.track_group.id].buffer=
       //if (track.curr_file) {
       // audio_players[track.curr_file.id].stop(time)
@@ -376,14 +383,15 @@ function get_available_files_x_tag(tag_id) {
 
     if (!available_files_per_TRG[trg.id]) { available_files_per_TRG[trg.id] = [] }
 
-    for (let l = 0; l < files_per_TRG[trg.id].length; l++) {
-      let a = files_per_TRG[trg.id][l]
+    let trg_files = files_per_TRG[trg.id] ?? []
+    for (let l = 0; l < trg_files.length; l++) {
+      let a = trg_files[l]
       //console.log(a,)
       let f = files_by_id[a]
       //console.log("ee", f)
       // sin tags = compatible con cualquier tag
       if (f.tags.length == 0 || f.tags.includes(tag_id)) {
-        available_files_per_TRG[f.track_group].push(a)
+        available_files_per_TRG[trg.id].push(a)
       }
     }
   }

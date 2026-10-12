@@ -31,7 +31,8 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
 - 🟡 `props.oneShot` se guarda y edita pero el motor no lo usa. `user_track_groups.silences` y la
-  tabla `sets` tampoco.
+  tabla `sets` tampoco (`silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
+  track groups queda en null; en la base actual estaba vacía en todas las filas).
 
 ## Frontend — general
 

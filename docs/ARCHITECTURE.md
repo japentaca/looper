@@ -62,7 +62,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded` | `max_bytes_uploaded` no se usa |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6), oneShot: bool }`. Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `silences` | `silences` no se usa |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0, mode: "loop" }` (`rest` y `mode` reservados para fases futuras del motor). `silences` no se usa ni se devuelve |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 
@@ -71,6 +71,9 @@ actual `files` no tiene PK porque se creó a mano. No hay claves foráneas; la i
 un Tag o Track Group, el front limpia la referencia en cada archivo).
 
 `save_trackGroups` y `save_tags` **reemplazan la colección entera** del usuario (delete + insert).
+Solo se guardan las columnas de una lista blanca por tabla (`USER_ROWS_COLUMNS` en `routes/api.js`:
+`id, name, color, props` para track groups, `id, name, color` para tags); `props` se serializa a JSON.
+Los campos extra que el cliente agrega a los objetos se ignoran.
 
 ## Frontend
 
@@ -84,7 +87,10 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
   Estos campos **no** existen en la DB.
   Los tags se asignan arrastrando un pad de Tag sobre un archivo (toggle: si ya lo tiene, lo quita)
   o desde el diálogo de edición de `Files.vue` (✕ en cada chip y un select para agregar).
-- `store.track_groups`, `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
+- `store.track_groups`: al cargar se completa `props` con los defaults (`trg_default_props()` en
+  `composable.js`) más lo guardado. Las pistas nuevas (`addTrackGroup` en `App.vue`) nacen con los
+  defaults. Los cambios de mixer se guardan con `save_trackGroups_debounced()` (500 ms).
+- `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
 `files_by_id`, `track_groups_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`).
@@ -105,7 +111,8 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
 ### Motor de reproducción (`components/Tracks.vue`)
 
 Conceptos:
-- **Track** = un Track Group en uso; cada track reproduce un archivo a la vez.
+- **Track** = un Track Group (pista); cada track reproduce un archivo a la vez. Hay un track por
+  cada track group, tenga o no archivos (sin archivos queda en silencio).
 - **Tag activo** (`current_TAG`) = filtra qué archivos pueden sonar. Un archivo puede tener varios
   tags y es compatible con el Tag activo si lo incluye; un archivo sin tags es compatible con cualquier Tag.
   Los Tags que se sortean son la unión de los tags de todos los archivos cargados.
@@ -113,8 +120,8 @@ Conceptos:
   cortados a compás para que el encastre sea correcto.
 
 Flujo:
-1. `start()`: agrupa archivos por track group (`files_per_TRG`) y por tag; crea un track por cada
-   track group con archivos; elige un Tag (`selectTag`) y calcula archivos disponibles por track
+1. `start()`: agrupa archivos por track group (`files_per_TRG`, con un array, quizás vacío, para
+   cada track group) y por tag; crea un track por cada track group de `store.track_groups`; elige un Tag (`selectTag`) y calcula archivos disponibles por track
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**.
 3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX
@@ -123,8 +130,8 @@ Flujo:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
      tracks cuyo archivo no incluye el tag nuevo (los que lo incluyen o no tienen tags siguen
      sonando: un loop con tags A y B atraviesa el cambio de A a B).
-   - Por cada track con `remaining_beats == 0`: elige al azar un archivo disponible de su track
-     group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
+   - Por cada track con `remaining_beats == 0`: si no tiene archivos disponibles para el Tag, no
+     hace nada (silencio); si no, elige al azar un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
      `remaining_beats = beats - 1`. Si no, decrementa y actualiza el progreso.
 5. Después de `set_next_step`, el mismo callback agenda con `Tone.Draw.schedule(..., time)` la
    actualización de `beat` (`n` = número de beat del transporte, `downbeat` = primer tiempo del
@@ -136,6 +143,9 @@ Flujo:
    `current_TAG` y `tracks` viven en `TrackCtrl` (los escribe solo `Tracks.vue`): así los pads de la
    barra lateral (`SidebarItem.vue`) se iluminan si su Track Group tiene un archivo sonando
    (`curr_file.isPlaying`) o si su Tag es el activo.
+6. Las tiras de canal se arman con la lista computada `strips` (todos los `store.track_groups`, cada
+   uno con su track de `TrackCtrl.tracks` si existe), así se ven y se configuran (volumen, mute,
+   solo) también con el transporte detenido y en pistas sin archivos.
 
 Reglas para modificar el motor:
 - Todo lo que suene debe programarse con el `time` del callback (no con `Date`/`setTimeout`), si no
@@ -146,15 +156,19 @@ Reglas para modificar el motor:
 
 ### Mixer y vúmetros (`helpers/mixer.js`)
 
-- Un `Tone.Channel` por track group (estéreo, `channelCount: 2`) conectado a `Destination`.
-  `start_file` llama a `route_player(id)`, que saca al player de `Destination` (los players se crean
+- Un `Tone.Channel` por track group (estéreo, `channelCount: 2`) conectado a `Destination`. Los
+  canales se crean para **todos** los track groups (un `watch` sobre los ids de `store.track_groups`:
+  al cargar, al agregar un pad) con lo guardado en `props`, y se eliminan al borrar el pad (antes se
+  le quita el solo para no dejar callados a los demás). `start_file` llama a `route_player(id)`, que saca al player de `Destination` (los players se crean
   con `.toDestination()` en `composable.js`) y lo conecta al canal de su grupo. Se hace una sola vez
   por player (WeakMap player → grupo); si el archivo cambió de grupo se pasa al canal nuevo.
-- **Mute / solo**: `mixer.mute[trg]` y `mixer.solo[trg]` (reactive, solo en memoria) con
-  `toggle_mute` / `toggle_solo`. Se aplican al `Tone.Channel` (que resuelve el solo entre canales:
-  si hay alguno en solo, el resto queda callado; puede haber varios en solo). El estado vive fuera
-  de `TrackCtrl.tracks` porque los tracks se rearman en cada START; si el canal todavía no existe
-  se aplica al crearlo. El preview (`toneLib.js`) no pasa por los canales.
+- **Volumen / mute / solo**: viven en `trg.props.volume` (dB), `trg.props.mute` y `trg.props.solo`
+  y se guardan en la base (`save_trackGroups_debounced`). `set_volume`, `toggle_mute` y
+  `toggle_solo` escriben `props` y lo aplican al `Tone.Channel` (que resuelve el solo entre canales:
+  si hay alguno en solo, el resto queda callado; puede haber varios en solo). La tira tiene un
+  `Fader` chico (−48..+6 dB) y los botones M / S. El estado vive fuera de `TrackCtrl.tracks` porque
+  los tracks se rearman en cada START. El volumen del canal se suma al `props.volume` de cada
+  archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales.
 - **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
   (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
   pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.

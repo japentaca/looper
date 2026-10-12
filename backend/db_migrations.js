@@ -24,7 +24,8 @@ export default async function do_migrations() {
   await create_column_string("user_track_groups", "user_id", 36)
   await create_column_string("user_track_groups", "name", 256)
   await create_column_string("user_track_groups", "color", 32)
-  await create_column_string("user_track_groups", "silences", 4096)
+  await create_column_string("user_track_groups", "silences", 4096) // sin uso
+  await create_column_string("user_track_groups", "props", 4096) // JSON: config de la pista (volume, mute, solo...)
 
   await create_table("user_tags")
   await create_column_string("user_tags", "user_id", 36)

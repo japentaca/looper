@@ -11,8 +11,8 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 | POST | `/login` | no | `{ email, password }` | `{ stat: true, data: { u_info, text } }` o `{ stat: false, text }` |
 | PUT | `/logout` | — | — | `{ stat: true }` |
 | GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` o `{ stat: false }` |
-| PUT | `/save_trackGroups` | sí | array `[{ id, name, color }]` | `{ stat: true }` |
-| PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }` |
+| PUT | `/save_trackGroups` | sí | array `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array |
+| PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }`; 400 si el body no es un array |
 | PUT | `/save_fileData` | sí | `{ file: { id, track_group, tags, props } }` | `{ stat: true }` |
 | PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
 | GET | `/get_file` | token | `?file=<file_id>&token=<u_info.token>` | archivo mp3 |
@@ -27,7 +27,8 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
   email, name, ts, bytes_used, max_bytes_uploaded,
   token,                       // para get_file
   files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume, oneShot }, name: "<id>.mp3" }],
-  track_groups: [{ id, name, color, silences }],
+  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode } }], // props: {} si no hay nada guardado
+                                                                                // (el front completa los defaults)
   tags: [{ id, name, color }]
 }
 ```
@@ -38,7 +39,9 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 
 Borran **todas** las filas del usuario y reinsertan el array recibido, en una transacción (si
 falla, no se pierde nada y responden 500). Mandar siempre la colección
-completa. Los objetos se insertan tal cual, así que no deben traer campos que no sean columnas.
+completa. De cada objeto solo se guardan las columnas de una lista blanca (`id, name, color, props`
+para track groups, `id, name, color` para tags); el resto de los campos se ignora. `props` de un
+track group se guarda como JSON (`JSON.stringify`) y `get_user_info` lo devuelve parseado.
 
 ### `save_fileData`
 

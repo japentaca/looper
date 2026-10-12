@@ -26,7 +26,7 @@ import { TrackCtrl } from "../helpers/TrackCtrl"
 
 const KINDS = {
   track_group: {
-    list: () => store.track_groups, save: save_trackGroups, label: "track group",
+    list: () => store.track_groups, save: save_trackGroups, label: "track",
     // true si el archivo tiene asignado el item
     uses: (file, id) => file.track_group == id,
     // quita el item del archivo; devuelve true si el archivo cambió
