@@ -19,13 +19,16 @@
 // Item editable y arrastrable de la barra lateral: sirve para Track Groups (kind="track_group")
 // y para Tags (kind="tag"). Lo que cambia entre ambos está en KINDS.
 import { ref, computed } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { save_fileData } from '../helpers/api'
 import { store, rebuildIndexes, save_tags, save_trackGroups, set_file_tags } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
 
 const KINDS = {
   track_group: {
-    list: () => store.track_groups, save: save_trackGroups,
+    list: () => store.track_groups, save: save_trackGroups, label: "track group",
+    // true si el archivo tiene asignado el item
+    uses: (file, id) => file.track_group == id,
     // quita el item del archivo; devuelve true si el archivo cambió
     unassign: (file, id) => {
       if (file.track_group != id) return false
@@ -37,7 +40,8 @@ const KINDS = {
     is_lit: (id) => TrackCtrl.tracks.some(t => t.track_group?.id == id && t.curr_file?.isPlaying)
   },
   tag: {
-    list: () => store.tags, save: save_tags,
+    list: () => store.tags, save: save_tags, label: "tag",
+    uses: (file, id) => file.tags.includes(id),
     unassign: (file, id) => {
       if (!file.tags.includes(id)) return false
       set_file_tags(file, file.tags.filter(t => t !== id))
@@ -92,6 +96,20 @@ async function onColorChange(a) {
 }
 async function deleteItem() {
   let id = item.value.id
+  // si está asignado a algún archivo, se pide confirmación antes de borrarlo
+  let used = store.files.filter(file => cfg.uses(file, id)).length
+  if (used > 0) {
+    try {
+      await ElMessageBox.confirm(
+        `The ${cfg.label} "${item.value.name}" is assigned to ${used} file${used > 1 ? "s" : ""}. ` +
+        `Deleting it will remove it from ${used > 1 ? "them" : "it"}. Continue?`,
+        'Warning',
+        { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'warning' }
+      )
+    } catch {
+      return // canceló
+    }
+  }
   cfg.list().splice(props.index, 1)
   // los archivos que tenían este item quedan sin asignar
   store.files.map(async (file) => {
