@@ -26,8 +26,8 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 {
   email, name, ts, bytes_used, max_bytes_uploaded,
   token,                       // para get_file
-  files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume, oneShot }, name: "<id>.mp3" }],
-  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode } }], // props: {} si no hay nada guardado
+  files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3" }], // props.oneShot viejo puede venir: se ignora
+  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode, on_tag_change, density } }], // props: {} si no hay nada guardado
                                                                                 // (el front completa los defaults)
   tags: [{ id, name, color }]
 }

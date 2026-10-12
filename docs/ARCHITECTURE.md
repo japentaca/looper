@@ -61,8 +61,8 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 | Tabla | Columnas | Notas |
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded` | `max_bytes_uploaded` no se usa |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6), oneShot: bool }`. Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (ver motor); `mode` reservado para una fase futura. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 
@@ -143,6 +143,27 @@ Flujo:
      El cambio de Tag no toca a una pista en descanso (no tiene archivo que cortar): termina su
      descanso y después sortea entre los compatibles con el Tag nuevo. RESET y STOP sí cortan el
      descanso. Con `rest = 0` el motor se comporta como antes.
+   - **Pistas one-shot (`trg.props.mode == "oneshot"`)**: no participan de la lógica de loops
+     (ni `remaining_beats` ni descansos); en cada beat pasan por `oneshot_step(track, time, n,
+     tag_start, downbeat)`, que dispara si:
+     - `on_tag_change` y empieza un Tag (`tag_start`): `selectTag()` levanta el flag `tag_starting`
+       y el primer `set_next_step` siguiente lo consume. Desde `set_next_step` es el mismo beat (el
+       mismo `time`) en que se elige el Tag; desde `start()` es el primer beat del transporte y desde
+       RESET el beat siguiente. Dispara en cada Tag nuevo, aunque el sorteo repita el mismo Tag.
+     - o `density` (0..1): en cada downbeat se tira el dado con esa probabilidad. El downbeat se
+       calcula en el callback de audio desde los ticks del transporte en `time`
+       (`n = round(ticks / PPQ)`, `n % beats_x_bar == 0`), no desde el estado visual.
+     Se pueden combinar (dispara una sola vez si coinciden). El archivo se sortea entre
+     `available_files_per_TRG` de la pista, que si el Tag cambió en ese beat ya es la del Tag nuevo.
+     Se arranca con `start_file(f, time)` (pasa por el canal: respeta mute/solo y mueve el vúmetro)
+     y **suena entero** (no se le agenda `stop`, y el cambio de Tag no lo corta porque la pista no
+     tiene `curr_file`). Si ese mismo player ya está `started`, se saltea el disparo (no se reinicia).
+     El nombre (`track.last_shot`) y el destello del LED (`track.shot_n`) se actualizan con
+     `Tone.Draw.schedule(..., time)`. Si la pista pasa de loop a one-shot con un loop sonando, ese
+     loop se corta en el beat siguiente; de one-shot a loop, la pista sortea un loop en el beat
+     siguiente (`remaining_beats` quedó en 0). RESET no corta los disparos que suenan (solo elige
+     Tag y recalcula los disponibles); STOP sí los corta (todos los archivos de la pista que estén
+     `started`, porque puede haber varios superpuestos).
 5. Después de `set_next_step`, el mismo callback agenda con `Tone.Draw.schedule(..., time)` la
    actualización de `beat` (`n` = número de beat del transporte, `downbeat` = primer tiempo del
    compás), que hace destellar los LEDs del panel de Tracks cuando el beat suena de verdad y
@@ -160,6 +181,13 @@ Flujo:
    solo, descanso) también con el transporte detenido y en pistas sin archivos. El `Knob` chico
    "Rest" (0..1, paso 0.05) escribe `trg.props.rest` y guarda con `save_trackGroups_debounced()`;
    el motor lo lee en cada sorteo, así que un cambio vale desde el próximo fin de loop.
+   Un `LedButton` LOOP/SHOT (LED amarillo encendido = one-shot) cambia `props.mode`; el motor lo toma
+   en el beat siguiente. En modo one-shot la tira oculta el knob Rest y los `StepLeds`, el LCD
+   muestra `SHOT`, el LED de actividad (amarillo) destella en cada disparo, debajo se ve el nombre
+   del último disparo y aparecen el knob "Dens" (`props.density`, paso 0.05) y el botón "TAG"
+   (`props.on_tag_change`). Todo se guarda con `save_trackGroups_debounced()`.
+   RESET también recalcula `available_files_per_TRG` para el Tag nuevo (antes seguía usando los
+   del Tag anterior hasta el próximo cambio).
 
 Reglas para modificar el motor:
 - Todo lo que suene debe programarse con el `time` del callback (no con `Date`/`setTimeout`), si no

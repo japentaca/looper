@@ -38,7 +38,6 @@
           </p>
         </div>
         <div class="cart_foot">
-          <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
           <span class="actions">
             <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" :title="preview_title(file)"
               @click="togglePreview(file)">
@@ -133,9 +132,6 @@
             <span v-else-if="curr_edit_file.tag_objs.length == 0" class="muted">no hay tags creados</span>
           </span>
         </div>
-
-        <el-checkbox class="one_shot" @change="onChange(curr_edit_file)" v-model="curr_edit_file.props.oneShot"
-          label="OneShot" size="small" />
       </div>
 
       <!-- volumen del archivo (dB) como fader sobre placa de aluminio -->
@@ -452,7 +448,7 @@ const iconSize = ref(18)
 .cart_foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .cart_foot .icons {
@@ -519,9 +515,6 @@ const iconSize = ref(18)
   min-width: 0;
 }
 
-.one_shot {
-  margin-top: 18px;
-}
 
 .dialog_footer {
   display: flex;

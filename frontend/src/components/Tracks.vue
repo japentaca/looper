@@ -65,24 +65,41 @@
         <span class="silk dim">Beat</span>
       </div>
       <div class="strips">
-        <div class="strip" v-for="{ trg, track } in strips" :key="trg.id" :title="track?.curr_file?.original_name"
+        <div class="strip" v-for="{ trg, track } in strips" :key="trg.id" :title="strip_file(trg, track)?.original_name"
           :class="{ silenced: is_silenced(trg.id) }">
           <span class="strip_color" :style="{ background: trg.color }"></span>
           <span class="silk strip_name">{{ trg.name }}</span>
-          <!-- LED de actividad: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
-          <Led :color="track?.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
+          <!-- modo de la pista: loop (sortea loops encadenados) u one-shot (disparos sueltos), en props.mode -->
+          <LedButton size="small" :text="is_oneshot(trg) ? 'SHOT' : 'LOOP'" led="yellow" :lit="is_oneshot(trg)"
+            :title="is_oneshot(trg) ? 'One-shot: pasar a loop' : 'Loop: pasar a one-shot'" @click="toggle_mode(trg)" />
+          <!-- LED de actividad one-shot: destella (amarillo) en cada disparo -->
+          <Led v-if="is_oneshot(trg)" color="yellow" :pulse="track && TrackCtrl.isPlaying ? track.shot_n : null" />
+          <!-- LED de actividad loop: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
+          <Led v-else :color="track?.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
             :pulse="track?.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
           <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
           <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
+          <!-- one-shot: el LCD solo rotula SHOT (no hay posición de loop) -->
+          <Lcd v-if="is_oneshot(trg)" small :digits="2" value="" unit="SHOT" />
           <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
-          <Lcd small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
+          <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
             :unit="track?.curr_file ? '/' + track.curr_file.beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
-          <!-- posición dentro del loop -->
-          <StepLeds :pos="track?.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
+          <!-- posición dentro del loop (no aplica a one-shot) -->
+          <StepLeds v-if="!is_oneshot(trg)" :pos="track?.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
             :beats="track?.curr_file?.beats ?? 0" />
-          <span class="file_name">{{ track?.curr_file?.original_name ?? "—" }}</span>
+          <!-- loop: archivo que suena; one-shot: último disparo -->
+          <span class="file_name">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
+          <!-- one-shot: densidad (probabilidad de disparo por compás, props.density) y disparo al empezar
+            cada Tag (props.on_tag_change) -->
+          <div v-if="is_oneshot(trg)" class="oneshot_ctrls">
+            <Knob :model-value="trg.props.density ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Dens"
+              :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% por compás'"
+              @update:model-value="v => set_density(trg, v)" />
+            <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
+              title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
+          </div>
           <!-- probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) -->
-          <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Rest"
+          <Knob v-else :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Rest"
             :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'" @update:model-value="v => set_rest(trg, v)" />
           <!-- volumen de la pista (dB, guardado en props.volume) -->
           <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
@@ -132,6 +149,8 @@ function reset() {
     }
   })
   selectTag()
+  // los disponibles tienen que ser los del Tag nuevo (antes RESET seguía sorteando con los del anterior)
+  get_available_files_x_tag(current_TAG.tag?.id)
   //set_next_step(-1)
 
 }
@@ -178,6 +197,29 @@ function set_rest(trg, v) {
   save_trackGroups_debounced()
 }
 
+// --- pistas one-shot (props.mode == "oneshot") ---
+function is_oneshot(trg) {
+  return trg?.props?.mode == "oneshot"
+}
+// el motor toma el modo nuevo en el próximo beat (ver set_next_step)
+function toggle_mode(trg) {
+  trg.props.mode = is_oneshot(trg) ? "loop" : "oneshot"
+  save_trackGroups_debounced()
+}
+// probabilidad de disparo por compás (0..1)
+function set_density(trg, v) {
+  trg.props.density = Math.round(v * 100) / 100
+  save_trackGroups_debounced()
+}
+function toggle_on_tag_change(trg) {
+  trg.props.on_tag_change = !trg.props.on_tag_change
+  save_trackGroups_debounced()
+}
+// archivo a mostrar en la tira: el loop que suena o el último disparo one-shot
+function strip_file(trg, track) {
+  return is_oneshot(trg) ? track?.last_shot : track?.curr_file
+}
+
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
   calculateBars()
@@ -200,18 +242,27 @@ function stop() {
       stop_file(track.curr_file.id, -1)
     }
     track.resting = false
+    // one-shot: se cortan los disparos que sigan sonando (pueden ser varios archivos superpuestos)
+    if (is_oneshot(track.track_group)) {
+      for (const id of files_per_TRG[track.track_group.id] ?? []) {
+        if (audio_players[id]?.state == "started") stop_file(id, -1)
+      }
+    }
   })
 }
 
 
 Tone.Transport.scheduleRepeat((time) => {
+  // número de beat y downbeat calculados desde los ticks del transporte en `time` (no del estado visual)
+  let n = Math.round(Tone.Transport.getTicksAtTime(time) / Tone.Transport.PPQ)
+  let downbeat = n % parseInt(TrackCtrl.beats_x_bar) == 0
+
   // use the callback time to schedule events
-  set_next_step(time)
+  set_next_step(time, n, downbeat)
 
   // indicadores visuales: Tone.Draw los dispara cuando el beat suena de verdad (no en el lookahead)
-  let n = Math.round(Tone.Transport.getTicksAtTime(time) / Tone.Transport.PPQ)
   Tone.Draw.schedule(() => {
-    beat.downbeat = n % parseInt(TrackCtrl.beats_x_bar) == 0
+    beat.downbeat = downbeat
     beat.n = n
   }, time)
 }, "4n")
@@ -292,7 +343,9 @@ function start() {
       track_group: trg,
       curr_file: null,
       remaining_beats: 0,
-      resting: false // true mientras la pista descansa (ver props.rest en set_next_step)
+      resting: false, // true mientras la pista descansa (ver props.rest en set_next_step)
+      last_shot: null, // one-shot: último archivo disparado (para la tira)
+      shot_n: null // one-shot: beat del último disparo (hace destellar el LED de la tira)
     })
   }
   selectTag()
@@ -302,6 +355,8 @@ function start() {
   Tone.Transport.start()
 
 }
+// true desde que se elige un Tag hasta que set_next_step procesa su primer beat
+let tag_starting = false
 function selectTag() {
   //console.log("llamaron a selectTag")
   let index = parseInt(Math.random() * available_tags.length)
@@ -315,13 +370,16 @@ function selectTag() {
   current_TAG.duration = Math.pow(2, base)
   //console.log("current_TAG.duration", current_TAG.dura1tion)
   current_TAG.remaining_beats = current_TAG.duration + 1
+  // el próximo beat que procese set_next_step es el primero del Tag nuevo (ahí disparan los one-shot
+  // con on_tag_change). Llamado desde set_next_step es ese mismo beat; desde start() o reset(), el siguiente.
+  tag_starting = true
 
   //console.log("current tag", current_TAG)
 
 }
 
 
-function set_next_step(time) {
+function set_next_step(time, n, downbeat) {
 
 
 
@@ -362,7 +420,15 @@ function set_next_step(time) {
     }
   }
   current_TAG.remaining_beats--
+  let tag_start = tag_starting
+  tag_starting = false
   tracks.map(track => {
+
+    // las pistas one-shot no usan remaining_beats ni descansos: solo deciden si disparan en este beat
+    if (is_oneshot(track.track_group)) {
+      oneshot_step(track, time, n, tag_start, downbeat)
+      return
+    }
 
     if (track.remaining_beats == 0) {
       track.resting = false
@@ -404,6 +470,32 @@ function set_next_step(time) {
   })
 
 }
+// paso de una pista one-shot: dispara si empieza un Tag (on_tag_change) o si en un downbeat sale el
+// dado de density. Si el Tag cambió en este beat, available_files_per_TRG ya es la del Tag nuevo.
+function oneshot_step(track, time, n, tag_start, downbeat) {
+  let p = track.track_group.props ?? {}
+  // si la pista venía de modo loop, su loop se corta en este beat y deja de contar
+  if (track.curr_file) stop_file(track.curr_file.id, time)
+  track.curr_file = null
+  track.remaining_beats = 0
+  track.resting = false
+  track.percentage = 0
+
+  let fire = (p.on_tag_change && tag_start) || (downbeat && Math.random() < (p.density ?? 0))
+  if (!fire) return
+  let files = available_files_per_TRG[track.track_group.id]
+  if (!files?.length) return
+  let f = files[parseInt(Math.random() * files.length)]
+  // si ese mismo player ya está sonando (un disparo anterior), se saltea: no se reinicia
+  if (audio_players[f]?.state == "started") return
+  // suena entero: no se le agenda stop
+  start_file(f, time)
+  Tone.Draw.schedule(() => {
+    track.last_shot = files_by_id[f]
+    track.shot_n = n
+  }, time)
+}
+
 function get_available_files_x_tag(tag_id) {
   available_files_per_TRG = []
   //console.log("available_trgs.length!", available_trgs.length)
@@ -577,6 +669,12 @@ function get_available_files_x_tag(tag_id) {
 .strip.silenced .strip_name,
 .strip.silenced .file_name {
   opacity: 0.3;
+}
+
+.oneshot_ctrls {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 .mute_solo {

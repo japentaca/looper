@@ -30,8 +30,15 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
-- 🟡 `props.oneShot` se guarda y edita pero el motor no lo usa. `user_track_groups.silences` y la
-  tabla `sets` tampoco (`silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
+- 🟡 `files.props.oneShot` (por archivo) quedó obsoleto: el modo one-shot es por pista
+  (`user_track_groups.props.mode`, oct 2026). Se quitó el checkbox de `Files.vue` y el default en
+  `composable.js`; los valores viejos siguen en la base (no se borraron) y se reenvían tal cual al
+  guardar el archivo, pero nada los lee. **No reutilizarlo.**
+- 🟡 Las pistas one-shot no encienden su pad en la barra lateral (`SidebarItem.vue` mira
+  `curr_file.isPlaying` y una one-shot no tiene `curr_file`). Además `start_file` pone
+  `isPlaying = true` en el archivo disparado y nadie lo baja cuando termina solo (tampoco en loops
+  reemplazados por otro): el flag no es confiable para saber si un archivo suena.
+- 🟡 `user_track_groups.silences` y la tabla `sets` no se usan (`silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
   track groups queda en null; en la base actual estaba vacía en todas las filas). Los silencios por
   pista se implementaron en `user_track_groups.props.rest` (oct 2026); `silences` queda como columna
   muerta y **no se debe reutilizar**.

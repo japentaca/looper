@@ -36,9 +36,10 @@ export async function save_trackGroups() {
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
 // volume en dB (va al Tone.Channel); rest = probabilidad 0..1 de descansar al terminar cada loop
-// (la usa el motor en Tracks.vue); mode es para una fase futura del motor.
+// (la usa el motor en Tracks.vue). mode = "loop" | "oneshot"; en oneshot la pista dispara archivos sueltos:
+// on_tag_change = al empezar cada Tag, density = probabilidad 0..1 de disparar en cada compás.
 export function trg_default_props() {
-  return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop" }
+  return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop", on_tag_change: false, density: 0 }
 }
 // guardado diferido de los track groups (para controles que cambian seguido: mute, solo, volumen)
 let save_trg_timer = null
@@ -111,7 +112,6 @@ export const store_get_user_info = async () => {
       if (!f.props) {
         f.props = {}
       }
-      if (!f.props.oneShot) f.props.oneShot = false
       if (!f.props.volume) f.props.volume = -6
       let url = import.meta.env.VITE_APP_BACKEND + "/api/get_file?file=" + f.id + "&token=" + store.u_info.token
       //console.log(url)
