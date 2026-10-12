@@ -34,7 +34,7 @@ frontend/src/
   App.vue            # layout: sidebar (Track Groups, Tags) + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
-    Files.vue        # lista de archivos (vista Box/Table), drag&drop de TRG/Tag, diálogo de edición
+    Files.vue        # lista de archivos (vista Box/Table, ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
     SidebarItem.vue  # item de sidebar editable y draggable; prop kind="track_group"|"tag" (config en KINDS)
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login

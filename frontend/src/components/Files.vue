@@ -55,13 +55,30 @@
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="State" sortable v-if="store.loading == false" width="90">
+        <!-- sin v-if en la columna: el-table mezcla las celdas si una columna aparece después -->
+        <el-table-column label="State" sortable width="90">
           <template #default="scope">
-            <span class="chip playing_chip" v-show="audio_players[scope.row.id].state == 'started'">PLAYING</span>
+            <span class="chip playing_chip" v-if="store.loading == false"
+              v-show="audio_players[scope.row.id]?.state == 'started'">PLAYING</span>
           </template>
 
         </el-table-column>
-        
+        <el-table-column label="Actions" width="120" align="right">
+          <template #default="scope">
+            <span class="row_actions">
+              <el-icon v-if="scope.row.isLoaded" :size="iconSize" class="icons" title="Preview"
+                @click="playFile(scope.row)">
+                <VideoPlay />
+              </el-icon>
+              <el-icon :size="iconSize" class="icons" title="Edit" @click="editFile(scope.row)">
+                <EditPen />
+              </el-icon>
+              <el-icon :size="iconSize" class="icons" title="Delete" @click="deleteFile(scope.row)">
+                <Delete />
+              </el-icon>
+            </span>
+          </template>
+        </el-table-column>
       </el-table>
     </div>
   </div>
@@ -259,6 +276,11 @@ const iconSize = ref(18)
   margin-top: 6px;
   display: flex;
   gap: 4px;
+}
+
+.row_actions {
+  display: inline-flex;
+  gap: 2px;
 }
 
 .icons {
