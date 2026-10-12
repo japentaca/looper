@@ -62,7 +62,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded` | `max_bytes_uploaded` no se usa |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6), oneShot: bool }`. Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0, mode: "loop" }` (`rest` y `mode` reservados para fases futuras del motor). `silences` no se usa ni se devuelve |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (ver motor); `mode` reservado para una fase futura. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 
@@ -132,12 +132,24 @@ Flujo:
      sonando: un loop con tags A y B atraviesa el cambio de A a B).
    - Por cada track con `remaining_beats == 0`: si no tiene archivos disponibles para el Tag, no
      hace nada (silencio); si no, elige al azar un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
-     `remaining_beats = beats - 1`. Si no, decrementa y actualiza el progreso.
+     `remaining_beats = beats - 1`. Si no, decrementa (en descanso solo cuenta) y actualiza el progreso.
+   - **Descanso (`trg.props.rest`, 0..1)**: después de sortear el archivo, con probabilidad `rest`
+     la pista **descansa** en vez de arrancarlo: `resting = true`, `curr_file = null` y
+     `remaining_beats = beats - 1` **del archivo sorteado** (mínimo 1 beat). O sea, el descanso dura
+     lo mismo que un loop compatible al azar: son beats enteros contados desde un beat del
+     transporte, así que al volver la pista sigue alineada al compás igual que si hubiera sonado un
+     loop. Si había un archivo, se le hace `stop(time)` en ese mismo beat. Al llegar otra vez a 0 se
+     repite la lógica normal (puede volver a descansar, con la misma probabilidad).
+     El cambio de Tag no toca a una pista en descanso (no tiene archivo que cortar): termina su
+     descanso y después sortea entre los compatibles con el Tag nuevo. RESET y STOP sí cortan el
+     descanso. Con `rest = 0` el motor se comporta como antes.
 5. Después de `set_next_step`, el mismo callback agenda con `Tone.Draw.schedule(..., time)` la
    actualización de `beat` (`n` = número de beat del transporte, `downbeat` = primer tiempo del
    compás), que hace destellar los LEDs del panel de Tracks cuando el beat suena de verdad y
    alimenta el LCD de posición "compás.tiempo" (`bar_position`; `start()` reinicia `beat.n`). Las
    tiras de canal muestran el beat del loop (`beats - remaining_beats`) en un medidor de LEDs y un LCD.
+   En descanso (`curr_file` null) el LED de actividad y los LEDs de paso quedan apagados y el LCD
+   en blanco con el rótulo `REST`.
    El TAG actual se muestra en un LCD con `current_TAG.remaining_beats` como cuenta regresiva
    (de `duration` a 1) y un LED que destella en los últimos 4 beats antes del cambio.
    `current_TAG` y `tracks` viven en `TrackCtrl` (los escribe solo `Tracks.vue`): así los pads de la
@@ -145,7 +157,9 @@ Flujo:
    (`curr_file.isPlaying`) o si su Tag es el activo.
 6. Las tiras de canal se arman con la lista computada `strips` (todos los `store.track_groups`, cada
    uno con su track de `TrackCtrl.tracks` si existe), así se ven y se configuran (volumen, mute,
-   solo) también con el transporte detenido y en pistas sin archivos.
+   solo, descanso) también con el transporte detenido y en pistas sin archivos. El `Knob` chico
+   "Rest" (0..1, paso 0.05) escribe `trg.props.rest` y guarda con `save_trackGroups_debounced()`;
+   el motor lo lee en cada sorteo, así que un cambio vale desde el próximo fin de loop.
 
 Reglas para modificar el motor:
 - Todo lo que suene debe programarse con el `time` del callback (no con `Date`/`setTimeout`), si no

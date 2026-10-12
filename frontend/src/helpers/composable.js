@@ -35,7 +35,8 @@ export async function save_trackGroups() {
   await save_collection(api.save_trackGroups, store.track_groups, "los track groups")
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
-// volume en dB (va al Tone.Channel); rest y mode son para fases futuras del motor.
+// volume en dB (va al Tone.Channel); rest = probabilidad 0..1 de descansar al terminar cada loop
+// (la usa el motor en Tracks.vue); mode es para una fase futura del motor.
 export function trg_default_props() {
   return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop" }
 }

@@ -74,12 +74,16 @@
             :pulse="track?.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
           <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
           <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
+          <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
           <Lcd small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
-            :unit="track?.curr_file ? '/' + track.curr_file.beats : ''" />
+            :unit="track?.curr_file ? '/' + track.curr_file.beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
           <!-- posición dentro del loop -->
           <StepLeds :pos="track?.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
             :beats="track?.curr_file?.beats ?? 0" />
           <span class="file_name">{{ track?.curr_file?.original_name ?? "—" }}</span>
+          <!-- probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) -->
+          <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Rest"
+            :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'" @update:model-value="v => set_rest(trg, v)" />
           <!-- volumen de la pista (dB, guardado en props.volume) -->
           <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
             label="Vol" :title="trg.props.volume + ' dB'" @update:model-value="v => set_volume(trg.id, v)" />
@@ -97,7 +101,7 @@
 
 import * as Tone from "tone"
 import { ref, reactive, computed } from "vue"
-import { store, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
+import { store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -120,6 +124,11 @@ function reset() {
       track.remaining_beats = 0
 
       stop_file(track.curr_file.id, -1)
+    }
+    // un descanso en curso también se corta: la pista vuelve a sortear con el Tag nuevo
+    if (track.resting) {
+      track.resting = false
+      track.remaining_beats = 0
     }
   })
   selectTag()
@@ -163,6 +172,12 @@ const strips = computed(() => store.track_groups.map(trg => ({
 })))
 const strip_volume_marks = [0, -12, -24, -48].map(v => ({ value: v, label: v }))
 
+// probabilidad de descanso de la pista (se llama mientras se mueve el knob; el guardado es diferido)
+function set_rest(trg, v) {
+  trg.props.rest = Math.round(v * 100) / 100 // evita 0.15000000000000002
+  save_trackGroups_debounced()
+}
+
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
   calculateBars()
@@ -184,6 +199,7 @@ function stop() {
       track.remaining_beats = 0
       stop_file(track.curr_file.id, -1)
     }
+    track.resting = false
   })
 }
 
@@ -275,7 +291,8 @@ function start() {
       percentage: 0,
       track_group: trg,
       curr_file: null,
-      remaining_beats: 0
+      remaining_beats: 0,
+      resting: false // true mientras la pista descansa (ver props.rest en set_next_step)
     })
   }
   selectTag()
@@ -348,6 +365,7 @@ function set_next_step(time) {
   tracks.map(track => {
 
     if (track.remaining_beats == 0) {
+      track.resting = false
       // pista sin archivos (o sin ninguno compatible con el Tag): queda en silencio
       if (!available_files_per_TRG[track.track_group.id]?.length) return
       //player[track.track_group.id].buffer=
@@ -360,6 +378,17 @@ function set_next_step(time) {
       let f = available_files_per_TRG[trg][buffer_index]
       //console.log("vvv", f, files_by_id[f])
 
+      // descanso: con probabilidad props.rest la pista calla durante lo que dura el loop sorteado
+      // (beats enteros desde este beat, así al volver sigue alineada al compás como un loop más)
+      if (Math.random() < (track.track_group.props?.rest ?? 0)) {
+        // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
+        if (track.curr_file) stop_file(track.curr_file.id, time)
+        track.curr_file = null
+        track.resting = true
+        track.remaining_beats = Math.max(1, files_by_id[f].beats) - 1
+        track.percentage = 0
+        return
+      }
 
       start_file(f, time)
       track.curr_file = files_by_id[f]
@@ -367,7 +396,8 @@ function set_next_step(time) {
 
     } else {
       track.remaining_beats--
-      track.percentage = (100 / track.curr_file.beats) * (track.remaining_beats)
+      // en descanso no hay archivo: solo se cuenta
+      if (track.curr_file) track.percentage = (100 / track.curr_file.beats) * (track.remaining_beats)
     }
     //console.log(track)
 

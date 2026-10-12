@@ -32,7 +32,9 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 - 🟡 `props.oneShot` se guarda y edita pero el motor no lo usa. `user_track_groups.silences` y la
   tabla `sets` tampoco (`silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
-  track groups queda en null; en la base actual estaba vacía en todas las filas).
+  track groups queda en null; en la base actual estaba vacía en todas las filas). Los silencios por
+  pista se implementaron en `user_track_groups.props.rest` (oct 2026); `silences` queda como columna
+  muerta y **no se debe reutilizar**.
 
 ## Frontend — general
 
