@@ -12,6 +12,8 @@ export const store = reactive({
   tags: reactive([]),
   curr_file: {},
   loading: true,
+  // avance de la carga de audios (archivos terminados / total), para la barra de la parte superior
+  load_progress: { done: 0, total: 0 },
   alreadyMounted: false,
 })
 export let files_by_id = reactive([])
@@ -75,6 +77,8 @@ export const store_get_user_info = async () => {
     TrackCtrl.isReady = false
 
     console.log("begin loading files")
+    store.load_progress.done = 0
+    store.load_progress.total = store.files.length
     for (let i = 0; i < store.files.length; i++) {
       let f = store.files[i]
       //console.log(JSON.parse(JSON.stringify(f)))
@@ -143,6 +147,7 @@ async function getAudioPlayer(url, file) {
         file.isLoaded = true
         file.duration = player.buffer.duration
         file.duration_fixed = player.buffer.duration.toFixed(2)
+        store.load_progress.done++
 
         resolve({ player: player, file: file })
       },
@@ -150,6 +155,7 @@ async function getAudioPlayer(url, file) {
       onerror: (err) => {
         console.log("Error cargando", file.original_name, err)
         file.loadError = true
+        store.load_progress.done++
         resolve({ player: player, file: file })
       }
     }).toDestination()

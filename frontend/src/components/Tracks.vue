@@ -64,16 +64,29 @@
         <span class="silk dim">Beat</span>
       </div>
       <div class="strips">
-        <div class="strip" v-for="(track, index) in tracks" :key="index" :title="track.curr_file?.original_name">
+        <div class="strip" v-for="(track, index) in tracks" :key="index" :title="track.curr_file?.original_name"
+          :class="{ silenced: track.track_group && is_silenced(track.track_group.id) }">
           <span class="strip_color" :style="{ background: track.track_group?.color }"></span>
           <span class="silk strip_name">{{ track.track_group?.name }}</span>
           <!-- LED de actividad: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
           <Led :color="track.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
             :pulse="track.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
-          <LedMeter :value="track.curr_file && TrackCtrl.isPlaying ? track_beat(track) / track.curr_file.beats : 0" />
+          <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
+          <LedMeter :value="levels.trgs[track.track_group?.id]?.level ?? 0"
+            :peak="levels.trgs[track.track_group?.id]?.peak ?? 0" />
           <Lcd small :digits="2" :value="track.curr_file ? track_beat(track) : ''"
             :unit="track.curr_file ? '/' + track.curr_file.beats : ''" />
+          <!-- posición dentro del loop -->
+          <StepLeds :pos="track.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
+            :beats="track.curr_file?.beats ?? 0" />
           <span class="file_name">{{ track.curr_file?.original_name ?? "—" }}</span>
+          <!-- mute / solo de la pista (se mantienen entre START y START) -->
+          <div class="mute_solo">
+            <LedButton size="small" text="M" led="red" :lit="!!mixer.mute[track.track_group?.id]"
+              @click="toggle_mute(track.track_group.id)" />
+            <LedButton size="small" text="S" led="yellow" :lit="!!mixer.solo[track.track_group?.id]"
+              @click="toggle_solo(track.track_group.id)" />
+          </div>
         </div>
       </div>
     </section>
@@ -91,6 +104,8 @@ import ToggleSwitch from "./hw/ToggleSwitch.vue"
 import LedButton from "./hw/LedButton.vue"
 import Led from "./hw/Led.vue"
 import LedMeter from "./hw/LedMeter.vue"
+import StepLeds from "./hw/StepLeds.vue"
+import { levels, mixer, route_player, toggle_mute, toggle_solo, is_silenced } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
 
 function reset() {
@@ -195,6 +210,7 @@ function track_beat(track) {
 function start_file(id, time) {
   files_by_id[id].isPlaying = true
   audio_players[id].volume.value = files_by_id[id].props.volume
+  route_player(id)
   audio_players[id].start(time)
 }
 function stop_file(id, time) {
@@ -517,6 +533,17 @@ function get_available_files_x_tag(tag_id) {
   background: var(--hw_tex_plastic) center / cover, #151517;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07);
   overflow: hidden;
+}
+
+/* pista que no se escucha (mute, u otra en solo): se apaga el nombre y el archivo */
+.strip.silenced .strip_name,
+.strip.silenced .file_name {
+  opacity: 0.3;
+}
+
+.mute_solo {
+  display: flex;
+  gap: 6px;
 }
 
 .strip_color {

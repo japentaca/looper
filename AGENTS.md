@@ -38,11 +38,12 @@ frontend/src/
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login
-    hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter
+    hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, StepLeds
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
     toneLib.js       # reproductor de preview (un archivo suelto)
+    mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
 storage/             # (gitignored) db.sqlite + audio/. Datos reales del usuario: NO tocar.
@@ -94,7 +95,7 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores.
-3. Si se tocó la reproducción (`Tracks.vue`, `composable.js`, `TrackCtrl.js`, `toneLib.js`):
+3. Si se tocó la reproducción (`Tracks.vue`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 

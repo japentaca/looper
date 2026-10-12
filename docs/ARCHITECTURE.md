@@ -97,6 +97,8 @@ un Tag o Track Group, el front limpia la referencia en cada archivo).
    que ya no existen).
 3. Crea un `Tone.Player` por archivo con URL `get_file?file=<id>&token=<token>` y espera a que
    todos carguen (`Promise.allSettled`).
+   Cada player que termina (bien o con error) suma a `store.load_progress.done`; `App.vue` lo
+   muestra como barra de avance (cantidad de archivos, no bytes) y contador junto al LED de estado.
 4. `calculateBars()` calcula `beats` y `bars` de cada archivo según el tempo.
 5. `TrackCtrl.isReady = true` habilita START.
 
@@ -141,6 +143,24 @@ Reglas para modificar el motor:
   (usa `requestAnimationFrame`: con la pestaña oculta no se dibuja, pero el audio sigue).
 - `Tone.start()` debe llamarse desde un gesto del usuario (política de autoplay del navegador).
 - Los volúmenes están en dB (`props.volume`), aplicados al `Tone.Player` antes de `start`.
+
+### Mixer y vúmetros (`helpers/mixer.js`)
+
+- Un `Tone.Channel` por track group (estéreo, `channelCount: 2`) conectado a `Destination`.
+  `start_file` llama a `route_player(id)`, que saca al player de `Destination` (los players se crean
+  con `.toDestination()` en `composable.js`) y lo conecta al canal de su grupo. Se hace una sola vez
+  por player (WeakMap player → grupo); si el archivo cambió de grupo se pasa al canal nuevo.
+- **Mute / solo**: `mixer.mute[trg]` y `mixer.solo[trg]` (reactive, solo en memoria) con
+  `toggle_mute` / `toggle_solo`. Se aplican al `Tone.Channel` (que resuelve el solo entre canales:
+  si hay alguno en solo, el resto queda callado; puede haber varios en solo). El estado vive fuera
+  de `TrackCtrl.tracks` porque los tracks se rearman en cada START; si el canal todavía no existe
+  se aplica al crearlo. El preview (`toneLib.js`) no pasa por los canales.
+- Un `Tone.Meter` por canal, **post-mute** (muestra lo que se escucha), y uno estéreo colgado de
+  `Tone.getDestination()` para el master de la barra superior (incluye el preview).
+- `levels` (reactive) tiene `level` y `peak` 0..1 (−48 dB → 0, 0 dB → 1) con pico retenido 800 ms.
+  Se actualiza con `requestAnimationFrame` solo mientras suena el transporte o un preview, y al
+  parar sigue hasta que los medidores caen a cero.
+- El avance dentro del loop ya no usa el `LedMeter`: lo muestra `hw/StepLeds.vue` (16 LEDs de paso).
 
 ### Preview
 

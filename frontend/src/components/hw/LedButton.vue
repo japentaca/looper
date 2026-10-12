@@ -8,7 +8,7 @@
   </div>
 </template>
 <script setup>
-// Botón de goma tipo MPC con LED arriba. led = "green" | "red" | "" (sin LED); lit enciende el LED.
+// Botón de goma tipo MPC con LED arriba. led = "green" | "red" | "yellow" | "" (sin LED); lit enciende el LED.
 import Led from "./Led.vue"
 
 defineProps({

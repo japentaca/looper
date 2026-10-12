@@ -10,6 +10,19 @@
       <div class="status">
         <Led :color="TrackCtrl.isReady ? 'green' : 'yellow'" :lit="store.isLogged == true" />
         <span class="silk">{{ TrackCtrl.isReady ? "Ready" : (store.isLogged ? "Loading" : "Off") }}</span>
+        <span v-if="loading_audio" class="silk load_count">{{ store.load_progress.done }}/{{ store.load_progress.total
+          }}</span>
+      </div>
+
+      <!-- vúmetro master estéreo (salida general, incluye el preview) -->
+      <div class="master">
+        <span class="silk">Master</span>
+        <div class="master_lr">
+          <span class="silk ch">L</span>
+          <LedMeter horizontal :segments="20" :value="levels.master[0].level" :peak="levels.master[0].peak" />
+          <span class="silk ch">R</span>
+          <LedMeter horizontal :segments="20" :value="levels.master[1].level" :peak="levels.master[1].peak" />
+        </div>
       </div>
 
       <div v-if="store.curr_file.isPreviewing" class="preview">
@@ -23,6 +36,11 @@
       <span v-if="store.isLogged == true" class="silk user">{{ store.u_info.name }}</span>
       <LedButton v-if="store.isLogged == false" size="small" text="LOGIN" @click="store.loginVisible = true" />
       <LedButton v-if="store.isLogged == true" size="small" text="LOGOUT" @click="doLogout()" />
+      <!-- barra de avance de la carga de audios, sobre el borde inferior de la barra superior -->
+      <div v-if="loading_audio" class="load_bar">
+        <div class="load_fill" :style="{ width: 100 * store.load_progress.done / store.load_progress.total + '%' }">
+        </div>
+      </div>
     </header>
 
     <div class="body">
@@ -63,7 +81,7 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import SidebarItem from "./components/SidebarItem.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
@@ -72,6 +90,8 @@ import Tracks from "./components/Tracks.vue"
 import Led from "./components/hw/Led.vue"
 import Lcd from "./components/hw/Lcd.vue"
 import LedButton from "./components/hw/LedButton.vue"
+import LedMeter from "./components/hw/LedMeter.vue"
+import { levels } from "./helpers/mixer"
 import { TrackCtrl } from "./helpers/TrackCtrl"
 
 import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups } from "./helpers/composable"
@@ -109,6 +129,9 @@ const rgbToHex = (r, g, b) => '#' + [r, g, b].map(x => {
   const hex = x.toString(16)
   return hex.length === 1 ? '0' + hex : hex
 }).join('')
+
+// se están descargando/decodificando los audios del usuario
+const loading_audio = computed(() => store.isLogged == true && !TrackCtrl.isReady && store.load_progress.total > 0)
 
 const activeCollapsable = ref('2')
 onMounted(async () => {
@@ -180,6 +203,44 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.load_count {
+  opacity: 0.6;
+}
+
+.load_bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.load_fill {
+  height: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.master {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.master_lr {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 2px 4px;
+}
+
+.ch {
+  font-size: 8px;
+  opacity: 0.6;
 }
 
 .spacer {

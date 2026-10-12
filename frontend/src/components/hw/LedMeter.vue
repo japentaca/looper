@@ -1,20 +1,27 @@
 <template>
-  <div class="meter" :style="{ height: segments * 9 + 'px' }">
-    <!-- el segmento 1 queda abajo: se llena de abajo hacia arriba -->
-    <span v-for="i in segments" :key="i" class="seg" :class="[zone(i), { lit: i <= lit }]"></span>
+  <div class="meter" :class="{ horizontal }"
+    :style="horizontal ? { width: segments * 6 + 'px' } : { height: segments * 9 + 'px' }">
+    <!-- el segmento 1 queda abajo (o a la izquierda): se llena desde ahí -->
+    <span v-for="i in segments" :key="i" class="seg" :class="[zone(i), { lit: i <= lit || i == peak_seg }]"></span>
   </div>
 </template>
 <script setup>
 // Medidor vertical de LEDs rectangulares: verde, amarillo en el último cuarto y rojo en el último segmento.
-// value va de 0 a 1.
+// value va de 0 a 1. peak (0..1, opcional) enciende un solo segmento suelto: el pico retenido.
 import { computed } from "vue"
 
 const props = defineProps({
   value: { type: Number, default: 0 },
-  segments: { type: Number, default: 16 }
+  peak: { type: Number, default: 0 },
+  segments: { type: Number, default: 16 },
+  horizontal: { type: Boolean, default: false }
 })
 
-const lit = computed(() => Math.round(Math.min(1, Math.max(0, props.value)) * props.segments))
+function to_seg(v) {
+  return Math.round(Math.min(1, Math.max(0, v)) * props.segments)
+}
+const lit = computed(() => to_seg(props.value))
+const peak_seg = computed(() => to_seg(props.peak))
 
 function zone(i) {
   if (i == props.segments) return "red"
@@ -32,6 +39,13 @@ function zone(i) {
   border-radius: 2px;
   background: #050506;
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.meter.horizontal {
+  flex-direction: row;
+  width: auto;
+  height: 6px;
+  padding: 2px;
 }
 
 .seg {
