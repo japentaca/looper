@@ -7,7 +7,7 @@
       <el-button type="danger" v-if="TrackCtrl.isPlaying == true" @click="stop">STOP</el-button>
     </div>
 
-    <el-radio-group v-model="TrackCtrl.beats_x_bar">
+    <el-radio-group v-model="TrackCtrl.beats_x_bar" @change="onSignatureChange">
       <el-radio label="3" border>3</el-radio>
       <el-radio label="4" border>4 </el-radio>
     </el-radio-group>
@@ -100,6 +100,11 @@ let tracks = reactive([])
 
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
+  calculateBars()
+}
+
+function onSignatureChange(value) {
+  Tone.Transport.timeSignature = parseInt(value)
   calculateBars()
 }
 
