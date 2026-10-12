@@ -155,8 +155,12 @@ Reglas para modificar el motor:
   si hay alguno en solo, el resto queda callado; puede haber varios en solo). El estado vive fuera
   de `TrackCtrl.tracks` porque los tracks se rearman en cada START; si el canal todavía no existe
   se aplica al crearlo. El preview (`toneLib.js`) no pasa por los canales.
-- Un `Tone.Meter` por canal, **post-mute** (muestra lo que se escucha), y uno estéreo colgado de
-  `Tone.getDestination()` para el master de la barra superior (incluye el preview).
+- **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
+  (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
+  pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.
+- Un `Tone.Meter` por canal, **post-mute** (muestra lo que se escucha), y uno estéreo colgado del
+  output de `Tone.getDestination()` (o sea **post-limitador**) para el master de la barra superior
+  (incluye el preview).
 - `levels` (reactive) tiene `level` y `peak` 0..1 (−48 dB → 0, 0 dB → 1) con pico retenido 800 ms.
   Se actualiza con `requestAnimationFrame` solo mientras suena el transporte o un preview, y al
   parar sigue hasta que los medidores caen a cero.

@@ -13,6 +13,11 @@ const PEAK_FALL = 0.015 // caída del pico por frame (en escala 0..1)
 const channels_by_trg = {} // trg id -> { channel, meter }
 // player -> track group al que está enrutado (WeakMap: si se recargan los audios, los players nuevos arrancan sin enrutar)
 const trg_of_player = new WeakMap()
+// limitador en el master para que la salida no clipee aunque coincidan varios loops fuertes.
+// chain() solo rearma input → limiter → output de Destination: lo que entra (canales, preview) sigue igual.
+const master_limiter = new Tone.Limiter(-1)
+Tone.getDestination().chain(master_limiter)
+// el vúmetro master cuelga del output de Destination, o sea que mide después del limitador
 const master_meter = new Tone.Meter({ channels: 2, smoothing: 0.8 })
 Tone.getDestination().connect(master_meter)
 
