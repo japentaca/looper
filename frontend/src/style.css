@@ -1,15 +1,59 @@
+/* Tema oscuro tipo DAW. Los colores viven acá como variables; los componentes solo las usan. */
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel_2: #1e222b;
+  --border: #2a2f3a;
+  --text: #e6e8ee;
+  --muted: #8b93a3;
+  --accent: #3ddc97;
+  --danger: #f56c6c;
+  --radius: 10px;
+  --font_mono: "JetBrains Mono", "Cascadia Mono", "Fira Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+
+  font-family: var(--font_mono);
+  font-size: 13px;
+  line-height: 1.4;
   font-weight: 400;
 
-  color-scheme: light dark;
-
-
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* Element Plus (modo oscuro) alineado con la paleta propia */
+html.dark {
+  --el-bg-color: var(--panel);
+  --el-bg-color-overlay: var(--panel_2);
+  --el-bg-color-page: var(--bg);
+  --el-fill-color-blank: var(--panel_2);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: var(--text);
+  --el-text-color-secondary: var(--muted);
+  --el-border-radius-base: 8px;
+  --el-font-family: var(--font_mono);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* barras de scroll discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }

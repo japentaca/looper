@@ -1,58 +1,60 @@
 <template>
-  <div>
-    TRACK CONTROL
-    <button @click="reset">RESET</button>
-    <div v-show="TrackCtrl.isReady == true">
-      <el-button type="success" v-if="TrackCtrl.isPlaying == false" @click="start">START</el-button>
-      <el-button type="danger" v-if="TrackCtrl.isPlaying == true" @click="stop">STOP</el-button>
-    </div>
+  <div class="tracks_panel">
+    <section class="card controls">
+      <div class="transport">
+        <div v-show="TrackCtrl.isReady == true">
+          <el-button type="success" size="large" v-if="TrackCtrl.isPlaying == false" @click="start">START</el-button>
+          <el-button type="danger" size="large" v-if="TrackCtrl.isPlaying == true" @click="stop">STOP</el-button>
+        </div>
+        <el-button size="large" @click="reset">RESET</el-button>
+      </div>
 
-    <el-radio-group v-model="TrackCtrl.beats_x_bar" @change="onSignatureChange">
-      <el-radio label="3" border>3</el-radio>
-      <el-radio label="4" border>4 </el-radio>
-    </el-radio-group>
-    <span>
+      <div class="control">
+        <span class="label">Compás</span>
+        <el-radio-group v-model="TrackCtrl.beats_x_bar" @change="onSignatureChange">
+          <el-radio-button label="3">3/4</el-radio-button>
+          <el-radio-button label="4">4/4</el-radio-button>
+        </el-radio-group>
+      </div>
 
-      <el-slider class="slider" @change="onBPMSliderchange" v-model="TrackCtrl.tempo" :min="10" :max="160" />
-      <span>{{ TrackCtrl.tempo }} BPM</span>
-    </span>
-    <div v-if="current_TAG.tag">TAG=<span v-bind:style="{ 'background-color': current_TAG.tag.color }">{{
-      current_TAG.tag.name
+      <div class="control grow">
+        <span class="label">Tempo <b class="value">{{ TrackCtrl.tempo }} BPM</b></span>
+        <el-slider @change="onBPMSliderchange" v-model="TrackCtrl.tempo" :min="10" :max="160" />
+      </div>
 
-    }}</span><span>Duration:{{ current_TAG.duration }} Remaining:{{ current_TAG.remaining_beats }} </span></div>
-    <span>TAG time in beats (2^n). MIN={{ Math.pow(2, TAG_change_range[0]) }} MAX={{ Math.pow(2, TAG_change_range[1]) }}</span>
-    <el-slider class="slider" v-model="TAG_change_range" range show-stops :show-tooltip="false" :min="5" :max="9" />
+      <div class="control grow">
+        <span class="label">Cambio de TAG cada (beats, 2^n)
+          <b class="value">{{ Math.pow(2, TAG_change_range[0]) }} – {{ Math.pow(2, TAG_change_range[1]) }}</b></span>
+        <el-slider v-model="TAG_change_range" range show-stops :show-tooltip="false" :min="5" :max="9" />
+      </div>
+    </section>
 
-    TRACKS
-    <el-row :gutter="20" v-for="(track, index) in tracks" :key="index">
-      <el-col :span="2" v-if="track.track_group"><span class="track"
-          v-bind:style="{ 'background-color': track.track_group.color }"> {{
-            track.track_group.name
-          }} </span>
-      </el-col>
+    <section class="card tag_now" v-if="current_TAG.tag">
+      <span class="label">TAG actual</span>
+      <span class="chip" :style="{ background: current_TAG.tag.color }">{{ current_TAG.tag.name }}</span>
+      <el-progress class="tag_progress" :percentage="tag_percent" :show-text="false" :stroke-width="6" />
+      <span class="muted">{{ current_TAG.remaining_beats }} / {{ current_TAG.duration }} beats</span>
+    </section>
 
-      <el-col v-if="track.curr_file" :span="6">
-
-        {{ track.curr_file.beats }} {{ track.remaining_beats + 1 }}
-
-
-
-      </el-col>
-      <el-col v-if="track.curr_file" :span="6">
-        <el-progress :color="track.track_group.color" type="circle" :stroke-width="3" :duration=6 :show-text=false
-          :percentage=track.percentage :width=20>
-        </el-progress>
-
-      </el-col>
-      <el-col v-if="track.curr_file" :span="6">{{ track.curr_file.original_name }}</el-col>
-    </el-row>
-
+    <section class="card tracks_list" v-if="tracks.length">
+      <div class="label">Tracks</div>
+      <div class="track_row" v-for="(track, index) in tracks" :key="index">
+        <span class="chip track_name" v-if="track.track_group" :style="{ background: track.track_group.color }">{{
+          track.track_group.name }}</span>
+        <template v-if="track.curr_file">
+          <span class="beats">{{ track.remaining_beats + 1 }} / {{ track.curr_file.beats }}</span>
+          <el-progress class="track_progress" :color="track.track_group.color" :percentage="track.percentage"
+            :show-text="false" :stroke-width="6" />
+          <span class="file_name">{{ track.curr_file.original_name }}</span>
+        </template>
+      </div>
+    </section>
   </div>
 </template>
 <script setup>
 
 import * as Tone from "tone"
-import { ref, reactive } from "vue"
+import { ref, reactive, computed } from "vue"
 import { store, track_groups_by_id, tags_by_id, audio_players, files_by_id } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
 
@@ -90,6 +92,13 @@ let current_TAG = reactive({
   old_tag: null,
 
   remaining_beats: 0
+})
+
+// porcentaje del TAG ya transcurrido (la barra avanza de 0 a 100)
+const tag_percent = computed(() => {
+  if (!current_TAG.duration) return 0
+  let hecho = current_TAG.duration - current_TAG.remaining_beats
+  return Math.min(100, Math.max(0, (100 / current_TAG.duration) * hecho))
 })
 
 let available_tags = []
@@ -317,13 +326,113 @@ function get_available_files_x_tag(tag_id) {
 
 
 <style scoped>
-.track {
-  border-style: solid;
-  padding-left: 3px;
-
+.tracks_panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.slider {
-  width: 300px;
+.card {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px 28px;
+}
+
+.transport {
+  display: flex;
+  gap: 8px;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control.grow {
+  flex: 1;
+  min-width: 220px;
+  padding: 0 8px;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.value {
+  margin-left: 6px;
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: #111;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tag_now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.tag_progress {
+  flex: 1;
+}
+
+.tracks_list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.track_row {
+  display: grid;
+  grid-template-columns: 120px 70px 1fr minmax(0, 260px);
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.track_name {
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beats {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.file_name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
 }
 </style>

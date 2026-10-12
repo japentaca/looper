@@ -110,6 +110,9 @@ Imitar el estilo existente al editar:
   `global.redisClient`. Respuestas JSON con forma `{ stat: boolean, text?, data? }`.
 - Frontend: estado compartido en `store` (reactive) de `helpers/composable.js`, no hay Pinia/Vuex.
   Cada endpoint nuevo lleva su wrapper en `helpers/api.js`.
+- Estilo visual: tema oscuro (`<html class="dark">` + `element-plus/theme-chalk/dark/css-vars.css`). Los colores,
+  radios y tipografía base son variables CSS en `frontend/src/style.css` (`--bg`, `--panel`, `--border`, `--accent`...);
+  los componentes las usan en su `<style scoped>` en vez de colores sueltos.
 - Idioma: UI mayormente en inglés, mensajes al usuario y comentarios en español. Commits en español,
   cortos y descriptivos.
 - Hay mucho `console.log` comentado; no es necesario limpiarlo salvo que la tarea lo pida.

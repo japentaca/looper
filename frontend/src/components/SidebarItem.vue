@@ -79,22 +79,33 @@ async function deleteItem() {
 </script>
 <style scoped>
 .icons {
-  display: flex;
-  justify-content: space-around
+  cursor: pointer;
+  color: var(--muted);
 }
 
 .icons:hover {
-  background-color: red;
+  color: var(--danger);
 }
 
 .sidebar_item {
-  margin-bottom: 5px;
-  padding: 5px;
-  background-color: v-bind("item.color");
-  border-style: outset;
-  border-radius: 5px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
   display: flex;
-  justify-content: space-around
+  align-items: center;
+  gap: 8px;
+  background: var(--panel_2);
+  border: 1px solid var(--border);
+  border-left: 4px solid v-bind("item.color");
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: grab;
+}
+
+.sidebar_item > span:nth-of-type(1) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

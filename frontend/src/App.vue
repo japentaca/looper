@@ -1,66 +1,51 @@
 <template>
-  <div class="common-layout">
-    <el-container>
-      <el-header>
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-button v-if="store.isLogged == false" type="success" @click="store.loginVisible = true">Login
-            </el-button>
-            <el-button v-if="store.isLogged == true" type="danger" @click="doLogout()">Logout</el-button>
-          </el-col>
-          <el-col :span="6">
-            <div v-if="store.isLogged == true">User:{{ store.u_info.name }}</div>
-          </el-col>
-          <el-col :span="6">
-            <div v-if="store.curr_file.isPreviewing" class="curr_file">Playing:{{ store.curr_file.original_name }}
-              <el-icon :size="22" class="icons" @click="playerStop()">
+  <div class="app">
+    <header class="topbar">
+      <span class="brand">LOOPER</span>
+      <div v-if="store.curr_file.isPreviewing" class="preview_chip">
+        <el-icon :size="16" class="icons" @click="playerStop()">
+          <VideoPause />
+        </el-icon>
+        <span>Preview: {{ store.curr_file.original_name }}</span>
+      </div>
+      <span class="spacer"></span>
+      <span v-if="store.isLogged == true" class="user">{{ store.u_info.name }}</span>
+      <el-button v-if="store.isLogged == false" type="success" size="small" @click="store.loginVisible = true">Login
+      </el-button>
+      <el-button v-if="store.isLogged == true" size="small" @click="doLogout()">Logout</el-button>
+    </header>
 
-                <VideoPause />
-              </el-icon>
-            </div>
-          </el-col>
-        </el-row>
-      </el-header>
+    <div class="body">
+      <aside class="sidebar">
+        <div class="side_title">Track groups</div>
+        <SidebarItem v-for="(track_group, index) in store.track_groups" :key="track_group.id" kind="track_group"
+          :index="index" />
+        <el-button class="add_btn" size="small" @click="addTrackGroup">+ Track group</el-button>
 
-      <el-container>
-        <el-aside>
-          <div>TRACK GROUPS</div>
-          <SidebarItem v-for="(track_group, index) in store.track_groups" :key="track_group.id" class="file"
-            kind="track_group" :index="index" />
-          <el-button @click="addTrackGroup">+</el-button>
-          <el-divider />
-          <div>TAGS</div>
-          <SidebarItem v-for="(tag, index) in store.tags" :key="tag.id" class="file" kind="tag" :index="index" />
-          <el-button @click="addTag">+</el-button>
-        </el-aside>
+        <div class="side_title">Tags</div>
+        <SidebarItem v-for="(tag, index) in store.tags" :key="tag.id" kind="tag" :index="index" />
+        <el-button class="add_btn" size="small" @click="addTag">+ Tag</el-button>
+      </aside>
 
-        <el-main>
-          <el-scrollbar>
+      <main class="main">
+        <el-scrollbar>
+          <div class="content">
             <Tracks />
 
-            <el-collapse v-model="activeCollapsable">
+            <el-collapse v-model="activeCollapsable" class="sections">
               <el-collapse-item title="Upload Files" name="1">
                 <uploader />
               </el-collapse-item>
               <el-collapse-item title="Files" name="2">
-
                 <Files />
-
               </el-collapse-item>
             </el-collapse>
-
-          </el-scrollbar>
-        </el-main>
-
-      </el-container>
-
-    </el-container>
-    <el-footer>Footer</el-footer>
+          </div>
+        </el-scrollbar>
+      </main>
+    </div>
 
     <Login :visible="store.loginVisible" />
-
-
-
   </div>
 </template>
 <script setup>
@@ -122,38 +107,92 @@ onMounted(async () => {
 
 </script>
 <style scoped>
-.curr_file {
-  background-color: blanchedalmond;
-  border-style: outset;
-  border-radius: 8px;
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-header {
-  border-style: outset;
-  border-width: 2px;
-  background-color: rgb(9, 126, 132);
+.topbar {
+  flex: none;
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
 }
 
-
-
-footer {
-
-  border-style: outset;
-  border-width: 2px;
-  background-color: rgb(132, 108, 9);
+.brand {
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent);
 }
 
-aside {
-  width: 200px;
-  background: #ccc;
-  overflow: auto;
+.spacer {
+  flex: 1;
+}
+
+.user {
+  color: var(--muted);
+}
+
+.preview_chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--panel_2);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.icons {
+  cursor: pointer;
+}
+
+.body {
+  flex: 1;
   min-height: 0;
-
+  display: flex;
 }
 
-main {
-  position: relative;
-  overflow: scroll;
+.sidebar {
+  flex: none;
+  width: 220px;
+  padding: 12px;
+  overflow: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
 
+.side_title {
+  margin: 8px 0 8px;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.add_btn {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.content {
+  padding: 16px 20px 40px;
+}
+
+.sections {
+  margin-top: 20px;
+  border-color: var(--border);
 }
 </style>
