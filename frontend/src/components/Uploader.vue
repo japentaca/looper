@@ -20,9 +20,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { store, store_get_user_info } from '../helpers/composable';
+import { store, store_get_user_info } from '../helpers/composable'
 import { ElMessage } from 'element-plus'
 
 const uploadPath = ref(import.meta.env.VITE_APP_BACKEND + "/api/upload")

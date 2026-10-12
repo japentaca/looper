@@ -19,7 +19,7 @@
 
 <script setup>
 
-import { reactive } from "@vue/reactivity"
+import { reactive } from "vue"
 import { store, store_get_user_info } from "../helpers/composable"
 import { login } from "../helpers/api"
 import { ElMessage } from 'element-plus'
@@ -36,7 +36,7 @@ async function doLogin() {
     store.isLogged = true
     store.u_info = res.data.u_info
 
-    let t = await store_get_user_info()
+    await store_get_user_info()
   } else {
     ElMessage({ type: 'error', message: res.text })
   }

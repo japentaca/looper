@@ -17,10 +17,9 @@
   </div>
 </template>
 <script setup>
-import { ref } from 'vue';
-import { store, tags_by_id, rebuildIndexes, save_tags } from "../helpers/composable"
-import { save_fileData } from '../helpers/api';
-import { genFileId } from 'element-plus';
+import { ref } from 'vue'
+import { store, rebuildIndexes, save_tags } from "../helpers/composable"
+import { save_fileData } from '../helpers/api'
 const props = defineProps(["index"])
 const editing = ref(false)
 let prevName = ""

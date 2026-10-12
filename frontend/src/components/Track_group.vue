@@ -16,8 +16,8 @@
   </div>
 </template>
 <script setup>
-import { ref } from 'vue';
-import { save_fileData, } from '../helpers/api';
+import { ref } from 'vue'
+import { save_fileData, } from '../helpers/api'
 import { store, rebuildIndexes, save_trackGroups } from "../helpers/composable"
 
 const props = defineProps(["index"])

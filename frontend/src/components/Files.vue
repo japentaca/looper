@@ -8,7 +8,7 @@
       </el-radio-group>
     </div>
     <div v-show="(fileListViewMode == 'Box')" class="box">
-      <div v-for="(file, index) in store.files" class="file" @dragover="ondragover($event, index)"
+      <div v-for="(file, index) in store.files" :key="file.id" class="file" @dragover="ondragover($event, index)"
         @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
 
         <el-tooltip effect="dark" :content=file.original_name placement="top-start">
@@ -125,9 +125,6 @@ import * as toneLib from "../helpers/toneLib"
 
 const fileListViewMode = ref("Table")
 
-const dragoverColor = ref("#AA0000")
-const colorNormal = ref("blanchedalmond")
-const currentColor = ref(colorNormal.value)
 
 const dialogVisible = ref(false)
 const curr_edit_file = ref(null)

@@ -1,9 +1,7 @@
-import { reactive, watch } from 'vue'
+import { reactive } from 'vue'
 import * as api from './api'
 import * as Tone from 'tone'
-import { ToneAudioBuffer } from 'tone'
 
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
 export const store = reactive({
   files: [],
@@ -26,7 +24,6 @@ export let tags_by_id = {}
 export let track_groups_by_id = {}
 
 
-import { watchThrottled } from '@vueuse/core'
 import { TrackCtrl, calculateBars } from './TrackCtrl.js'
 
 export async function save_tags() {
@@ -143,7 +140,7 @@ export const store_get_user_info = async () => {
 
 }
 async function getAudioPlayer(url, file) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let player = new Tone.Player({
       url: url, onload: (buf) => {
         //console.log("file loaded", file.id)
@@ -175,13 +172,6 @@ export function rebuildIndexes() {
   //console.log(tags_by_id, store.tags)
 
 
-}
-async function delay(tiempo) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(true)
-    }, tiempo);
-  })
 }
 export const doLogout = async () => {
   let res = await api.logout()

@@ -1,6 +1,6 @@
 import express from 'express'
 var router = express.Router()
-export default router = router
+export default router
 import fs from "fs/promises"
 import bcrypt from 'bcrypt'
 import { v4 as uuid } from "uuid"
@@ -113,7 +113,7 @@ router.put('/logout', async (req, res) => {
   //console.log("req.session", req.session)
   return res.send({ stat: true })
 
-});
+})
 
 router.put('/save_fileData', async (req, res) => {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
@@ -132,7 +132,7 @@ router.put('/save_fileData', async (req, res) => {
     return res.status(500).send({ stat: false, text: "Error interno" })
   }
 
-});
+})
 
 router.put('/delete_file', async (req, res) => {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
@@ -155,7 +155,7 @@ router.put('/delete_file', async (req, res) => {
     console.log("Error delete_file", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
   }
-});
+})
 
 router.get('/get_user_info', async (req, res) => {
   if (!req.session?.isLogged) return res.send({ stat: false })
@@ -167,7 +167,7 @@ router.get('/get_user_info', async (req, res) => {
     return res.status(500).send({ stat: false, text: "Error interno" })
   }
 
-});
+})
 
 router.get('/get_file', async (req, res) => {
 
@@ -191,7 +191,7 @@ router.get('/get_file', async (req, res) => {
   }
 
 
-});
+})
 
 router.post('/upload', async (req, res) => {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
@@ -257,7 +257,7 @@ router.post('/upload', async (req, res) => {
     return res.status(500).send({ stat: false, text: "No se pudieron guardar: " + failed.join(", ") })
   }
   return res.status(200).end()
-});
+})
 
 async function return_user_info(req) {
   let u_info = { ...req.session.u_info }
@@ -294,10 +294,10 @@ async function return_user_info(req) {
 
 }
 
-const isDirExist = async path => await fs.access(path).then(() => true).catch(() => false);
+const isDirExist = async path => await fs.access(path).then(() => true).catch(() => false)
 
 async function move_file(file, dest) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     file.mv(dest, function (err) {
       if (err) {
         console.log(err)

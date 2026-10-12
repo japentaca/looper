@@ -25,13 +25,13 @@
       <el-container>
         <el-aside>
           <div>TRACK GROUPS</div>
-          <Track_group v-for="(track_group, index) in store.track_groups" class="file" :name="track_group.name"
+          <Track_group v-for="(track_group, index) in store.track_groups" :key="track_group.id" class="file" :name="track_group.name"
             :color="track_group.color" :index=index>
           </Track_group>
           <el-button @click="addTrackGroup">+</el-button>
           <el-divider />
           <div>TAGS</div>
-          <Tag v-for="(tag, index) in store.tags" class="file" :index=index>
+          <Tag v-for="(tag, index) in store.tags" :key="tag.id" class="file" :index=index>
           </Tag>
           <el-button @click="addTag">+</el-button>
         </el-aside>
@@ -66,7 +66,7 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted, reactive } from "vue"
+import { ref, onMounted } from "vue"
 import Track_group from "./components/Track_group.vue"
 import Tag from "./components/Tag.vue"
 import Files from "./components/Files.vue"
@@ -80,7 +80,6 @@ import * as uuid from "uuid"
 
 import { playerStop } from "./helpers/toneLib"
 
-import { weightedRandom } from './helpers/utils'
 
 async function addTrackGroup() {
   let id = uuid.v4()
@@ -112,11 +111,10 @@ const rgbToHex = (r, g, b) => '#' + [r, g, b].map(x => {
 }).join('')
 
 const activeCollapsable = ref('2')
-const dialogLoginVisible = ref(false)
 onMounted(async () => {
   if (!store.alreadyMounted) {
     store.alreadyMounted = true
-    let t = await store_get_user_info()
+    await store_get_user_info()
   } else {
     console.log("already mounted!!!!")
   }

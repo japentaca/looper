@@ -11,11 +11,11 @@ global.knex = Knex({
   connection: {
     filename: global.config.db_file
   }
-});
+})
 import express from 'express'
-const app_server = express();
+const app_server = express()
 import Redis from 'ioredis'
-app_server.use(express.json());
+app_server.use(express.json())
 import Session from "express-session"
 import RedisStore from 'connect-redis'
 

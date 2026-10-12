@@ -24,7 +24,7 @@
     <el-slider class="slider" v-model="TAG_change_range" range show-stops :show-tooltip="false" :min="5" :max="9" />
 
     TRACKS
-    <el-row :gutter="20" v-for="(track, index) in tracks">
+    <el-row :gutter="20" v-for="(track, index) in tracks" :key="index">
       <el-col :span="2" v-if="track.track_group"><span class="track"
           v-bind:style="{ 'background-color': track.track_group.color }"> {{
             track.track_group.name
@@ -117,13 +117,12 @@ function stop() {
   })
 }
 
-let a = 0
 
 Tone.Transport.scheduleRepeat((time) => {
   // use the callback time to schedule events
   set_next_step(time)
 
-}, "4n");
+}, "4n")
 
 function start_file(id, time) {
   files_by_id[id].isPlaying = true
@@ -145,7 +144,6 @@ function start() {
   TrackCtrl.isPlaying = true
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
   Tone.Transport.bpm.value = TrackCtrl.tempo
-  let selected_tgs = []
   let temp_trg = {}
   let temp_tag = {}
   tracks.splice(0)
@@ -174,12 +172,12 @@ function start() {
     }
   }
 
-  for (const [key, value] of Object.entries(temp_tag)) {
+  for (const key of Object.keys(temp_tag)) {
     available_tags.push(tags_by_id[key])
   }
 
   available_trgs = []
-  for (const [key, value] of Object.entries(temp_trg)) {
+  for (const value of Object.values(temp_trg)) {
     available_trgs.push(track_groups_by_id[value])
     // key y value traen el tag_id
     tracks.push({
