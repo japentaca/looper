@@ -62,7 +62,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded` | `max_bytes_uploaded` no se usa |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 
@@ -211,6 +211,30 @@ Reglas para modificar el motor:
   `Fader` chico (−48..+6 dB) y los botones M / S. El estado vive fuera de `TrackCtrl.tracks` porque
   los tracks se rearman en cada START. El volumen del canal se suma al `props.volume` de cada
   archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales.
+- **Efectos por pista**: la cadena es `player → Tone.Filter (lowpass) → Tone.Channel`
+  (`route_player` conecta el player al filtro). El filtro es `Gain → BiquadFilter → Gain` nativos
+  (estéreo, a diferencia del `Panner` del Channel, que por eso lleva `channelCount: 2`); en reposo
+  queda abierto a 20 kHz, Q 0, −12 dB/oct, y no colorea. `remove_channel` dispone también filtro y send.
+- **Reverb compartida**: un único `Tone.Reverb` (decay 6 s, `wet = 1`: solo la cola) conectado a
+  `Destination` (pasa por el limitador). Cada canal tiene un send: un `Tone.Gain` (lineal) colgado de
+  la **salida** del canal → reverb. Es lo mismo que hace `Tone.Channel.send()` por dentro, pero no se
+  usa la API de buses porque `receive()` solo existe en `Tone.Channel`, y un Channel de retorno
+  participa del solo (quedaría callado al poner cualquier pista en solo). Al salir del canal, el send
+  es **post-fader, post-mute y post-solo**: una pista muteada o callada por otro solo no manda reverb
+  (la cola que ya estaba sonando se apaga sola) y el volumen de la pista también escala el send.
+  Nivel en `props.reverb` (dB, `null` = nada). Knob "Rev" en la tira: −40..0 dB, el mínimo = `null`.
+- **Drift (`props.drift`, 0..1)**: modulación lenta del filtro y del send. Un **único** `Tone.Loop`
+  cada `"1m"` (`start_drift()` en `start()`, antes de `Tone.Transport.start()`, arrancando en el
+  tiempo 0; `stop_drift()` en `stop()` lo dispone, así no quedan eventos ni loops colgados entre
+  corridas). En cada compás, con el `time` del callback, cada pista con drift da un paso al azar
+  (±0.2) de una caminata `walk = { f, s }` en 0..1 y agenda `rampTo(valor, "1m", time)`:
+  frecuencia = 20 kHz · (300/20000)^(f·drift) (con drift 1 puede cerrar hasta 300 Hz) y send =
+  `props.reverb` ± 9 dB·drift (tope 0 dB; si `reverb` es `null` el send sigue en nada). Con drift 0
+  la caminata vuelve a la base (`f = 0`, `s = 0.5`) y la rampa siguiente deja filtro abierto y
+  send = `props.reverb` (con el transporte detenido se aplica en el momento). En STOP todas las
+  pistas vuelven a la base con una rampa de 0.5 s. Mover "Rev" aplica el send nuevo con una rampa
+  de 50 ms (cancela la rampa en curso; el drift sigue en el compás siguiente).
+  Los knobs chicos "Rev" y "Drift" van en una fila propia de la tira (entran dos de 36 px en 112 px).
 - **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
   (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
   pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.

@@ -38,8 +38,11 @@ export async function save_trackGroups() {
 // volume en dB (va al Tone.Channel); rest = probabilidad 0..1 de descansar al terminar cada loop
 // (la usa el motor en Tracks.vue). mode = "loop" | "oneshot"; en oneshot la pista dispara archivos sueltos:
 // on_tag_change = al empezar cada Tag, density = probabilidad 0..1 de disparar en cada compás.
+// reverb = nivel del send a la reverb compartida en dB (null = nada; no se usa -Infinity porque
+// JSON.stringify lo vuelve null igual); drift = modulación lenta 0..1 de filtro y send (ver mixer.js).
 export function trg_default_props() {
-  return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop", on_tag_change: false, density: 0 }
+  return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop", on_tag_change: false, density: 0,
+    reverb: null, drift: 0 }
 }
 // guardado diferido de los track groups (para controles que cambian seguido: mute, solo, volumen)
 let save_trg_timer = null

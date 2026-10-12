@@ -104,6 +104,16 @@
           <!-- volumen de la pista (dB, guardado en props.volume) -->
           <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
             label="Vol" :title="trg.props.volume + ' dB'" @update:model-value="v => set_volume(trg.id, v)" />
+          <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada) y modulación lenta
+            del filtro y del send (props.drift, 0..1) -->
+          <div class="fx_ctrls">
+            <Knob :model-value="trg.props.reverb ?? REV_OFF_DB" :min="REV_OFF_DB" :max="0" :step="1" :size="36"
+              label="Rev" :title="trg.props.reverb == null ? 'Reverb: off' : 'Reverb send ' + trg.props.reverb + ' dB'"
+              @update:model-value="v => set_reverb(trg.id, v)" />
+            <Knob :model-value="trg.props.drift ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Drift"
+              :title="'Drift ' + Math.round((trg.props.drift ?? 0) * 100) + '%'"
+              @update:model-value="v => set_drift(trg.id, Math.round(v * 100) / 100)" />
+          </div>
           <!-- mute / solo de la pista (guardados en props) -->
           <div class="mute_solo">
             <LedButton size="small" text="M" led="red" :lit="!!trg.props.mute" @click="toggle_mute(trg.id)" />
@@ -127,7 +137,10 @@ import LedButton from "./hw/LedButton.vue"
 import Led from "./hw/Led.vue"
 import LedMeter from "./hw/LedMeter.vue"
 import StepLeds from "./hw/StepLeds.vue"
-import { levels, route_player, toggle_mute, toggle_solo, set_volume, is_silenced } from "../helpers/mixer"
+import {
+  levels, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
+  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB
+} from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
 
 function reset() {
@@ -233,6 +246,7 @@ function onSignatureChange(value) {
 function stop() {
   TrackCtrl.isPlaying = false
   Tone.Transport.stop()
+  stop_drift() // elimina el Tone.Loop del drift y vuelve filtros y sends a su base
   current_TAG.remaining_beats = 0
   tracks.map(track => {
 
@@ -352,6 +366,7 @@ function start() {
   get_available_files_x_tag(current_TAG.tag?.id)
 
   beat.n = 0 // el transporte arranca de cero; evita mostrar la posición de la corrida anterior
+  start_drift() // modulación lenta de filtro y send (un Tone.Loop por compás, desde el tiempo 0)
   Tone.Transport.start()
 
 }
@@ -674,6 +689,11 @@ function get_available_files_x_tag(tag_id) {
 .oneshot_ctrls {
   display: flex;
   align-items: flex-end;
+  gap: 4px;
+}
+
+.fx_ctrls {
+  display: flex;
   gap: 4px;
 }
 

@@ -27,7 +27,7 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
   email, name, ts, bytes_used, max_bytes_uploaded,
   token,                       // para get_file
   files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3" }], // props.oneShot viejo puede venir: se ignora
-  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode, on_tag_change, density } }], // props: {} si no hay nada guardado
+  track_groups: [{ id, name, color, props: { volume, mute, solo, rest, mode, on_tag_change, density, reverb, drift } }], // props: {} si no hay nada guardado
                                                                                 // (el front completa los defaults)
   tags: [{ id, name, color }]
 }
@@ -42,6 +42,8 @@ falla, no se pierde nada y responden 500). Mandar siempre la colección
 completa. De cada objeto solo se guardan las columnas de una lista blanca (`id, name, color, props`
 para track groups, `id, name, color` para tags); el resto de los campos se ignora. `props` de un
 track group se guarda como JSON (`JSON.stringify`) y `get_user_info` lo devuelve parseado.
+`props.reverb` es un número en dB o `null` (= sin reverb; no se usa `-Infinity` porque no es JSON
+válido) y `props.drift` un número 0..1. El backend no valida el contenido de `props`.
 
 ### `save_fileData`
 
