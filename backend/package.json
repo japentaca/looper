@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint ."
   },
   "type": "module",
   "author": "",
@@ -21,5 +22,11 @@
     "ioredis": "^5.3.2",
     "knex": "^3.1.0",
     "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0"
   }
 }

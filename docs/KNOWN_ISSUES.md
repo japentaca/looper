@@ -47,7 +47,12 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 - 🟡 El preview y el motor comparten el flag `isPlaying` del objeto archivo: escuchar en preview un
   archivo que está sonando en un track (o viceversa) puede dejar el indicador desfasado.
 - 🟡 `Tag.vue` y `Track_group.vue` son casi idénticos (candidatos a un componente común).
-- 🟡 `.eslintignore` ignora todo (`**/*`); no hay linter ni formatter configurado.
+- 🟡 ESLint ya está configurado (`npm run lint`), pero quedan hallazgos heredados. Errores reales:
+  faltan `:key` en `v-for` (`App.vue` x2, `Files.vue`, `Tracks.vue`), `index` sin usar en un
+  `v-for` de `Tracks.vue`, import de `@vue/reactivity` en `Login.vue` (debería ser `vue`),
+  `new Promise(async ...)` en `routes/api.js` y `composable.js`, y `router = router` en `api.js`.
+  Advertencias: ~50 (punto y coma sobrante en `backend/index.js`, `routes/api.js`, `utils.js` y varios
+  del frontend; variables sin usar). Los de punto y coma se arreglan con `npx eslint . --fix`.
 
 ## Entorno
 

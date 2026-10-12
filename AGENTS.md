@@ -85,11 +85,14 @@ y el hash de la clave). Para generar el hash, desde `backend/`:
 `node -e "console.log(require('bcrypt').hashSync('la_clave', 10))"`.
 Con una base vacía, `db_migrations.js` crea el esquema completo al arrancar.
 
-## Verificación (no hay tests ni linter)
+## Verificación (no hay tests; sí hay ESLint)
 
 Antes de dar una tarea por terminada:
 
 1. Backend: `node --check` sobre cada archivo modificado y arrancar `node index.js` sin errores.
+   Lint: `cd backend && npm run lint` (idem en `frontend`). ESLint con flat config, **sin Prettier**:
+   solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
+   Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores.
 3. Si se tocó la reproducción (`Tracks.vue`, `composable.js`, `TrackCtrl.js`, `toneLib.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
