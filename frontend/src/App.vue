@@ -25,14 +25,12 @@
       <el-container>
         <el-aside>
           <div>TRACK GROUPS</div>
-          <Track_group v-for="(track_group, index) in store.track_groups" :key="track_group.id" class="file" :name="track_group.name"
-            :color="track_group.color" :index=index>
-          </Track_group>
+          <SidebarItem v-for="(track_group, index) in store.track_groups" :key="track_group.id" class="file"
+            kind="track_group" :index="index" />
           <el-button @click="addTrackGroup">+</el-button>
           <el-divider />
           <div>TAGS</div>
-          <Tag v-for="(tag, index) in store.tags" :key="tag.id" class="file" :index=index>
-          </Tag>
+          <SidebarItem v-for="(tag, index) in store.tags" :key="tag.id" class="file" kind="tag" :index="index" />
           <el-button @click="addTag">+</el-button>
         </el-aside>
 
@@ -67,8 +65,7 @@
 </template>
 <script setup>
 import { ref, onMounted } from "vue"
-import Track_group from "./components/Track_group.vue"
-import Tag from "./components/Tag.vue"
+import SidebarItem from "./components/SidebarItem.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
 import Uploader from "./components/Uploader.vue"

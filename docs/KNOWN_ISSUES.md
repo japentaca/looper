@@ -46,7 +46,6 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   lista. Se resuelve junto con el arreglo de seguridad de `get_file`.
 - 🟡 El preview y el motor comparten el flag `isPlaying` del objeto archivo: escuchar en preview un
   archivo que está sonando en un track (o viceversa) puede dejar el indicador desfasado.
-- 🟡 `Tag.vue` y `Track_group.vue` son casi idénticos (candidatos a un componente común).
 
 ## Entorno
 
