@@ -381,15 +381,6 @@ function get_available_files_x_tag(tag_id) {
   font-size: 12px;
 }
 
-.chip {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 999px;
-  color: #111;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .tag_now {
   display: flex;
   align-items: center;

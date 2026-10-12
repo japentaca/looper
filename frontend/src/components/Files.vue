@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div>
+    <div class="view_switch">
       <el-radio-group v-model="fileListViewMode" size="small">
         <el-radio-button label="Box" />
         <el-radio-button label="Table" />
@@ -12,18 +12,17 @@
         @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
 
         <el-tooltip effect="dark" :content=file.original_name placement="top-start">
-          <p class="tag_data">{{ file.original_name_short }} </p>
+          <p class="name">{{ file.original_name_short }}</p>
         </el-tooltip>
         <p v-if="file.isLoaded" class="tag_data">{{ file.duration_fixed }}<span> Beats:{{ file.beats }}</span></p>
-        <p class="tag_data">TRG:<span v-if="file.track_group_obj"
-            v-bind:style="{ 'background-color': file.track_group_obj.color }">{{
+        <p class="tag_data">TRG:<span v-if="file.track_group_obj" class="chip" :style="{ background: file.track_group_obj.color }">{{
               file.track_group_obj.name
             }}</span></p>
-        <p class="tag_data">TAG:<span v-if="file.tag_obj" v-bind:style="{ 'background-color': file.tag_obj.color }">{{
+        <p class="tag_data">TAG:<span v-if="file.tag_obj" class="chip" :style="{ background: file.tag_obj.color }">{{
           file.tag_obj.name
         }}</span></p>
         <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
-        <p style="background-color:#8899AA">
+        <p class="actions">
           <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
             <Delete />
           </el-icon>
@@ -38,7 +37,7 @@
       </div>
     </div>
     <div v-show="(fileListViewMode == 'Table')">
-      <el-table :data="store.files" height="750" style="width: 100%">
+      <el-table :data="store.files" style="width: 100%">
         <el-table-column sortable prop="original_name_short" label="Name" width="200">
           <template #default="scope">
 
@@ -50,23 +49,21 @@
         <el-table-column sortable prop="beats" label="Beats" width="90" />
         <el-table-column sortable label="Track Group" prop="track_group" width="90">
           <template #default="scope">
-            <span v-if="scope.row.track_group != null"
-              v-bind:style="{ 'background-color': scope.row.track_group_obj.color }">{{
+            <span v-if="scope.row.track_group != null" class="chip" :style="{ background: scope.row.track_group_obj.color }">{{
                 scope.row.track_group_obj.name
               }}</span>
           </template>
         </el-table-column>
         <el-table-column sortable label="Tag" prop="tag" width="90">
           <template #default="scope">
-            <span v-if="scope.row.tag != null" v-bind:style="{ 'background-color': scope.row.tag_obj.color }">{{
+            <span v-if="scope.row.tag != null" class="chip" :style="{ background: scope.row.tag_obj.color }">{{
               scope.row.tag_obj.name
             }}</span>
           </template>
         </el-table-column>
         <el-table-column label="State" sortable v-if="store.loading == false" width="90">
           <template #default="scope">
-            <div style="background-color: red;" v-show="audio_players[scope.row.id].state == 'started'">
-              PLAYING</div>
+            <span class="chip playing_chip" v-show="audio_players[scope.row.id].state == 'started'">PLAYING</span>
           </template>
 
         </el-table-column>
@@ -81,12 +78,10 @@
     draggable>
     <p v-if="curr_edit_file.isLoaded" class="tag_data">Duration: {{ curr_edit_file.duration_fixed }}<span> Beats:{{
       curr_edit_file.beats }}</span></p>
-    <p class="tag_data">TRG:<span v-if="curr_edit_file.track_group_obj"
-        v-bind:style="{ 'background-color': curr_edit_file.track_group_obj.color }">{{
+    <p class="tag_data">TRG:<span v-if="curr_edit_file.track_group_obj" class="chip" :style="{ background: curr_edit_file.track_group_obj.color }">{{
           curr_edit_file.track_group_obj.name
         }}</span></p>
-    <p class="tag_data">TAG:<span v-if="curr_edit_file.tag_obj"
-        v-bind:style="{ 'background-color': curr_edit_file.tag_obj.color }">{{
+    <p class="tag_data">TAG:<span v-if="curr_edit_file.tag_obj" class="chip" :style="{ background: curr_edit_file.tag_obj.color }">{{
           curr_edit_file.tag_obj.name
         }}</span></p>
     <p>
@@ -94,7 +89,7 @@
         @change="onChange(curr_edit_file)" />
     </p>
     <el-checkbox @change="onChange(curr_edit_file)" v-model="curr_edit_file.props.oneShot" label="OneShot" size="small" />
-    <p style="background-color:#8899AA">
+    <p class="dialog_actions">
       <el-icon :size="iconSize" class="icons" @click="deleteFile(curr_edit_file)">
         <Delete />
       </el-icon>
@@ -225,43 +220,72 @@ const iconSize = ref(18)
 
 </script>
 <style scoped>
+.view_switch {
+  margin-bottom: 12px;
+}
+
 .tag_data {
-  padding: 0px;
-  margin: 0px
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
 }
 
 .icons {
-
-  padding: 7px;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
 }
 
-
 .icons:hover {
-  background-color: red;
+  color: var(--text);
+  background: var(--border);
 }
 
 .box {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-  gap: 9px 1em;
-
-
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
 }
 
 .file {
-  transition: background-color 1s;
-  border-style: outset;
-  padding-left: 2px;
-  margin-left: 1px;
-  background-color: blanchedalmond;
-  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--panel_2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.2s;
 }
 
 .file:hover {
-  background-color: rgb(201, 165, 3);
+  border-color: var(--accent);
 }
 
-.box :first-child {
-  align-self: center;
+.playing_chip {
+  background: var(--accent);
+}
+
+.dialog_actions {
+  display: flex;
+  gap: 4px;
 }
 </style>

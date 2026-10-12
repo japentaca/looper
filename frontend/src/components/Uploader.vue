@@ -16,7 +16,7 @@
 
   </el-upload>
   <!--el-progress v-if="progress > 0" :percentage="progress" /-->
-  <el-button @click="doUpload" v-if="fileList.length > 0">UPLOAD</el-button>
+  <el-button class="upload_btn" type="success" @click="doUpload" v-if="fileList.length > 0">UPLOAD</el-button>
 </template>
 
 <script setup>
@@ -80,4 +80,8 @@ function onError(error, file) {
 
 </script>
 
-<style></style>
+<style scoped>
+.upload_btn {
+  margin-top: 10px;
+}
+</style>
