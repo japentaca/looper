@@ -9,7 +9,7 @@ herramienta necesita su propio archivo (`CLAUDE.md`, etc.), ese archivo solo deb
 Looper es un reproductor de loops aleatorio. Cada usuario sube archivos de audio (mp3/wav), los
 agrupa en **Track Groups** (cada grupo = una pista que suena en paralelo) y los etiqueta con
 **Tags** (secciones musicales). Al darle START, en cada pista se elige un loop al azar compatible
-con el Tag activo; el Tag cambia al azar cada 2^n compases. Todo se sincroniza con un tempo (BPM).
+con el Tag activo; el Tag cambia al azar cada 2^n beats (tiempos). Todo se sincroniza con un tempo (BPM).
 
 Proyecto personal, programado a mano entre 2022 y 2024, sin tests. A partir de ahora se mantiene
 con LLMs.

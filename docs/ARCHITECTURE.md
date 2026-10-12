@@ -111,7 +111,7 @@ Flujo:
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**.
 3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango del slider
-   (5..9). La UI dice "bars" pero el contador se decrementa por beat.
+   (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
      tracks cuyo archivo tiene un tag distinto al nuevo (los de tag igual o sin tag siguen sonando).

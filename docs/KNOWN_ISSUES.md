@@ -32,9 +32,6 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
-- 🟡 Cambiar 3/4 ↔ 4/4 durante la reproducción no recalcula `bars` ni el `timeSignature` del
-  Transport hasta el próximo START (no es audible: el motor cuenta beats, no compases).
-- 🟡 La UI dice "TAG Time in bars" pero la duración se cuenta en beats (negras).
 - 🟡 `props.oneShot` se guarda y edita pero el motor no lo usa. `user_track_groups.silences` y la
   tabla `sets` tampoco.
 
