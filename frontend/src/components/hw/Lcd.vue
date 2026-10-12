@@ -4,11 +4,11 @@
     <div v-if="$slots.default" class="text">
       <slot />
     </div>
-    <div class="num">
+    <div v-if="digits > 0" class="num">
       <span v-if="caption" class="caption">{{ caption }}</span>
       <div class="digits">
         <!-- segmentos apagados ("fantasma") detrás del valor, como en un LCD real -->
-        <span class="ghost">{{ "8".repeat(digits) }}</span>
+        <span class="ghost">{{ ghost }}</span>
         <span class="value">{{ shown }}</span>
       </div>
       <span v-if="unit" class="unit">{{ unit }}</span>
@@ -17,6 +17,7 @@
 </template>
 <script setup>
 // Display de 7 segmentos (fuente DSEG7). El valor se alinea a la derecha en `digits` posiciones.
+// Con digits=0 solo muestra la zona de texto (slot).
 import { computed } from "vue"
 
 const props = defineProps({
@@ -27,8 +28,16 @@ const props = defineProps({
   small: { type: Boolean, default: false }
 })
 
-// DSEG usa "!" como dígito vacío del mismo ancho que un número
-const shown = computed(() => String(props.value).slice(-props.digits).padStart(props.digits, "!"))
+// DSEG usa "!" como dígito vacío del mismo ancho que un número. "." y ":" no cuentan como dígito
+// (p. ej. digits=4 y value "12.3" muestra " 12.3").
+const shown = computed(() => {
+  let v = String(props.value)
+  let len = v.replace(/[.:]/g, "").length
+  if (len > props.digits && !/[.:]/.test(v)) return v.slice(-props.digits)
+  return "!".repeat(Math.max(0, props.digits - len)) + v
+})
+// fantasma con los mismos separadores que el valor, para que quede alineado
+const ghost = computed(() => shown.value.replace(/[^.:]/g, "8"))
 </script>
 <style scoped>
 .lcd {
@@ -49,6 +58,11 @@ const shown = computed(() => String(props.value).slice(-props.digits).padStart(p
   grid-template-rows: auto auto;
   column-gap: 6px;
   align-items: end;
+}
+
+.text:only-child {
+  padding-right: 0;
+  border-right: 0;
 }
 
 .text {

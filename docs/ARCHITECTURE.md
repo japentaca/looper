@@ -120,10 +120,14 @@ Flujo:
      `remaining_beats = beats - 1`. Si no, decrementa y actualiza el progreso.
 5. Después de `set_next_step`, el mismo callback agenda con `Tone.Draw.schedule(..., time)` la
    actualización de `beat` (`n` = número de beat del transporte, `downbeat` = primer tiempo del
-   compás), que hace destellar los LEDs del panel de Tracks cuando el beat suena de verdad. Las
+   compás), que hace destellar los LEDs del panel de Tracks cuando el beat suena de verdad y
+   alimenta el LCD de posición "compás.tiempo" (`bar_position`; `start()` reinicia `beat.n`). Las
    tiras de canal muestran el beat del loop (`beats - remaining_beats`) en un medidor de LEDs y un LCD.
    El TAG actual se muestra en un LCD con `current_TAG.remaining_beats` como cuenta regresiva
    (de `duration` a 1) y un LED que destella en los últimos 4 beats antes del cambio.
+   `current_TAG` y `tracks` viven en `TrackCtrl` (los escribe solo `Tracks.vue`): así los pads de la
+   barra lateral (`SidebarItem.vue`) se iluminan si su Track Group tiene un archivo sonando
+   (`curr_file.isPlaying`) o si su Tag es el activo.
 
 Reglas para modificar el motor:
 - Todo lo que suene debe programarse con el `time` del callback (no con `Date`/`setTimeout`), si no

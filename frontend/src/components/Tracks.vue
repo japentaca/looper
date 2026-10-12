@@ -1,7 +1,7 @@
 <template>
   <div class="tracks_panel">
     <section class="hw_panel controls">
-      <div class="brand silk">LOOPER <span>random loop sampler</span></div>
+      <div class="brand silk">Transport</div>
 
       <div class="group transport">
         <LedButton size="big" led="green" :lit="TrackCtrl.isPlaying" :disabled="TrackCtrl.isReady != true"
@@ -13,6 +13,8 @@
       <div class="group tempo">
         <Knob v-model="TrackCtrl.tempo" :min="10" :max="160" label="Tempo" @change="onBPMSliderchange" />
         <Lcd :value="TrackCtrl.tempo" :digits="3" unit="BPM" />
+        <!-- posición del transporte: compás.tiempo -->
+        <Lcd :value="bar_position" :digits="4" caption="Bar . beat" />
       </div>
 
       <div class="group">
@@ -129,20 +131,14 @@ let files_per_TRG = {}
 let available_files_per_TRG = []
 let files_per_TAG = []
 
-let current_TAG = reactive({
-  duration: 0,
-  tag: null,
-  curr_bar: 0,
-  old_tag: null,
-
-  remaining_beats: 0
-})
+// el estado del TAG y de los tracks vive en TrackCtrl para que otros componentes (pads) lo lean
+let current_TAG = TrackCtrl.current_TAG
 
 let available_tags = []
 
 let available_trgs = []
 
-let tracks = reactive([])
+let tracks = TrackCtrl.tracks
 
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
@@ -183,6 +179,13 @@ Tone.Transport.scheduleRepeat((time) => {
 
 // beat del transporte (para los LEDs); downbeat = primer tiempo del compás
 const beat = reactive({ n: 0, downbeat: false })
+
+// compás y tiempo del transporte para el LCD ("12.3"); vacío con el transporte detenido
+const bar_position = computed(() => {
+  if (!TrackCtrl.isPlaying) return ""
+  let bpb = parseInt(TrackCtrl.beats_x_bar)
+  return (Math.floor(beat.n / bpb) % 1000 + 1) + "." + (beat.n % bpb + 1)
+})
 
 // beat actual (1..beats) del loop que suena en la pista
 function track_beat(track) {
@@ -256,7 +259,7 @@ function start() {
   selectTag()
   get_available_files_x_tag(current_TAG.tag?.id)
 
-
+  beat.n = 0 // el transporte arranca de cero; evita mostrar la posición de la corrida anterior
   Tone.Transport.start()
 
 }
@@ -427,13 +430,6 @@ function get_available_files_x_tag(tag_id) {
   left: 30px;
   font-size: 12px;
   letter-spacing: 3px;
-}
-
-.brand span {
-  margin-left: 8px;
-  font-size: 9px;
-  letter-spacing: 2px;
-  opacity: 0.6;
 }
 
 .tag_now {

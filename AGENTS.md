@@ -31,17 +31,17 @@ backend/
   db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn)
   utils.js           # conversión con ffmpeg, extensión de archivo
 frontend/src/
-  App.vue            # layout: sidebar (Track Groups, Tags) + Tracks + Uploader + Files
+  App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
-    Files.vue        # lista de archivos (vista Box/Table, ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
-    SidebarItem.vue  # item de sidebar editable y draggable; prop kind="track_group"|"tag" (config en KINDS)
+    Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
+    SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login
     hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
-    TrackCtrl.js     # estado de transporte (tempo, compás) y cálculo de beats/compases
+    TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
     toneLib.js       # reproductor de preview (un archivo suelto)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
@@ -114,7 +114,7 @@ Imitar el estilo existente al editar:
 - Estilo visual: tema oscuro (`<html class="dark">` + `element-plus/theme-chalk/dark/css-vars.css`). Los colores,
   radios y tipografía base son variables CSS en `frontend/src/style.css` (`--bg`, `--panel`, `--border`, `--accent`...);
   los componentes las usan en su `<style scoped>` en vez de colores sueltos.
-  Los controles del motor imitan un sampler tipo MPC: componentes propios en `components/hw/` (sin librería de
+  La app es un "loop player" con la estética de hardware de un MPC: componentes propios en `components/hw/` (sin librería de
   controles), variables `--hw_*`, clases globales `.hw_panel` (chasis con tornillos), `.hw_plate` (placa de aluminio
   para faders) y `.silk` (serigrafía). El volumen del diálogo de edición de Files también es un `Fader`. El LCD usa
   la fuente DSEG7 local (`src/assets/fonts/`, OFL). Las texturas son imágenes en `frontend/public/textures/`

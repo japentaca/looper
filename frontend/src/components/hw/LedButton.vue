@@ -16,7 +16,7 @@ defineProps({
   label: { type: String, default: "" },
   led: { type: String, default: "" },
   lit: { type: Boolean, default: false },
-  size: { type: String, default: "normal" }, // "normal" | "big"
+  size: { type: String, default: "normal" }, // "small" | "normal" | "big"
   disabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(["click"])
@@ -44,6 +44,13 @@ const emit = defineEmits(["click"])
   letter-spacing: 1.5px;
   cursor: pointer;
   transition: transform 0.05s, box-shadow 0.05s;
+}
+
+.cap.small {
+  width: auto;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 10px;
 }
 
 .cap.big {

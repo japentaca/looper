@@ -4,7 +4,16 @@ export const TrackCtrl = reactive({
   tempo: 138,
   beats_x_bar: "4",
   isPlaying: false,
-  isReady: false
+  isReady: false,
+  // estado del motor (lo escribe Tracks.vue; los pads de la barra lateral lo leen)
+  current_TAG: {
+    duration: 0,
+    tag: null,
+    curr_bar: 0,
+    old_tag: null,
+    remaining_beats: 0
+  },
+  tracks: []
 })
 export function calculateBars() {
 

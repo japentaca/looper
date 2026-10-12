@@ -18,7 +18,7 @@
   --accent: #3ddc97;
   --danger: #f56c6c;
   --radius: 10px;
-  /* aparato físico tipo sampler MPC (components/hw/ y .hw_panel) */
+  /* aparato físico: loop player con estética de MPC (components/hw/ y .hw_panel) */
   --hw_chassis: #3a3b3e;
   --hw_chassis_dark: #2b2c2f;
   --hw_silk: #e4e1d8;

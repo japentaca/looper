@@ -8,32 +8,48 @@
       </el-radio-group>
     </div>
     <div v-show="(fileListViewMode == 'Box')" class="box">
-      <div v-for="(file, index) in store.files" :key="file.id" class="file" @dragover="ondragover($event, index)"
+      <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y del Tag -->
+      <div v-for="(file, index) in store.files" :key="file.id" class="cart"
+        :class="{ playing: is_sounding(file), drag_over: drag_index === index }" @dragover="ondragover($event, index)"
         @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
-
-        <el-tooltip effect="dark" :content=file.original_name placement="top-start">
-          <p class="name">{{ file.original_name_short }}</p>
-        </el-tooltip>
-        <p v-if="file.isLoaded" class="tag_data">{{ file.duration_fixed }}<span> Beats:{{ file.beats }}</span></p>
-        <p class="tag_data">TRG:<span v-if="file.track_group_obj" class="chip" :style="{ background: file.track_group_obj.color }">{{
-              file.track_group_obj.name
-            }}</span></p>
-        <p class="tag_data">TAG:<span v-if="file.tag_obj" class="chip" :style="{ background: file.tag_obj.color }">{{
-          file.tag_obj.name
-        }}</span></p>
-        <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
-        <p class="actions">
-          <el-icon :size="iconSize" class="icons" @click="deleteFile(file)">
-            <Delete />
-          </el-icon>
-          <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" @click="playFile(file)">
-            <VideoPlay />
-          </el-icon>
-
-          <el-icon :size="iconSize" class="icons" @click="editFile(file)">
-            <EditPen />
-          </el-icon>
-        </p>
+        <div class="grip">
+          <Led color="green" :lit="is_sounding(file)" />
+        </div>
+        <div class="label">
+          <div class="bands">
+            <span :style="{ background: file.track_group_obj?.color ?? 'transparent' }"></span>
+            <span :style="{ background: file.tag_obj?.color ?? 'transparent' }"></span>
+          </div>
+          <el-tooltip effect="dark" :content="file.original_name" placement="top-start">
+            <p class="name">{{ file.original_name }}</p>
+          </el-tooltip>
+          <p class="specs">
+            <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ file.beats }} beats</template>
+            <template v-else>loading…</template>
+          </p>
+          <p class="tags">
+            <span class="chip" :class="{ empty: !file.track_group_obj }"
+              :style="{ background: file.track_group_obj?.color }">{{ file.track_group_obj?.name ?? "no group" }}</span>
+            <span class="chip" :class="{ empty: !file.tag_obj }" :style="{ background: file.tag_obj?.color }">{{
+              file.tag_obj?.name ?? "no tag" }}</span>
+          </p>
+        </div>
+        <div class="cart_foot">
+          <el-checkbox @change="onChange(file)" v-model="file.props.oneShot" label="OneShot" size="small" />
+          <span class="actions">
+            <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" :title="preview_title(file)"
+              @click="togglePreview(file)">
+              <VideoPause v-if="is_previewing(file)" />
+              <VideoPlay v-else />
+            </el-icon>
+            <el-icon :size="iconSize" class="icons" title="Edit" @click="editFile(file)">
+              <EditPen />
+            </el-icon>
+            <el-icon :size="iconSize" class="icons" title="Delete" @click="deleteFile(file)">
+              <Delete />
+            </el-icon>
+          </span>
+        </div>
       </div>
     </div>
     <div v-show="(fileListViewMode == 'Table')">
@@ -66,9 +82,10 @@
         <el-table-column label="Actions" width="120" align="right">
           <template #default="scope">
             <span class="row_actions">
-              <el-icon v-if="scope.row.isLoaded" :size="iconSize" class="icons" title="Preview"
-                @click="playFile(scope.row)">
-                <VideoPlay />
+              <el-icon v-if="scope.row.isLoaded" :size="iconSize" class="icons" :title="preview_title(scope.row)"
+                @click="togglePreview(scope.row)">
+                <VideoPause v-if="is_previewing(scope.row)" />
+                <VideoPlay v-else />
               </el-icon>
               <el-icon :size="iconSize" class="icons" title="Edit" @click="editFile(scope.row)">
                 <EditPen />
@@ -124,8 +141,10 @@
     <template #footer>
       <div class="dialog_footer">
         <span class="dialog_actions">
-          <el-icon v-if="curr_edit_file.isLoaded" :size="iconSize" class="icons" @click="playFile(curr_edit_file)">
-            <VideoPlay />
+          <el-icon v-if="curr_edit_file.isLoaded" :size="iconSize" class="icons" :title="preview_title(curr_edit_file)"
+            @click="togglePreview(curr_edit_file)">
+            <VideoPause v-if="is_previewing(curr_edit_file)" />
+            <VideoPlay v-else />
           </el-icon>
           <el-icon :size="iconSize" class="icons" @click="deleteFile(curr_edit_file)">
             <Delete />
@@ -143,6 +162,8 @@ import { store, audio_players, track_groups_by_id, tags_by_id } from "../helpers
 import { delete_file, save_fileData } from "../helpers/api"
 import Fader from "./hw/Fader.vue"
 import Lcd from "./hw/Lcd.vue"
+import Led from "./hw/Led.vue"
+import { TrackCtrl } from "../helpers/TrackCtrl"
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 import * as toneLib from "../helpers/toneLib"
@@ -166,6 +187,7 @@ async function onChange(file) {
 }
 
 async function ondrop(e, index) {
+  drag_index.value = null
   console.log("drop", e, index)
   let msg_type = e.dataTransfer.getData("msg_type")
   console.log("msg_type", msg_type)
@@ -186,19 +208,39 @@ async function ondrop(e, index) {
 
 
 }
-async function ondragover(e, index) {
-  //console.log("dragenter", e,index)
-  //e.currentTarget.classList.add('drag-enter');
-  //currentColor.value = dragoverColor.value
+// cartucho resaltado mientras se le arrastra encima un pad de Track Group o Tag
+const drag_index = ref(null)
 
+async function ondragover(e, index) {
+  drag_index.value = index
   e.preventDefault()
 }
 async function ondragleave(e, index) {
-  //console.log("dragleave", e, index)
-  //e.currentTarget.classList.remove('drag-enter');
-  //currentColor.value = colorNormal.value
-
+  // dragleave también salta al pasar sobre un hijo del cartucho: solo se limpia si se sale del todo
+  if (!e.currentTarget.contains(e.relatedTarget) && drag_index.value === index) drag_index.value = null
   e.preventDefault()
+}
+
+// el archivo es el que está sonando en el preview
+function is_previewing(file) {
+  return store.curr_file.isPreviewing && store.curr_file.id == file.id
+}
+
+// el botón de preview es play o stop según si ese archivo ya suena en el preview
+// (lo que suena en el motor no se corta desde acá)
+function togglePreview(file) {
+  if (is_previewing(file)) toneLib.playerStop()
+  else playFile(file)
+}
+
+function preview_title(file) {
+  return is_previewing(file) ? "Stop preview" : "Preview"
+}
+
+// el archivo suena en el motor (algún track lo tiene) o en el preview
+function is_sounding(file) {
+  if (is_previewing(file)) return true
+  return TrackCtrl.isPlaying && TrackCtrl.tracks.some(t => t.curr_file?.id == file.id && t.curr_file.isPlaying)
 }
 
 
@@ -255,27 +297,9 @@ const iconSize = ref(18)
   margin-bottom: 12px;
 }
 
-.tag_data {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.name {
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-
 .actions {
-  margin-top: 6px;
   display: flex;
-  gap: 4px;
+  gap: 0;
 }
 
 .row_actions {
@@ -297,23 +321,125 @@ const iconSize = ref(18)
 
 .box {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
 }
 
-.file {
+/* cartucho de plástico negro */
+.cart {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  background: var(--panel_2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  transition: border-color 0.2s;
+  gap: 8px;
+  padding: 0 10px 8px;
+  border-radius: 6px 6px 4px 4px;
+  border: 1px solid #0a0a0b;
+  background: var(--hw_tex_plastic) center / cover, #18181a;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: box-shadow 0.15s, transform 0.15s;
 }
 
-.file:hover {
-  border-color: var(--accent);
+.cart:hover {
+  transform: translateY(-1px);
+}
+
+.cart.playing {
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--hw_green), 0 0 12px rgba(60, 230, 120, 0.25);
+}
+
+/* destino de un pad arrastrado */
+.cart.drag_over {
+  box-shadow: 0 0 0 2px var(--hw_yellow), 0 0 14px rgba(255, 210, 60, 0.35);
+}
+
+/* estrías de agarre en el borde superior, con el LED a la derecha */
+.grip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 18px;
+  margin: 0 -10px;
+  padding: 0 10px;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 2px, transparent 2px 6px);
+  border-bottom: 1px solid #000;
+}
+
+/* etiqueta de papel pegada en el cartucho */
+.label {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px 9px 18px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ece7d8, #dcd6c4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  color: #1e1f22;
+}
+
+/* bandas de color del Track Group (arriba) y del Tag (abajo) en el borde de la etiqueta */
+.bands {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.bands span {
+  flex: 1;
+}
+
+.name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.specs {
+  margin: 0;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.tags {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tags .chip {
+  padding: 0 8px;
+  font-size: 10px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.tags .chip.empty {
+  background: transparent;
+  color: rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.cart_foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cart_foot .icons {
+  color: var(--hw_silk);
+  opacity: 0.6;
+}
+
+.cart_foot .icons:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .playing_chip {
