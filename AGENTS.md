@@ -55,6 +55,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
 - `docs/ARCHITECTURE.md` — flujo de datos, autenticación, modelo de datos (esquema SQLite real),
   algoritmo del motor de reproducción.
 - `docs/API.md` — referencia de endpoints.
+- `docs/INSTALACION.md` — correrlo como instalación: Chrome en kiosko, `?autostart=1`,
+  recuperación y prueba larga.
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes
   o Tracks.vue**; muchos comportamientos raros ya están explicados ahí.
 

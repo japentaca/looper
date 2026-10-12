@@ -105,6 +105,8 @@ Los campos extra que el cliente agrega a los objetos se ignoran.
    todos carguen (`Promise.allSettled`).
    Cada player que termina (bien o con error) suma a `store.load_progress.done`; `App.vue` lo
    muestra como barra de avance (cantidad de archivos, no bytes) y contador junto al LED de estado.
+   Si es una recarga (después de una subida o de un re-login), el player anterior de cada archivo se
+   libera con `dispose()` (si estaba sonando, recién cuando termina), para no acumular buffers.
 4. `calculateBars()` calcula `beats` y `bars` de cada archivo según el tempo.
 5. `TrackCtrl.isReady = true` habilita START.
 
@@ -123,7 +125,10 @@ Flujo:
 1. `start()`: agrupa archivos por track group (`files_per_TRG`, con un array, quizás vacío, para
    cada track group) y por tag; crea un track por cada track group de `store.track_groups`; elige un Tag (`selectTag`) y calcula archivos disponibles por track
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
-2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**.
+2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**. Se
+   registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
+   sin borrarlo y el próximo START lo reutiliza desde el tiempo 0. Se borra en `onBeforeUnmount`.
+   Lo único que se crea por START es el `Tone.Loop` del drift (`start_drift`), que STOP elimina.
 3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX
    (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
 4. `set_next_step(time)`:
@@ -193,8 +198,41 @@ Reglas para modificar el motor:
 - Todo lo que suene debe programarse con el `time` del callback (no con `Date`/`setTimeout`), si no
   se pierde la sincronía. Lo visual que deba coincidir con el audio va con `Tone.Draw.schedule`
   (usa `requestAnimationFrame`: con la pestaña oculta no se dibuja, pero el audio sigue).
-- `Tone.start()` debe llamarse desde un gesto del usuario (política de autoplay del navegador).
+- `Tone.start()` debe llamarse desde un gesto del usuario (política de autoplay del navegador). El
+  botón START pasa por `request_start()` (ver "Autostart y recuperación"), que lo llama dentro del clic.
 - Los volúmenes están en dB (`props.volume`), aplicados al `Tone.Player` antes de `start`.
+
+### Autostart y recuperación (instalación sin nadie al lado)
+
+Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
+
+- **Autostart:** con `?autostart=1` en la URL, `Tracks.vue` hace START solo cuando
+  `TrackCtrl.isReady` pasa a `true` (terminó la carga de audios). Es una sola vez por carga de
+  página: una recarga posterior (subida, re-login) no rearranca. Sin sesión no hay carga, así que
+  el autostart espera al login.
+- **`request_start()`** (botón START y autostart): si `Tone.context.state != "running"` llama a
+  `Tone.start()` y espera hasta 500 ms a que el contexto corra (sin gesto la promesa puede quedar
+  pendiente para siempre, por eso la carrera con un `setTimeout`: no es programación de audio). Si
+  no arrancó, no hace START y muestra el **overlay "Click to start"** (`need_gesture`), que cubre la
+  ventana: un clic en cualquier parte es un gesto, reanuda el contexto y hace START (o solo reanuda
+  si el transporte ya corría). Con un clic en START el contexto arranca enseguida, así que el flujo
+  manual no cambia.
+- **Recuperación del AudioContext:** un único listener de `Tone.context` `statechange` (registrado
+  al montar, quitado al desmontar). Si con el transporte corriendo el estado pasa a `suspended` o
+  `interrupted`, reintenta `resume()` con backoff (1 s, 2 s, 4 s... tope 30 s, sin límite de
+  intentos mientras el transporte siga en marcha). Tras 3 fallos muestra también el overlay
+  (botón RESUME). Al volver a `running` se reinicia el contador y se oculta el overlay. Mientras el
+  contexto está suspendido el transporte queda congelado (su reloj es el del contexto), así que al
+  reanudar sigue en el mismo punto.
+- **Sesión perdida:** `helpers/request.js` avisa (vía `on_session_lost`, que registra
+  `composable.js`, para no importar el store y evitar un import circular) cuando una respuesta es
+  401, o 403 con `text == "Sin sesión"` (el 403 de "Archivo inexistente" no cuenta). Eso pone
+  `store.session_lost = true` y el LED de estado de `App.vue` pasa a rojo con "No session". No se
+  desloguea ni se recarga nada: los audios ya están en memoria y la reproducción sigue; solo no se
+  guardan cambios. Además, con usuario cargado, `composable.js` consulta `GET /get_user_info` cada
+  10 min (`stat: false` = sin sesión; un error de red no cambia el estado). Ese chequeo también
+  renueva el TTL de la sesión en Redis. `session_lost` vuelve a `false` al cargar el usuario (login)
+  o al desloguearse.
 
 ### Mixer y vúmetros (`helpers/mixer.js`)
 

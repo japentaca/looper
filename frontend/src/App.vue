@@ -7,9 +7,11 @@
         <span class="model">Random loop player</span>
       </div>
 
-      <div class="status">
-        <Led :color="TrackCtrl.isReady ? 'green' : 'yellow'" :lit="store.isLogged == true" />
-        <span class="silk">{{ TrackCtrl.isReady ? "Ready" : (store.isLogged ? "Loading" : "Off") }}</span>
+      <!-- LED de estado: amarillo cargando, verde listo, rojo si se perdió la sesión (sigue sonando,
+        pero los cambios no se guardan) -->
+      <div class="status" :title="status_title">
+        <Led :color="status_color" :lit="store.isLogged == true" />
+        <span class="silk">{{ status_text }}</span>
         <span v-if="loading_audio" class="silk load_count">{{ store.load_progress.done }}/{{ store.load_progress.total
           }}</span>
       </div>
@@ -129,6 +131,17 @@ const rgbToHex = (r, g, b) => '#' + [r, g, b].map(x => {
   const hex = x.toString(16)
   return hex.length === 1 ? '0' + hex : hex
 }).join('')
+
+const status_color = computed(() => store.session_lost ? "red" : (TrackCtrl.isReady ? "green" : "yellow"))
+const status_text = computed(() => {
+  if (store.session_lost) return "No session"
+  return TrackCtrl.isReady ? "Ready" : (store.isLogged ? "Loading" : "Off")
+})
+
+const status_title = computed(() => store.session_lost
+  ? "Se perdió la sesión con el servidor: la reproducción sigue, pero los cambios no se guardan. "
+  + "Volver a entrar con el transporte detenido."
+  : "")
 
 // se están descargando/decodificando los audios del usuario
 const loading_audio = computed(() => store.isLogged == true && !TrackCtrl.isReady && store.load_progress.total > 0)

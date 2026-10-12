@@ -15,6 +15,9 @@ export const store = reactive({
   // avance de la carga de audios (archivos terminados / total), para la barra de la parte superior
   load_progress: { done: 0, total: 0 },
   alreadyMounted: false,
+  // true si el backend dijo que no hay sesión (401/403) con el usuario ya cargado. La reproducción
+  // sigue (los audios están en memoria) pero no se guardan cambios; App.vue lo muestra en el LED.
+  session_lost: false,
 })
 export let files_by_id = reactive([])
 
@@ -27,6 +30,32 @@ export let track_groups_by_id = {}
 
 
 import { TrackCtrl, calculateBars } from './TrackCtrl.js'
+import { on_session_lost } from './request'
+
+// una respuesta 401/403 "Sin sesión" de cualquier endpoint marca la sesión como perdida. No se
+// desloguea ni se recarga nada: eso cortaría el audio.
+on_session_lost(() => {
+  if (store.isLogged) store.session_lost = true
+})
+
+// chequeo periódico de la sesión mientras hay usuario cargado. Si nadie toca nada (instalación)
+// no hay otras requests, así que sin esto la pérdida de sesión no se vería. Además, cada request
+// renueva el TTL de la sesión en Redis. get_user_info responde { stat: false } (200) sin sesión.
+const SESSION_CHECK_MS = 10 * 60 * 1000
+let session_check_timer = null
+function start_session_check() {
+  if (session_check_timer) return
+  session_check_timer = setInterval(async () => {
+    if (!store.isLogged) return
+    try {
+      let res = await api.get_user_info()
+      store.session_lost = !res.stat
+    } catch (e) {
+      // red caída o timeout: no se cambia el estado (no se sabe si la sesión sigue)
+      console.log("Error chequeando la sesión", e)
+    }
+  }, SESSION_CHECK_MS)
+}
 
 export async function save_tags() {
   await save_collection(api.save_tags, store.tags, "los tags")
@@ -70,6 +99,8 @@ export const store_get_user_info = async () => {
   console.log("res get_user_info", res)
   if (res.stat) {
     store.isLogged = true
+    store.session_lost = false
+    start_session_check()
 
     store.u_info = res.u_info
     //console.log("llamo rebuild")
@@ -131,7 +162,11 @@ export const store_get_user_info = async () => {
     let res_prom = await Promise.allSettled(prom_arr)
     res_prom.map(prom => {
       //console.log(prom)
-      audio_players[prom.value.file.id] = prom.value.player
+      let id = prom.value.file.id
+      // si es una recarga (subida, re-login) se libera el player anterior: si no, cada recarga deja
+      // todos los buffers anteriores en memoria
+      if (audio_players[id] && audio_players[id] !== prom.value.player) dispose_player(audio_players[id])
+      audio_players[id] = prom.value.player
     })
 
     //console.log("res_prom", res_prom)
@@ -156,6 +191,15 @@ export const store_get_user_info = async () => {
   }
   return res
 
+}
+// libera un player reemplazado. Si está sonando (p.ej. una recarga con el transporte en marcha) se
+// libera recién cuando termina, para no cortar el audio.
+function dispose_player(player) {
+  if (player.state == "started") {
+    player.onstop = () => setTimeout(() => player.dispose(), 0)
+  } else {
+    player.dispose()
+  }
 }
 async function getAudioPlayer(url, file) {
   return new Promise((resolve, reject) => {
@@ -210,6 +254,7 @@ export function rebuildIndexes() {
 export const doLogout = async () => {
   let res = await api.logout()
   store.isLogged = false
+  store.session_lost = false
 
   return res
 

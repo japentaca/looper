@@ -6,7 +6,7 @@
       <div class="group transport">
         <LedButton size="big" led="green" :lit="TrackCtrl.isPlaying" :disabled="TrackCtrl.isReady != true"
           :text="TrackCtrl.isPlaying ? 'STOP' : 'START'" label="Play / stop"
-          @click="TrackCtrl.isPlaying ? stop() : start()" />
+          @click="TrackCtrl.isPlaying ? stop() : request_start()" />
         <LedButton text="RESET" label="New tag" @click="reset" />
       </div>
 
@@ -122,12 +122,20 @@
         </div>
       </div>
     </section>
+
+    <!-- respaldo cuando el navegador no deja sonar el audio sin un gesto (autostart, o el AudioContext
+      quedó suspendido y no se pudo reanudar solo): un clic en cualquier parte reanuda y arranca -->
+    <div v-if="need_gesture" class="gesture_overlay" @click="gesture_start">
+      <!-- sin @click propio: el clic nativo del botón sube al overlay (un solo gesture_start) -->
+      <LedButton size="big" led="green" :lit="true" :text="TrackCtrl.isPlaying ? 'RESUME' : 'START'" />
+      <span class="silk gesture_text">Click to start</span>
+    </div>
   </div>
 </template>
 <script setup>
 
 import * as Tone from "tone"
-import { ref, reactive, computed } from "vue"
+import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import { store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced } from "../helpers/composable"
 import { TrackCtrl, calculateBars } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
@@ -266,7 +274,9 @@ function stop() {
 }
 
 
-Tone.Transport.scheduleRepeat((time) => {
+// un solo scheduleRepeat por instancia del componente (no por START): STOP detiene el transporte pero
+// no lo borra, y el próximo START lo reutiliza desde el tiempo 0. Se borra al desmontar.
+const beat_repeat_id = Tone.Transport.scheduleRepeat((time) => {
   // número de beat y downbeat calculados desde los ticks del transporte en `time` (no del estado visual)
   let n = Math.round(Tone.Transport.getTicksAtTime(time) / Tone.Transport.PPQ)
   let downbeat = n % parseInt(TrackCtrl.beats_x_bar) == 0
@@ -370,6 +380,99 @@ function start() {
   Tone.Transport.start()
 
 }
+
+// --- arranque con o sin gesto del usuario (autostart) y recuperación del AudioContext ---
+
+// true = mostrar el overlay "Click to start": el navegador no deja reanudar el audio sin un gesto
+const need_gesture = ref(false)
+let starting = false
+
+// espera a que el AudioContext quede "running" (como mucho `ms`). Tone.start() / resume() sin gesto
+// pueden quedar pendientes para siempre, por eso la carrera con un timeout (no es audio: setTimeout está bien)
+function try_resume(ms = 500) {
+  let resume = Promise.resolve(Tone.start()).catch(() => { })
+  return Promise.race([resume, new Promise(r => setTimeout(r, ms))])
+    .then(() => Tone.context.state == "running")
+}
+
+// START pedido por el botón o por el autostart. Con un clic, Tone.start() reanuda el contexto ya;
+// sin gesto (autostart) puede quedar bloqueado: entonces se muestra el overlay y no se arranca.
+async function request_start() {
+  if (TrackCtrl.isPlaying || starting) return
+  starting = true
+  try {
+    if (Tone.context.state != "running" && !(await try_resume())) {
+      need_gesture.value = true
+      return
+    }
+    need_gesture.value = false
+    if (!TrackCtrl.isPlaying) start()
+  } finally {
+    starting = false
+  }
+}
+
+// clic en el overlay: es un gesto, así que Tone.start() sí reanuda. Si el transporte ya corría (el
+// contexto se había suspendido) solo se reanuda; si no, se hace START.
+async function gesture_start() {
+  if (!(await try_resume(2000))) return // sigue el overlay
+  need_gesture.value = false
+  if (!TrackCtrl.isPlaying) start()
+}
+
+// autostart: con ?autostart=1 en la URL se hace START solo, una vez por carga de página, cuando
+// terminan de cargar los audios (TrackCtrl.isReady). Una recarga posterior (subida, re-login) no rearranca.
+const autostart = new URLSearchParams(window.location.search).get("autostart") == "1"
+let autostarted = false
+watch(() => TrackCtrl.isReady, (ready) => {
+  if (!ready || !autostart || autostarted) return
+  autostarted = true
+  request_start()
+}, { immediate: true })
+
+// recuperación: si con el transporte corriendo el AudioContext pasa a "suspended" o "interrupted"
+// (otra app tomó el audio, el SO lo suspendió, cambió el dispositivo de salida...) se reintenta
+// resume() con backoff (1 s, 2 s, 4 s... hasta 30 s entre intentos, sin límite de intentos mientras
+// el transporte siga en marcha). Después de 3 intentos fallidos se muestra además el overlay.
+const RESUME_MAX_DELAY_MS = 30000
+const RESUME_TRIES_BEFORE_OVERLAY = 3
+let resume_tries = 0
+let resume_timer = null
+
+function on_context_state() {
+  let st = Tone.context.state
+  if (st == "running") {
+    clearTimeout(resume_timer)
+    resume_timer = null
+    resume_tries = 0
+    need_gesture.value = false
+    return
+  }
+  if (st == "closed") return
+  if (TrackCtrl.isPlaying) schedule_resume()
+}
+
+function schedule_resume() {
+  if (resume_timer) return
+  let delay = Math.min(RESUME_MAX_DELAY_MS, 1000 * Math.pow(2, resume_tries))
+  resume_timer = setTimeout(async () => {
+    resume_timer = null
+    // con el transporte detenido no se insiste (el próximo START reanuda)
+    if (!TrackCtrl.isPlaying || await try_resume(1000)) return
+    resume_tries++
+    if (resume_tries >= RESUME_TRIES_BEFORE_OVERLAY) need_gesture.value = true
+    schedule_resume()
+  }, delay)
+}
+
+// un solo listener por instancia del componente (no por START); se quita al desmontar
+Tone.context.on("statechange", on_context_state)
+onBeforeUnmount(() => {
+  Tone.context.off("statechange", on_context_state)
+  clearTimeout(resume_timer)
+  Tone.Transport.clear(beat_repeat_id)
+})
+
 // true desde que se elige un Tag hasta que set_next_step procesa su primer beat
 let tag_starting = false
 function selectTag() {
@@ -682,7 +785,31 @@ function get_available_files_x_tag(tag_id) {
 
 /* pista que no se escucha (mute, u otra en solo): se apaga el nombre y el archivo */
 .strip.silenced .strip_name,
-.strip.silenced .file_name {
+.strip.silenced /* overlay "Click to start": cubre toda la ventana (el clic en cualquier parte cuenta como gesto) */
+.gesture_overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: pointer;
+}
+
+.gesture_overlay :deep(.cap) {
+  transform: scale(1.6);
+}
+
+.gesture_text {
+  margin-top: 16px;
+  font-size: 18px;
+  letter-spacing: 4px;
+}
+
+.file_name {
   opacity: 0.3;
 }
 
