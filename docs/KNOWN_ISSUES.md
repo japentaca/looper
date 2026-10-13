@@ -36,9 +36,13 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   real del visitante (nginx con `real_ip` de Cloudflare, `trust proxy` = loopback).
 - 🟡 Denuncias (`POST /report`, tarea 4.4): las filas de `reports` no se borran cuando se borra el
   archivo (`DELETE /files/:id`) o el proyecto (`DELETE /projects/:id`) denunciado: quedan apuntando a
-  un id inexistente (la fase 5 tiene que tolerarlo al listarlas). Si dos envíos simultáneos del mismo
+  un id inexistente (`GET /admin/reports` las tolera: vienen con `target: null`). Si dos envíos simultáneos del mismo
   usuario sobre lo mismo llegan juntos, se guarda una sola fila pero los dos cuentan para el límite
   diario de Redis.
+- 🟡 `GET /admin/reports` (tarea 5.1) no pagina: devuelve las 500 más nuevas del estado pedido. Con
+  más denuncias, las viejas no se ven (filtrar por `open` para no perder las pendientes; la pestaña
+  *Reports* de `Admin.vue` arranca en *Open*). En esa pestaña, el estado del dueño de cada target no se
+  actualiza al bloquearlo o desbloquearlo desde *Users*: hay que tocar RELOAD.
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 

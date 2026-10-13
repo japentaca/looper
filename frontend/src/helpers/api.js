@@ -108,6 +108,50 @@ export function admin_update_user(id, data) {
   })
 }
 
+// admin: denuncias con los datos del target; status opcional "open" | "resolved" | "dismissed" (sin él: todas)
+export function admin_get_reports(status) {
+  return request({
+    url: '/api/admin/reports',
+    method: 'get',
+    params: status ? { status } : {}
+  })
+}
+
+// admin: cambia el estado de una denuncia ("open" | "resolved" | "dismissed") → { stat, data: denuncia }
+export function admin_update_report(id, status) {
+  return request({
+    url: '/api/admin/reports/' + encodeURIComponent(id),
+    method: 'put',
+    data: { status }
+  })
+}
+
+// admin: oculta (true) o desoculta (false) un archivo → { stat, data: { id, name, hidden, available } }
+export function admin_set_file_hidden(id, hidden) {
+  return request({
+    url: '/api/admin/files/' + encodeURIComponent(id) + '/hidden',
+    method: 'put',
+    data: { hidden }
+  })
+}
+
+// admin: oculta (true) o desoculta (false) un proyecto → { stat, data: { id, name, visibility, hidden } }
+export function admin_set_project_hidden(id, hidden) {
+  return request({
+    url: '/api/admin/projects/' + encodeURIComponent(id) + '/hidden',
+    method: 'put',
+    data: { hidden }
+  })
+}
+
+// admin: estadísticas (tráfico del mes, disco, usuarios por estado, archivos, proyectos, denuncias abiertas)
+export function admin_get_stats() {
+  return request({
+    url: '/api/admin/stats',
+    method: 'get'
+  })
+}
+
 // proyectos del usuario: [{ id, name, visibility, hidden, ts }]
 export function get_projects() {
   return request({

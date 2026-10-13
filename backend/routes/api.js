@@ -308,6 +308,163 @@ router.put('/admin/users/:id', require_admin, async (req, res) => {
   }
 })
 
+// ---------- moderación (tarea 5.1) ----------
+// El admin modera, no edita: cierra o descarta denuncias, oculta o desoculta un archivo o un
+// proyecto puntual (reversible, sin cascada: un archivo oculto queda fuera del catálogo, de los
+// proyectos públicos y del sorteo, con available = false) y ve estadísticas. Todo con require_admin.
+
+const REPORT_STATUSES = ["open", "resolved", "dismissed"]
+const ADMIN_REPORTS_LIMIT = 500
+
+// query de denuncias con los datos del target (archivo o proyecto, si todavía existe), de su dueño y
+// del denunciante. Las denuncias sobre algo ya borrado quedan con las columnas del target en null
+function admin_reports_query(db) {
+  return db("reports as r")
+    .leftJoin("users as ru", "ru.id", "r.reporter_user_id")
+    .leftJoin("files as f", function () {
+      this.on("f.id", "r.target_id").andOnVal("r.target_type", "=", "file")
+    })
+    .leftJoin("projects as p", function () {
+      this.on("p.id", "r.target_id").andOnVal("r.target_type", "=", "project")
+    })
+    .leftJoin("users as ou", "ou.id", db.raw("coalesce(f.user_id, p.user_id)"))
+    .select(["r.id", "r.target_type", "r.target_id", "r.reason", "r.status", "r.ts",
+      "r.reporter_user_id", "ru.name as reporter_name",
+      "f.id as file_id", "f.original_name as file_name", "f.hidden as file_hidden",
+      "p.id as project_id", "p.name as project_name", "p.hidden as project_hidden", "p.visibility as project_visibility",
+      "ou.id as owner_id", "ou.name as owner_name", "ou.status as owner_status"])
+}
+
+// fila de admin_reports_query → denuncia para el admin. `target` es null si el archivo o proyecto
+// ya no existe
+function admin_report_out(r) {
+  let target = null
+  if (r.target_type === "file" && r.file_id) {
+    target = { name: r.file_name, hidden: !!r.file_hidden }
+  } else if (r.target_type === "project" && r.project_id) {
+    target = { name: r.project_name, hidden: !!r.project_hidden, visibility: r.project_visibility }
+  }
+  if (target) target.owner = r.owner_id ? { id: r.owner_id, name: r.owner_name, status: r.owner_status } : null
+  return {
+    id: r.id, target_type: r.target_type, target_id: r.target_id, reason: r.reason, status: r.status, ts: r.ts,
+    reporter: { id: r.reporter_user_id, name: r.reporter_name ?? null },
+    target: target,
+  }
+}
+
+// denuncias, las más nuevas primero (hasta ADMIN_REPORTS_LIMIT). ?status=open|resolved|dismissed
+// (sin status o vacío: todas)
+router.get('/admin/reports', require_admin, async (req, res) => {
+  let status = req.query.status
+  if (status !== undefined && status !== "" && !REPORT_STATUSES.includes(status)) {
+    return res.status(400).send({ stat: false, text: "Estado inválido" })
+  }
+  try {
+    let q = admin_reports_query(global.knex).orderBy([{ column: "r.ts", order: "desc" }, { column: "r.id" }])
+      .limit(ADMIN_REPORTS_LIMIT)
+    if (status) q.where("r.status", status)
+    return res.send({ stat: true, data: (await q).map(admin_report_out) })
+  } catch (e) {
+    console.log("Error admin/reports", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// cambia el estado de una denuncia: body { status: "resolved" | "dismissed" | "open" } (open la
+// reabre). Responde la denuncia actualizada (forma de GET /admin/reports)
+router.put('/admin/reports/:id', require_admin, async (req, res) => {
+  let status = (req.body || {}).status
+  if (!REPORT_STATUSES.includes(status)) {
+    return res.status(400).send({ stat: false, text: "status tiene que ser open, resolved o dismissed" })
+  }
+  let id = String(req.params.id)
+  try {
+    let n = await global.knex("reports").update({ status: status }).where({ id: id })
+    if (n == 0) return res.status(404).send({ stat: false, text: "Denuncia inexistente" })
+    let r = await admin_reports_query(global.knex).where("r.id", id).first()
+    return res.send({ stat: true, data: admin_report_out(r) })
+  } catch (e) {
+    console.log("Error admin/reports/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// oculta (true) o desoculta (false) un archivo o un proyecto: body { hidden: bool }. Responde
+// { id, name, hidden } (y para archivos `available`, ya con el cambio)
+router.put('/admin/files/:id/hidden', require_admin, async (req, res) => {
+  let hidden = (req.body || {}).hidden
+  if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
+  let id = String(req.params.id)
+  try {
+    let n = await global.knex("files").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
+    if (n == 0) return res.status(404).send(FILE_NOT_FOUND)
+    let [f] = await get_catalog_files(global.knex, [id])
+    return res.send({ stat: true, data: { id: f.id, name: f.original_name, hidden: !!f.hidden, available: file_available(f) } })
+  } catch (e) {
+    console.log("Error admin/files/:id/hidden", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+router.put('/admin/projects/:id/hidden', require_admin, async (req, res) => {
+  let hidden = (req.body || {}).hidden
+  if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
+  let id = String(req.params.id)
+  try {
+    let n = await global.knex("projects").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
+    if (n == 0) return res.status(404).send(PROJECT_NOT_FOUND)
+    let p = await global.knex("projects").select("id", "name", "visibility", "hidden").where({ id: id }).first()
+    return res.send({ stat: true, data: { id: p.id, name: p.name, visibility: p.visibility, hidden: !!p.hidden } })
+  } catch (e) {
+    console.log("Error admin/projects/:id/hidden", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// estadísticas: tráfico de audio del mes UTC en curso (tabla `traffic`), disco de storage_path,
+// usuarios por estado, archivos, proyectos y denuncias abiertas
+router.get('/admin/stats', require_admin, async (req, res) => {
+  try {
+    let month = new Date().toISOString().slice(0, 7)
+    let t = await global.knex("traffic").sum({ bytes: "bytes" }).sum({ requests: "requests" })
+      .where("id", "like", month + "-%").first()
+
+    let s = await fs.statfs(global.config.storage_path)
+    let min_free_gb = config_number("disk_min_free_gb", DEFAULT_DISK_MIN_FREE_GB)
+    let free_bytes = s.bavail * s.bsize
+
+    let users = { pending: 0, active: 0, blocked: 0 }
+    for (let r of await global.knex("users").select("status").count({ n: "*" }).groupBy("status")) {
+      users[r.status ?? "null"] = Number(r.n) || 0
+    }
+    let count = async (table, where) => {
+      let q = global.knex(table).count({ n: "*" })
+      if (where) q.where(where)
+      return Number((await q.first()).n) || 0
+    }
+    return res.send({
+      stat: true,
+      data: {
+        traffic: { month: month, bytes: Number(t?.bytes) || 0, requests: Number(t?.requests) || 0 },
+        disk: {
+          free_bytes: free_bytes, total_bytes: s.blocks * s.bsize, min_free_gb: min_free_gb,
+          uploads_allowed: free_bytes >= min_free_gb * 1024 * 1024 * 1024,
+        },
+        users: users,
+        files: { total: await count("files"), hidden: await count("files", { hidden: 1 }) },
+        projects: {
+          total: await count("projects"), public: await count("projects", { visibility: "public" }),
+          hidden: await count("projects", { hidden: 1 }),
+        },
+        reports: { open: await count("reports", { status: "open" }) },
+      },
+    })
+  } catch (e) {
+    console.log("Error admin/stats", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
 
 // ---------- proyectos ----------
 // Un solo dueño por proyecto: toda query filtra por projects.user_id = req.user.id y un proyecto

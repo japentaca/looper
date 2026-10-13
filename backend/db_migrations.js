@@ -88,7 +88,7 @@ export default async function do_migrations() {
   await create_column_string("reports", "target_id", 36) // id de files o de projects
   await create_column_string("reports", "reporter_user_id", 36)
   await create_column_string("reports", "reason", 1024) // texto del denunciante (hasta 500 caracteres)
-  await create_column_string("reports", "status", 16, "open") // open (los demás estados los define la fase 5)
+  await create_column_string("reports", "status", 16, "open") // open | resolved | dismissed (los cambia el admin)
   await create_column_string("reports", "ts", 21)
   await create_index("reports", "target_id")
   await create_index("reports", "reporter_user_id")

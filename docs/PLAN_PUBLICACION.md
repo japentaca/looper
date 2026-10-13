@@ -374,13 +374,13 @@ memoria aparece con un proyecto grande.
 *Pruebas manuales*: abrir un proyecto público sin sesión, tocar el mixer y recargar (no se guardó);
 galería; autostart en kiosko con el link público.
 
-### Fase 5 — Admin completo
+### Fase 5 — Admin completo ✅
 
-- [ ] **5.1 API de moderación.** `routes/api.js`. `GET/PUT /admin/reports`,
+- [x] **5.1 API de moderación.** `routes/api.js`. `GET/PUT /admin/reports`,
   `PUT /admin/files/:id/hidden`, `PUT /admin/projects/:id/hidden`, `GET /admin/stats` (tráfico del
   mes desde `traffic`, disco libre, usuarios por estado).
   *Acepta*: todo con `require_admin`; ocultar es reversible.
-- [ ] **5.2 UI de admin completa.** El diálogo de la 1.8 suma denuncias, ocultar archivo/proyecto
+- [x] **5.2 UI de admin completa.** El diálogo de la 1.8 suma denuncias, ocultar archivo/proyecto
   y estadísticas.
   *Acepta*: build OK.
 

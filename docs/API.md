@@ -17,6 +17,11 @@ rechaza la promesa: `error_text(e)` (en `helpers/api.js`) devuelve el `text` del
 mensaje de conexión para mostrarlo al usuario. Wrappers de cuenta: `register`, `change_password` y
 `save_profile` (`PUT /profile`). Wrappers de admin: `admin_get_users(status?)` (`GET /admin/users`)
 y `admin_update_user(id, { action, ... })` (`PUT /admin/users/:id`), usados por `Admin.vue`.
+Wrappers de moderación (tarea 5.1; los usa `Admin.vue`, pestañas *Reports* y *Stats*, tarea 5.2): `admin_get_reports(status?)`
+(`GET /admin/reports`), `admin_update_report(id, status)` (`PUT /admin/reports/:id`),
+`admin_set_file_hidden(id, hidden)` (`PUT /admin/files/:id/hidden`),
+`admin_set_project_hidden(id, hidden)` (`PUT /admin/projects/:id/hidden`) y `admin_get_stats()`
+(`GET /admin/stats`).
 Wrappers de proyectos (tarea 3.3; desde la 3.6 el store de `composable.js` guarda todo contra el
 proyecto activo con estos, y `Projects.vue` los usa para listar, crear, renombrar, cambiar la
 visibilidad y borrar): `get_projects`,
@@ -64,6 +69,11 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `bpm`, `beats` y `project_id` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, bpm/beats inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
 | GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
 | PUT | `/admin/users/:id` | admin | `{ action, password?, max_seconds? }` | `{ stat: true, data: usuario admin }` (ya actualizado); `{ stat: false, text }` si la acción no corresponde al estado, el usuario es admin, o la clave/cuota no es válida; 400 acción desconocida; 404 usuario inexistente. Ver detalle abajo |
+| GET | `/admin/reports` | admin | query `status` opcional: `open` \| `resolved` \| `dismissed` (sin él o vacío: todas) | `{ stat: true, data: [denuncia admin] }`, las más nuevas primero (hasta 500); 400 si `status` es otro valor. Ver `admin/reports` abajo |
+| PUT | `/admin/reports/:id` | admin | `{ status: "resolved" \| "dismissed" \| "open" }` | `{ stat: true, data: denuncia admin }` (ya actualizada); 400 si `status` es otro valor; 404 `{ stat: false, text: "Denuncia inexistente" }` |
+| PUT | `/admin/files/:id/hidden` | admin | `{ hidden: bool }` | `{ stat: true, data: { id, name, hidden, available } }` (ya actualizado); 400 si `hidden` no es booleano; 404 "Archivo inexistente". Ver `admin` (ocultar) abajo |
+| PUT | `/admin/projects/:id/hidden` | admin | `{ hidden: bool }` | `{ stat: true, data: { id, name, visibility, hidden } }` (ya actualizado); 400 si `hidden` no es booleano; 404 "Proyecto inexistente" (de cualquier usuario) |
+| GET | `/admin/stats` | admin | — | `{ stat: true, data: estadísticas }`. Ver `admin/stats` abajo |
 
 ## Detalles
 
@@ -128,7 +138,7 @@ vacía o `null` → `null`. El nombre público no se cambia. `get_user_info` dev
 Proyecto en la **forma de la lista** (`GET /projects`, `u_info.projects`, respuesta de `POST` y `PUT`):
 
 ```js
-{ id, name, visibility: "private" | "public", hidden: bool, ts } // hidden: oculto por el admin (fase 5; el dueño lo sigue viendo)
+{ id, name, visibility: "private" | "public", hidden: bool, ts } // hidden: oculto por el admin (PUT /admin/projects/:id/hidden; el dueño lo sigue viendo)
 ```
 
 **Proyecto completo** (`GET /projects/:id`): lo de arriba más
@@ -342,7 +352,9 @@ Solo usuarios logueados (sin sesión, 401 como todo `require_session`). Se valid
    transacción que vuelve a chequear el duplicado (dos envíos simultáneos dejan una sola fila).
 
 Respuesta: `{ stat: true, text: "Denuncia enviada: la va a revisar un admin", data: { duplicate } }`.
-Las denuncias las lista y resuelve el admin en la fase 5 (`GET/PUT /admin/reports`).
+Las denuncias las lista y resuelve el admin con `GET/PUT /admin/reports` (tarea 5.1). Una denuncia
+cerrada (`resolved` o `dismissed`) ya no cuenta como duplicado: el mismo usuario puede volver a
+denunciar lo mismo.
 
 ### `upload`
 
@@ -406,6 +418,54 @@ usuario <status>' }` sin cambiar nada (el update está condicionado al estado de
 acciones de estado no se aplican a usuarios con `role = 'admin'` (`{ stat: false, text: "No se puede
 cambiar el estado de un admin" }`), así el admin no se bloquea a sí mismo; el reset de clave y la
 cuota sí. El rol no se cambia desde la API.
+
+### `admin/reports` (denuncias, moderación)
+
+Con `require_admin`. "Denuncia admin":
+
+```js
+{
+  id, target_type: "file" | "project", target_id, reason, ts,
+  status: "open" | "resolved" | "dismissed",
+  reporter: { id, name },                  // denunciante (name null si el usuario ya no existe)
+  target: { name,                          // original_name del archivo o nombre del proyecto
+            hidden: bool,                  // estado actual de files.hidden / projects.hidden
+            visibility,                    // solo proyectos: "private" | "public"
+            owner: { id, name, status } }  // dueño (null si ya no existe); status sirve para ver si está bloqueado
+          | null                           // el archivo o proyecto denunciado ya se borró
+}
+```
+
+No trae emails (el admin los ve en `GET /admin/users`). `PUT /admin/reports/:id` solo cambia
+`status`: `resolved` (cerrada, se actuó), `dismissed` (descartada) u `open` (reabrir). Cerrar una
+denuncia no oculta nada; ocultar es otra llamada.
+
+### `admin` (ocultar archivo o proyecto)
+
+`PUT /admin/files/:id/hidden` y `PUT /admin/projects/:id/hidden` con `{ hidden: true | false }`
+(booleano; otra cosa → 400). Reversibles y sin cascada (política 6): solo cambian `files.hidden` /
+`projects.hidden` de ese archivo o proyecto, de cualquier usuario. Efecto:
+
+- **Archivo oculto**: sale de `GET /catalog`, de `GET /public/project/:id` y del contador `files` de
+  la galería; no se puede importar ni denunciar (404); en los proyectos que ya lo usan sigue con
+  `available = false` (fuera del sorteo; ver `projects/:id/files`). Al desocultarlo vuelve todo.
+- **Proyecto oculto**: sale de `GET /public/projects` y `GET /public/project/:id` responde 404; el
+  dueño lo sigue viendo y editando, con `hidden: true` en su lista.
+
+### `admin/stats` (estadísticas)
+
+```js
+{
+  traffic: { month: "YYYY-MM", bytes, requests }, // audio servido por GET /file/:id en el mes UTC en curso (tabla traffic)
+  disk: { free_bytes, total_bytes,                // disco de storage_path
+          min_free_gb,                            // disk_min_free_gb de .env (default 10)
+          uploads_allowed: bool },                // free_bytes >= min_free_gb (si no, /upload responde 507)
+  users: { pending, active, blocked },            // cantidad por estado (0 si no hay)
+  files: { total, hidden },
+  projects: { total, public, hidden },
+  reports: { open }
+}
+```
 
 ## Cómo agregar un endpoint
 
