@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Looper: chasis oscuro, anillo de loop y grilla de pads (uno encendido = loop elegido al azar) -->
+  <defs>
+    <linearGradient id="chassis" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3b3e"/>
+      <stop offset="1" stop-color="#2b2c2f"/>
+    </linearGradient>
+    <radialGradient id="lit" cx="0.5" cy="0.4" r="0.7">
+      <stop offset="0" stop-color="#ffb199"/>
+      <stop offset="0.45" stop-color="#ff4a2e"/>
+      <stop offset="1" stop-color="#c22d16"/>
+    </radialGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="url(#chassis)" stroke="#1d1e20" stroke-width="2"/>
+  <!-- loop: arco en sentido horario con flecha -->
+  <path d="M44.86 16.68 A20 20 0 1 1 25.16 13.21" fill="none" stroke="#35e07a" stroke-width="7" stroke-linecap="round"/>
+  <path d="M33.6 10.1 L22.77 6.63 L27.55 19.79 Z" fill="#35e07a" stroke="#35e07a" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- pads 2x2 -->
+  <rect x="21.5" y="21.5" width="9.5" height="9.5" rx="2" fill="url(#lit)"/>
+  <rect x="33" y="21.5" width="9.5" height="9.5" rx="2" fill="#8d8f92"/>
+  <rect x="21.5" y="33" width="9.5" height="9.5" rx="2" fill="#8d8f92"/>
+  <rect x="33" y="33" width="9.5" height="9.5" rx="2" fill="#8d8f92"/>
+</svg>
