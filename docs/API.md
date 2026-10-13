@@ -146,7 +146,7 @@ Proyecto en la **forma de la lista** (`GET /projects`, `u_info.projects`, respue
 ```js
 {
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
-  track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, reverb, drift, delay } }], // props: {} si no hay nada
+  track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, bars, reverb, drift, delay } }], // props: {} si no hay nada
   tags: [{ id, name, color }],
   files: [{ id, original_name, size, duration, kind, bpm, beats, ts, // del catálogo (files)
             track_group, tags: [tag_id, ...], props: { volume }, // del proyecto (project_files)

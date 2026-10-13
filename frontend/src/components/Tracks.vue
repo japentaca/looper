@@ -110,8 +110,8 @@
             :pulse="track?.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
           <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
           <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
-          <!-- one-shot: el LCD solo rotula SHOT (no hay posición de loop) -->
-          <Lcd v-if="is_oneshot(trg)" small :digits="2" value="" unit="SHOT" />
+          <!-- one-shot: el LCD muestra cada cuántos compases se tira el dado (no hay posición de loop) -->
+          <Lcd v-if="is_oneshot(trg)" small :digits="2" :value="shot_bars(trg)" unit="SHOT" />
           <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
           <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
             :unit="track?.curr_file ? '/' + track.curr_file.play_beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
@@ -120,11 +120,14 @@
             :beats="track?.curr_file?.play_beats ?? 0" />
           <!-- loop: archivo que suena; one-shot: último disparo -->
           <span class="file_name">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
-          <!-- one-shot: densidad (probabilidad de disparo por compás, props.density) y disparo al empezar
-            cada Tag (props.on_tag_change) -->
+          <!-- one-shot: cada cuántos compases se tira el dado (props.bars), densidad (probabilidad de
+            disparo en cada tirada, props.density) y disparo al empezar cada Tag (props.on_tag_change) -->
           <div v-if="is_oneshot(trg) && !store.read_only" class="oneshot_ctrls">
+            <Knob :model-value="SHOT_BARS.indexOf(shot_bars(trg))" :min="0" :max="SHOT_BARS.length - 1" :step="1"
+              :size="36" label="Bars" :title="'Tirar el dado cada ' + shot_bars(trg) + ' compás(es)'"
+              @update:model-value="v => set_bars(trg, v)" />
             <Knob :model-value="trg.props.density ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Dens"
-              :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% por compás'"
+              :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% cada ' + shot_bars(trg) + ' compás(es)'"
               @update:model-value="v => set_density(trg, v)" />
             <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
               title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
@@ -270,7 +273,18 @@ function toggle_mode(trg) {
   trg.props.mode = is_oneshot(trg) ? "loop" : "oneshot"
   save_trackGroups_debounced()
 }
-// probabilidad de disparo por compás (0..1)
+// cada cuántos compases se tira el dado de density (valores de SHOT_BARS; default 1 = cada compás)
+const SHOT_BARS = [1, 2, 4, 8, 16, 32, 64]
+function shot_bars(trg) {
+  let b = trg?.props?.bars
+  return SHOT_BARS.includes(b) ? b : 1
+}
+// el knob da el índice dentro de SHOT_BARS
+function set_bars(trg, i) {
+  trg.props.bars = SHOT_BARS[Math.round(i)] ?? 1
+  save_trackGroups_debounced()
+}
+// probabilidad de disparo en cada tirada (0..1)
 function set_density(trg, v) {
   trg.props.density = Math.round(v * 100) / 100
   save_trackGroups_debounced()
@@ -682,7 +696,8 @@ function set_next_step(time, n, downbeat) {
   })
 
 }
-// paso de una pista one-shot: dispara si empieza un Tag (on_tag_change) o si en un downbeat sale el
+// paso de una pista one-shot: dispara si empieza un Tag (on_tag_change) o si en el primer downbeat de
+// cada frase de props.bars compases (contados desde el inicio del transporte, como los loops) sale el
 // dado de density. Si el Tag cambió en este beat, available_files_per_TRG ya es la del Tag nuevo.
 function oneshot_step(track, time, n, tag_start, downbeat) {
   let p = track.track_group.props ?? {}
@@ -693,7 +708,8 @@ function oneshot_step(track, time, n, tag_start, downbeat) {
   track.resting = false
   track.percentage = 0
 
-  let fire = (p.on_tag_change && tag_start) || (downbeat && Math.random() < (p.density ?? 0))
+  let phrase_start = downbeat && Math.round(n / parseInt(TrackCtrl.beats_x_bar)) % shot_bars(track.track_group) == 0
+  let fire = (p.on_tag_change && tag_start) || (phrase_start && Math.random() < (p.density ?? 0))
   if (!fire) return
   let files = draw_candidates(track)
   if (!files.length) return
@@ -909,6 +925,8 @@ function get_available_files_x_tag(tag_id) {
 
 .oneshot_ctrls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: flex-end;
   gap: 4px;
 }
