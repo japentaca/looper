@@ -196,12 +196,9 @@ curl -fsS http://127.0.0.1:31200/api/public/projects
 
 ```bash
 cp /var/lib/looper/looper/deploy/nginx/looper.jape.com.ar.conf /etc/nginx/conf.d/
-# certificado: copiar las dos líneas ssl_certificate* del server block de jape.com.ar
-grep -n ssl_certificate /etc/nginx/conf.d/*.conf
-# bloque del puerto 80: dejarlo o quitarlo según lo tengan los otros sitios
-grep -ln "listen 80" /etc/nginx/conf.d/*.conf
-nano /etc/nginx/conf.d/looper.jape.com.ar.conf
-nginx -t && systemctl reload nginx
+# la plantilla ya trae el certificado de los otros sitios (/opt/cert/public.pem + private.pem) y el
+# bloque del puerto 80 que redirige a https, como ellos
+nginx -t && systemctl reload nginx      # si nginx -t falla: borrar el archivo y no recargar
 ```
 
 **Siempre `nginx -t` antes de `reload`.** Un error de sintaxis en `conf.d/` tira todos los sitios
