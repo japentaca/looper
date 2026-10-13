@@ -80,8 +80,18 @@ function get_file_extension(file) {
   let ext = file.split('.').pop()
   return ext.toLowerCase()
 }
+// tempo de un loop: bpm = beats × 60 / duración (segundos), redondeado a 2 decimales. null si falta
+// algún dato. El dato que carga el creador es `beats`; `bpm` siempre se deduce de ahí
+function loop_bpm(beats, duration) {
+  let b = Number(beats)
+  let d = Number(duration)
+  if (!Number.isFinite(b) || b <= 0 || !Number.isFinite(d) || d <= 0) return null
+  return Math.round(b * 60 / d * 100) / 100
+}
+
 export default {
   probe,
+  loop_bpm,
   convert,
   get_file_extension,
   ffmpeg_path,

@@ -37,8 +37,8 @@ export let track_groups_by_id = {}
 
 
 import {
-  TrackCtrl, calculateBars, stop_transport, delay_default, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX,
-  DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, BEATS_X_BAR_DEFAULT, TAG_RANGE_MIN, TAG_RANGE_MAX,
+  TrackCtrl, calculate_timing, stop_transport, delay_default, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX,
+  DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, TEMPO_TOL_DEFAULT, TEMPO_TOL_MAX, BEATS_X_BAR_DEFAULT, TAG_RANGE_MIN, TAG_RANGE_MAX,
   TAG_RANGE_DEFAULT
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
@@ -113,8 +113,8 @@ export function save_trackGroups_debounced(ms = 500) {
     save_trackGroups()
   }, ms)
 }
-// --- config del proyecto (projects.props): tempo, compás, rango de cambio de Tag y delay ---
-// guardado diferido: se llama al cambiar tempo, compás, el rango de Tag o el delay (no al cargar)
+// --- config del proyecto (projects.props): tempo, tolerancia, compás, rango de cambio de Tag y delay ---
+// guardado diferido: se llama al cambiar tempo, tolerancia, compás, el rango de Tag o el delay (no al cargar)
 let save_project_props_timer = null
 export function save_project_props_debounced(ms = 500) {
   if (store.read_only) return
@@ -127,7 +127,7 @@ export function save_project_props_debounced(ms = 500) {
 async function save_project_props() {
   if (!can_save()) return
   let props = {
-    tempo: TrackCtrl.tempo, beats_x_bar: TrackCtrl.beats_x_bar, tag_range: [...TrackCtrl.tag_range],
+    tempo: TrackCtrl.tempo, tempo_tol: TrackCtrl.tempo_tol, beats_x_bar: TrackCtrl.beats_x_bar, tag_range: [...TrackCtrl.tag_range],
     delay: { ...TrackCtrl.delay }
   }
   await save_collection(() => api.update_project(store.project.id, { props }), null,
@@ -154,11 +154,12 @@ function clamp(v, min, max, def) {
   return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def
 }
 // aplica la config guardada (con defaults para lo que falte o sea inválido) a TrackCtrl y al transporte.
-// El delay de mixer.js sigue a TrackCtrl con watchers. Va antes de calculateBars (los beats de los
-// archivos dependen del tempo). No guarda nada: solo se guarda al tocar un control.
+// El delay de mixer.js sigue a TrackCtrl con watchers. Va antes de calculate_timing (el playbackRate
+// y los beats de los archivos dependen del tempo y la tolerancia). No guarda nada: solo se guarda al tocar un control.
 function apply_project_props(props) {
   let p = props ?? {}
   TrackCtrl.tempo = Math.round(clamp(p.tempo, 10, 160, TEMPO_DEFAULT)) // mismo rango que el knob Tempo
+  TrackCtrl.tempo_tol = Math.round(clamp(p.tempo_tol, 0, TEMPO_TOL_MAX, TEMPO_TOL_DEFAULT) * 2) / 2 // pasos de 0.5
   TrackCtrl.beats_x_bar = ["3", "4"].includes(String(p.beats_x_bar)) ? String(p.beats_x_bar) : BEATS_X_BAR_DEFAULT
   // rango de cambio de Tag: exponentes enteros dentro de los faders, con min <= max
   let r = Array.isArray(p.tag_range) ? p.tag_range : TAG_RANGE_DEFAULT
@@ -381,7 +382,7 @@ async function install_project(p, same) {
 
   //console.log("res_prom", res_prom)
 
-  calculateBars()
+  calculate_timing()
 
   let failed = store.files.filter(f => f.loadError)
   if (failed.length > 0) {

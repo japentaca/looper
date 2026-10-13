@@ -26,8 +26,9 @@ export default async function do_migrations() {
   await create_column_string("files", "props", 4096) // obsoleto: pasó a project_files (migrate_projects)
   await migrate_file_tags() // `files.tags` también quedó obsoleto: pasó a project_files
   await create_column_float("files", "duration") // segundos (ffprobe); la cuota se mide con esto
-  await create_column_float("files", "bpm") // lo carga el creador
-  await create_column_number("files", "beats") // largo del loop en beats; lo carga el creador
+  await create_column_float("files", "bpm") // deducido: beats × 60 / duración (solo loops)
+  await create_column_number("files", "beats") // largo del loop en beats; lo carga el creador (solo loops)
+  await create_column_string("files", "kind", 8, "loop") // "loop" (se ajusta al tempo) | "shot" (sample suelto)
   await migrate_file_ts()
   await migrate_file_durations()
   // oculto por el admin (moderación): 0 | 1. Fuera del catálogo y del sorteo, sin cascada
@@ -69,6 +70,7 @@ export default async function do_migrations() {
   await create_index("project_files", "project_id")
   await create_index("project_files", "file_id")
   await migrate_projects()
+  await migrate_file_beats() // después de migrate_projects: usa el tempo de los proyectos
 
   await create_table("sets")
   await create_column_string("sets", "user_id", 36)
@@ -189,6 +191,60 @@ async function migrate_file_durations() {
     await global.knex("files").where({ id: file.id }).update({ duration: info.duration })
   }
   if (fallidos) console.warn(`  ${fallidos} archivo(s) quedaron sin duration`)
+}
+
+// tempo de los archivos: en los loops manda `beats` y `bpm` se deduce (beats × 60 / duración).
+// - loops sin beats: se calculan con la misma cuenta que hacía antes el front (calculateBars):
+//   round(duración / (60 / tempo)), con el bpm que les cargó el creador o, si no tienen, el tempo del
+//   primer proyecto que los usa (o el de por defecto). Como bpm se guarda ese tempo de referencia si
+//   la cuenta da a menos de MIGRATE_BPM_SNAP: la duración de los archivos viejos se midió sobre el mp3,
+//   que suma el relleno del encoder (~50 ms), y si no sonarían un poco más agudos que antes.
+// - loops con beats: se recalcula `bpm` si falta o se aleja más de MIGRATE_BPM_SNAP de la cuenta
+//   (antes bpm y beats se cargaban por separado).
+// - si con esos beats el bpm queda fuera de rango (archivo muy corto) el archivo pasa a "shot".
+// Idempotente: si todo coincide no escribe nada. Los archivos sin duration quedan como están.
+const MIGRATE_TEMPO_DEFAULT = 138 // TEMPO_DEFAULT de frontend/src/helpers/TrackCtrl.js
+const MIGRATE_BPM_MIN = 20 // BPM_MIN y BPM_MAX de routes/api.js
+const MIGRATE_BPM_MAX = 400
+const MIGRATE_BPM_SNAP = 0.02
+
+async function migrate_file_beats() {
+  let files = await global.knex("files").where({ kind: "loop" }).whereNotNull("duration")
+    .select("id", "duration", "bpm", "beats")
+  let changed = 0
+  let shots = 0
+  for (let f of files) {
+    let beats = f.beats
+    let ref = Number(f.bpm) > 0 ? Number(f.bpm) : null // bpm de referencia (cargado o tempo del proyecto)
+    if (!beats) {
+      if (!ref) ref = await first_project_tempo(f.id)
+      beats = Math.max(1, Math.round(f.duration * ref / 60))
+    }
+    let bpm = utils.loop_bpm(beats, f.duration)
+    if (bpm === null || bpm < MIGRATE_BPM_MIN || bpm > MIGRATE_BPM_MAX) {
+      await global.knex("files").where({ id: f.id }).update({ kind: "shot", beats: null, bpm: null })
+      shots++
+      continue
+    }
+    if (ref && Math.abs(bpm / ref - 1) < MIGRATE_BPM_SNAP) bpm = ref
+    if (beats === f.beats && bpm === f.bpm) continue
+    await global.knex("files").where({ id: f.id }).update({ beats: beats, bpm: bpm })
+    changed++
+  }
+  if (changed || shots) console.log(`Tempo de archivos: ${changed} loop(s) con beats/bpm calculados, ${shots} pasado(s) a shot`)
+}
+
+// tempo (projects.props.tempo) del primer proyecto que usa el archivo, o el de por defecto
+async function first_project_tempo(file_id) {
+  let p = await global.knex("project_files as pf").join("projects as p", "p.id", "pf.project_id")
+    .where("pf.file_id", file_id).orderBy("p.ts").first("p.props")
+  let tempo
+  try {
+    tempo = Number(JSON.parse(p?.props ?? "{}")?.tempo)
+  } catch {
+    tempo = NaN
+  }
+  return Number.isFinite(tempo) && tempo >= 10 && tempo <= 160 ? tempo : MIGRATE_TEMPO_DEFAULT
 }
 
 // proyectos (fase 3): pasa los datos de cada usuario a un primer proyecto propio.

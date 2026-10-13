@@ -10,8 +10,8 @@
     <div v-show="(fileListViewMode == 'Box')" class="box">
       <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags -->
       <div v-for="(file, index) in store.files" :key="file.id" class="cart"
-        :class="{ playing: is_sounding(file), drag_over: drag_index === index, unavailable: file.available === false }"
-        :title="file.available === false ? unavailable_title : undefined" @dragover="ondragover($event, index)"
+        :class="{ playing: is_sounding(file), drag_over: drag_index === index, unavailable: !drawable(file) }"
+        :title="not_drawable_title(file)" @dragover="ondragover($event, index)"
         @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
         <div class="grip">
           <Led color="green" :lit="is_sounding(file)" />
@@ -27,9 +27,10 @@
             <p class="name">{{ file.original_name }}</p>
           </el-tooltip>
           <p class="specs">
-            <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ file.beats }} beats</template>
+            <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ timing_text(file) }}</template>
             <template v-else>loading…</template>
             <span v-if="file.available === false" class="unavailable_mark"> · unavailable</span>
+            <span v-else-if="out_of_tempo(file)" class="unavailable_mark"> · out of tempo</span>
           </p>
           <p class="tags">
             <span class="chip" :class="{ empty: !file.track_group_obj }"
@@ -60,7 +61,15 @@
       <el-table :data="store.files" style="width: 100%" :row-class-name="row_class">
         <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
         <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
-        <el-table-column sortable prop="beats" label="Beats" width="80" />
+        <el-table-column sortable prop="beats" label="Beats" width="80">
+          <template #default="scope">{{ scope.row.kind == 'shot' ? 'shot' : scope.row.beats }}</template>
+        </el-table-column>
+        <el-table-column sortable prop="bpm" label="BPM" width="90">
+          <template #default="scope">
+            <span :class="{ out_tempo: out_of_tempo(scope.row) }" :title="not_drawable_title(scope.row)">{{
+              scope.row.kind == 'shot' ? '' : fmt_bpm(scope.row.bpm) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column sortable label="Track Group" prop="track_group" width="130">
           <template #default="scope">
             <span v-if="scope.row.track_group != null" class="chip" :style="{ background: scope.row.track_group_obj.color }">{{
@@ -113,8 +122,32 @@
       <div class="edit_left">
         <div class="edit_info">
           <span class="info_label">Duración</span>
-          <span v-if="curr_edit_file.isLoaded">{{ curr_edit_file.duration_fixed }} s · {{ curr_edit_file.beats }} beats</span>
+          <span v-if="curr_edit_file.isLoaded">{{ curr_edit_file.duration_fixed }} s</span>
           <span v-else class="muted">cargando…</span>
+
+          <!-- tipo y beats: solo el dueño los cambia (PUT /files/:id); el bpm lo deduce el backend -->
+          <span class="info_label">Tipo</span>
+          <span v-if="curr_edit_file.own && !store.read_only">
+            <el-radio-group :model-value="curr_edit_file.kind" size="small" :disabled="saving_timing"
+              @change="v => save_timing(curr_edit_file, { kind: v })">
+              <el-radio-button label="loop">Loop</el-radio-button>
+              <el-radio-button label="shot">Shot</el-radio-button>
+            </el-radio-group>
+          </span>
+          <span v-else>{{ curr_edit_file.kind == 'shot' ? 'Shot' : 'Loop' }}</span>
+
+          <template v-if="curr_edit_file.kind != 'shot'">
+            <span class="info_label">Beats</span>
+            <span class="timing_row">
+              <el-input-number v-if="curr_edit_file.own && !store.read_only" :model-value="curr_edit_file.beats"
+                size="small" :min="1" :max="1024" :precision="0" :step="1" :disabled="saving_timing"
+                @change="v => v && save_timing(curr_edit_file, { beats: v })" />
+              <span v-else>{{ curr_edit_file.beats }}</span>
+              <span>{{ fmt_bpm(curr_edit_file.bpm) }} BPM</span>
+              <span v-if="out_of_tempo(curr_edit_file)" class="out_tempo"
+                :title="not_drawable_title(curr_edit_file)">out of tempo</span>
+            </span>
+          </template>
 
           <span class="info_label">Track group</span>
           <span>
@@ -169,7 +202,8 @@ import { store, audio_players, track_groups_by_id, toggle_file_tag, save_file, d
 import Fader from "./hw/Fader.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
-import { TrackCtrl } from "../helpers/TrackCtrl"
+import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
+import { update_file, error_text } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 import * as toneLib from "../helpers/toneLib"
@@ -180,7 +214,50 @@ const fileListViewMode = ref("Table")
 // no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
 const unavailable_title = "Unavailable: hidden by an admin or its owner is blocked. It is not played."
 function row_class({ row }) {
-  return row.available === false ? "unavailable_row" : ""
+  return drawable(row) ? "" : "unavailable_row"
+}
+
+// --- tempo (ver file_timing en TrackCtrl.js) ---
+// loop que habría que correr más que la tolerancia del proyecto: tampoco se sortea
+function out_of_tempo(file) {
+  return file.kind != "shot" && file.in_tempo === false
+}
+function drawable(file) {
+  return file.available !== false && !out_of_tempo(file)
+}
+function not_drawable_title(file) {
+  if (file.available === false) return unavailable_title
+  if (out_of_tempo(file)) {
+    return `Out of tempo: at ${fmt_bpm(file.bpm)} BPM it is more than ±${TrackCtrl.tempo_tol}% away from `
+      + `${TrackCtrl.tempo} BPM (also at half or double time). It is not played.`
+  }
+  return undefined
+}
+function fmt_bpm(bpm) {
+  let n = Number(bpm)
+  return n > 0 ? String(Math.round(n * 10) / 10) : "–"
+}
+function timing_text(file) {
+  if (file.kind == "shot") return "shot"
+  return `${file.beats ?? "?"} beats · ${fmt_bpm(file.bpm)} BPM`
+}
+// cambia tipo o beats de un archivo propio. El backend recalcula el bpm; con la respuesta se
+// actualiza el archivo y se recalcula su playbackRate (vale para el próximo sorteo)
+const saving_timing = ref(false)
+async function save_timing(file, data) {
+  saving_timing.value = true
+  try {
+    let res = await update_file(file.id, data)
+    if (!res.stat) return ElMessage({ type: 'error', message: res.text || "No se pudo guardar" })
+    file.kind = res.data.kind
+    file.beats = res.data.beats
+    file.bpm = res.data.bpm
+    calculate_timing()
+  } catch (e) {
+    ElMessage({ type: 'error', message: error_text(e) })
+  } finally {
+    saving_timing.value = false
+  }
 }
 
 
@@ -379,6 +456,17 @@ const iconSize = ref(18)
 
 .el-table :deep(.unavailable_row) {
   opacity: 0.45;
+}
+
+.out_tempo {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.timing_row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* estrías de agarre en el borde superior, con el LED a la derecha */

@@ -26,7 +26,8 @@ export function delete_file(file) {
   })
 }
 
-// metadatos de un archivo propio: { original_name?, bpm?, beats? } → { stat, data: archivo }
+// metadatos de un archivo propio: { original_name?, kind?, beats?, bpm? } → { stat, data: archivo }
+// (kind = "loop" | "shot"; en los loops manda beats y el backend deduce el bpm)
 export function update_file(id, data) {
   return request({
     url: '/api/files/' + encodeURIComponent(id),
@@ -42,13 +43,15 @@ export function get_user_info(data) {
 
   })
 }
-// subida de UN archivo (multipart) con `bpm` y `beats` opcionales (null/vacío = sin dato) y
+// subida de UN archivo (multipart) con `kind` ("loop" | "shot"), `beats` y `bpm` opcionales (sin beats
+// el backend los deduce del bpm o del tempo del proyecto; el bpm guardado siempre sale de los beats) y
 // `project_id` opcional (proyecto propio al que se agrega el archivo, sin pista ni tags).
 // Sin timeout: un archivo grande más la conversión pueden tardar más que el default de request.js.
 // on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión)
-export function upload_file(file, { bpm, beats, project_id } = {}, on_progress) {
+export function upload_file(file, { kind, bpm, beats, project_id } = {}, on_progress) {
   let data = new FormData()
   data.append("file", file, file.name)
+  if (kind) data.append("kind", String(kind))
   if (bpm != null && bpm !== "") data.append("bpm", String(bpm))
   if (beats != null && beats !== "") data.append("beats", String(beats))
   if (project_id) data.append("project_id", String(project_id))

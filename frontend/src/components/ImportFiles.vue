@@ -48,7 +48,7 @@
         </template>
       </el-table-column>
       <el-table-column label="BPM" width="70" align="right">
-        <template #default="{ row }">{{ row.bpm ?? "–" }}</template>
+        <template #default="{ row }">{{ row.kind == "shot" ? "shot" : row.bpm ?? "–" }}</template>
       </el-table-column>
       <el-table-column label="Beats" width="64" align="right">
         <template #default="{ row }">{{ row.beats ?? "–" }}</template>

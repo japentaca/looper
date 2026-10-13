@@ -13,11 +13,16 @@
       <div class="group tempo">
         <Knob v-model="TrackCtrl.tempo" :min="10" :max="160" label="Tempo" @change="onBPMSliderchange" />
         <Lcd :value="TrackCtrl.tempo" :digits="3" unit="BPM" />
+        <!-- tolerancia de tempo (%, TrackCtrl.tempo_tol): los loops que haya que correr más que esto no se
+          sortean (ver file_timing en TrackCtrl.js) -->
+        <Knob v-model="TrackCtrl.tempo_tol" :min="0" :max="TEMPO_TOL_MAX" :step="0.5" :size="48" label="Tol"
+          :title="'Tempo tolerance ±' + TrackCtrl.tempo_tol + '% (' + out_of_tempo + ' loop(s) out)'"
+          @change="on_tol_change" />
         <!-- posición del transporte: compás.tiempo -->
         <Lcd :value="bar_position" :digits="4" caption="Bar . beat" />
       </div>
 
-      <!-- modo lectura (/p/:id): solo START/STOP, RESET, tempo y el mixer (volumen, mute, solo); el resto
+      <!-- modo lectura (/p/:id): solo START/STOP, RESET, tempo, tolerancia y el mixer (volumen, mute, solo); el resto
         de la config del proyecto no se muestra (no se guardaría nada igual, ver can_save en composable.js) -->
       <div v-if="!store.read_only" class="group">
         <ToggleSwitch v-model="TrackCtrl.beats_x_bar" label="Time sig"
@@ -109,10 +114,10 @@
           <Lcd v-if="is_oneshot(trg)" small :digits="2" value="" unit="SHOT" />
           <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
           <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
-            :unit="track?.curr_file ? '/' + track.curr_file.beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
+            :unit="track?.curr_file ? '/' + track.curr_file.play_beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
           <!-- posición dentro del loop (no aplica a one-shot) -->
           <StepLeds v-if="!is_oneshot(trg)" :pos="track?.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
-            :beats="track?.curr_file?.beats ?? 0" />
+            :beats="track?.curr_file?.play_beats ?? 0" />
           <!-- loop: archivo que suena; one-shot: último disparo -->
           <span class="file_name">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
           <!-- one-shot: densidad (probabilidad de disparo por compás, props.density) y disparo al empezar
@@ -169,7 +174,7 @@ import {
   store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_project_props_debounced
 } from "../helpers/composable"
 import {
-  TrackCtrl, calculateBars, register_stop, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
+  TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
 } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -279,17 +284,46 @@ function strip_file(trg, track) {
   return is_oneshot(trg) ? track?.last_shot : track?.curr_file
 }
 
-// el tiempo del delay sigue a TrackCtrl.tempo solo (watch en mixer.js), también mientras se mueve el knob
+// el tiempo del delay sigue a TrackCtrl.tempo solo (watch en mixer.js), también mientras se mueve el knob.
+// El transporte y el playbackRate de los loops cambian juntos al soltar el knob: lo que suena sigue en fase
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
-  calculateBars()
+  calculate_timing()
+  apply_rates()
   save_project_props_debounced()
 }
 
 function onSignatureChange(value) {
   Tone.Transport.timeSignature = parseInt(value)
-  calculateBars()
+  calculate_timing()
   save_project_props_debounced()
+}
+
+// tolerancia de tempo: cambia qué loops se sortean (desde el próximo sorteo; lo que suena sigue)
+function on_tol_change() {
+  calculate_timing()
+  save_project_props_debounced()
+}
+// loops del proyecto que quedan fuera de la tolerancia (para el title del knob Tol)
+const out_of_tempo = computed(() => store.files.filter(f => f.kind != "shot" && f.in_tempo === false).length)
+
+// playbackRate de cada player según el tempo (file_timing); los que ya suenan lo toman en el momento
+function apply_rates() {
+  for (let f of store.files) {
+    let player = audio_players[f.id]
+    if (player && f.play_rate) player.playbackRate = f.play_rate
+  }
+}
+// ¿la pista puede sortear el archivo? Los shots solo en pistas one-shot; los loops (en cualquier
+// pista) si entran en la tolerancia de tempo. Se mira en cada sorteo: el tempo, la tolerancia y el
+// modo de la pista pueden cambiar con el transporte en marcha
+function playable(id, trg) {
+  let f = files_by_id[id]
+  if (!f) return false
+  return f.kind == "shot" ? is_oneshot(trg) : f.in_tempo !== false
+}
+function draw_candidates(track) {
+  return (available_files_per_TRG[track.track_group.id] ?? []).filter(id => playable(id, track.track_group))
 }
 
 // --- delay global (TrackCtrl.delay; mixer.js lo aplica con watchers) ---
@@ -357,11 +391,12 @@ const bar_position = computed(() => {
 
 // beat actual (1..beats) del loop que suena en la pista
 function track_beat(track) {
-  return track.curr_file.beats - track.remaining_beats
+  return track.curr_file.play_beats - track.remaining_beats
 }
 
 function start_file(id, time) {
   files_by_id[id].isPlaying = true
+  audio_players[id].playbackRate = files_by_id[id].play_rate ?? 1
   audio_players[id].volume.value = files_by_id[id].props.volume
   route_player(id)
   audio_players[id].start(time)
@@ -376,7 +411,7 @@ function start() {
 
   Tone.start()
   //Tone.setContext(new Tone.Context({ latencyHint: "playback" }))
-  calculateBars()
+  calculate_timing()
 
   TrackCtrl.isPlaying = true
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
@@ -609,16 +644,16 @@ function set_next_step(time, n, downbeat) {
 
     if (track.remaining_beats == 0) {
       track.resting = false
-      // pista sin archivos sorteables (ninguno disponible y compatible con el Tag): queda en silencio
-      if (!available_files_per_TRG[track.track_group.id]?.length) return
+      // pista sin archivos sorteables (ninguno disponible, compatible con el Tag y dentro de la
+      // tolerancia de tempo): queda en silencio
+      let candidates = draw_candidates(track)
+      if (!candidates.length) return
       //player[track.track_group.id].buffer=
       //if (track.curr_file) {
       // audio_players[track.curr_file.id].stop(time)
       //}
-      let trg = track.track_group.id
-      let buffer_index = parseInt(Math.random() * (available_files_per_TRG[trg].length))
-      //console.log("Buffer index", buffer_index, available_files_per_TRG[trg].length)
-      let f = available_files_per_TRG[trg][buffer_index]
+      let buffer_index = parseInt(Math.random() * (candidates.length))
+      let f = candidates[buffer_index]
       //console.log("vvv", f, files_by_id[f])
 
       // descanso: con probabilidad props.rest la pista calla durante lo que dura el loop sorteado
@@ -628,19 +663,19 @@ function set_next_step(time, n, downbeat) {
         if (track.curr_file) stop_file(track.curr_file.id, time)
         track.curr_file = null
         track.resting = true
-        track.remaining_beats = Math.max(1, files_by_id[f].beats) - 1
+        track.remaining_beats = Math.max(1, files_by_id[f].play_beats) - 1
         track.percentage = 0
         return
       }
 
       start_file(f, time)
       track.curr_file = files_by_id[f]
-      track.remaining_beats = files_by_id[f].beats - 1
+      track.remaining_beats = Math.max(1, files_by_id[f].play_beats) - 1
 
     } else {
       track.remaining_beats--
       // en descanso no hay archivo: solo se cuenta
-      if (track.curr_file) track.percentage = (100 / track.curr_file.beats) * (track.remaining_beats)
+      if (track.curr_file) track.percentage = (100 / track.curr_file.play_beats) * (track.remaining_beats)
     }
     //console.log(track)
 
@@ -660,8 +695,8 @@ function oneshot_step(track, time, n, tag_start, downbeat) {
 
   let fire = (p.on_tag_change && tag_start) || (downbeat && Math.random() < (p.density ?? 0))
   if (!fire) return
-  let files = available_files_per_TRG[track.track_group.id]
-  if (!files?.length) return
+  let files = draw_candidates(track)
+  if (!files.length) return
   let f = files[parseInt(Math.random() * files.length)]
   // si ese mismo player ya está sonando (un disparo anterior), se saltea: no se reinicia
   if (audio_players[f]?.state == "started") return

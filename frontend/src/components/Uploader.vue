@@ -26,7 +26,7 @@
   <div v-if="items.length > 0" class="queue">
     <div class="row head">
       <span class="name">File</span>
-      <span class="num">BPM</span>
+      <span class="num">Type</span>
       <span class="num">Beats</span>
       <span class="state"></span>
     </div>
@@ -41,17 +41,26 @@
         </small>
         <small v-if="item.error" class="err">{{ item.error }}</small>
       </span>
-      <el-input-number v-model="item.bpm" class="num" size="small" :min="20" :max="400" :precision="2"
-        :step="1" :controls="false" placeholder="—" :disabled="busy || item.status == 'done'" />
-      <el-input-number v-model="item.beats" class="num" size="small" :min="1" :max="1024" :precision="0"
-        :step="1" :controls="false" placeholder="—" :disabled="busy || item.status == 'done'" />
+      <el-select v-model="item.kind" class="num" size="small" :disabled="busy || item.status == 'done'">
+        <el-option label="Loop" value="loop" />
+        <el-option label="Shot" value="shot" />
+      </el-select>
+      <span class="num">
+        <el-input-number v-if="item.kind == 'loop'" v-model="item.beats" class="num" size="small" :min="1"
+          :max="1024" :precision="0" :step="1" :controls="false" placeholder="—"
+          :disabled="busy || item.status == 'done'" />
+        <small v-if="item.kind == 'loop' && item_bpm(item)" class="meta">{{ item_bpm(item) }} BPM</small>
+      </span>
       <span class="state">
         <template v-if="item.status == 'uploading'">{{ item.progress < 100 ? item.progress + '%' : 'MP3…' }}</template>
         <template v-else-if="item.status == 'done'">OK</template>
         <el-button v-else size="small" text :disabled="busy" @click="removeItem(item)">✕</el-button>
       </span>
     </div>
-    <div class="hint">BPM y beats son opcionales (se pueden dejar vacíos).</div>
+    <div class="hint">
+      Loop: se ajusta al tempo del proyecto; poné cuántos beats dura (el BPM sale de ahí). Viene una
+      sugerencia según la duración. Shot: sample suelto, suena a su velocidad original (solo en pistas one-shot).
+    </div>
   </div>
 
   <el-button class="upload_btn" type="success" v-if="pending_items.length > 0" :loading="busy"
@@ -63,6 +72,7 @@ import { ref, computed } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { store, store_get_user_info } from '../helpers/composable'
 import { upload_file, error_text } from '../helpers/api'
+import { TrackCtrl, suggest_timing } from '../helpers/TrackCtrl'
 import { ElMessage } from 'element-plus'
 
 // mismos valores que el backend (routes/api.js): UPLOAD_MAX_MB, formatos y duración máxima
@@ -73,7 +83,7 @@ const ACCEPT = EXTENSIONS.map(e => "." + e).join(",")
 const FORMATS_TEXT = "mp3 / wav / ogg / flac / m4a / aiff"
 
 const uploader = ref(null)
-// archivos elegidos: { uid, raw, name, size, duration, bpm, beats, status, progress, error }
+// archivos elegidos: { uid, raw, name, size, duration, kind, beats, status, progress, error }
 // status: "ready" | "uploading" | "done" | "error"
 const items = ref([])
 const busy = ref(false)
@@ -112,14 +122,15 @@ function onFileChosen(upload_file_item) {
 
   items.value.push({
     uid: upload_file_item.uid, raw: raw, name: name, size: raw.size, duration: null,
-    bpm: null, beats: null, status: "ready", progress: 0, error: ""
+    kind: "loop", beats: null, status: "ready", progress: 0, error: ""
   })
   // la reactividad pasa por el elemento del array (no por el objeto suelto)
   read_duration(items.value[items.value.length - 1])
 }
 
-// duración estimada en el navegador, solo informativa (si el navegador no decodifica el formato,
-// por ejemplo aiff en algunos, queda sin dato y decide el backend)
+// duración estimada en el navegador, informativa y para sugerir tipo y beats (si el navegador no
+// decodifica el formato, por ejemplo aiff en algunos, queda sin dato: sin beats, el backend usa el
+// tempo del proyecto)
 function read_duration(item) {
   let url = URL.createObjectURL(item.raw)
   let audio = new Audio()
@@ -129,11 +140,21 @@ function read_duration(item) {
   }
   audio.preload = "metadata"
   audio.onloadedmetadata = () => {
-    if (Number.isFinite(audio.duration)) item.duration = audio.duration
+    if (Number.isFinite(audio.duration)) {
+      item.duration = audio.duration
+      // sugerencia de tipo y beats con el tempo del proyecto (si el usuario todavía no cargó beats)
+      if (item.beats == null) Object.assign(item, suggest_timing(item.duration, TrackCtrl.tempo))
+    }
     done()
   }
   audio.onerror = done
   audio.src = url
+}
+
+// bpm que da el loop con sus beats (el backend lo recalcula con la duración exacta de ffprobe)
+function item_bpm(item) {
+  if (!(item.duration > 0) || !(item.beats > 0)) return ""
+  return String(Math.round(item.beats * 60 / item.duration * 10) / 10)
 }
 
 function removeItem(item) {
@@ -151,7 +172,7 @@ async function doUpload() {
       item.progress = 0
       item.error = ""
       try {
-        let res = await upload_file(item.raw, { bpm: item.bpm, beats: item.beats, project_id: store.project?.id }, p => { item.progress = p })
+        let res = await upload_file(item.raw, { kind: item.kind, beats: item.kind == "loop" ? item.beats : null, project_id: store.project?.id }, p => { item.progress = p })
         if (res?.stat) {
           item.status = "done"
           ok++

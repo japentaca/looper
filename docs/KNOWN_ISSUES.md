@@ -60,6 +60,18 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   pista se implementaron en `user_track_groups.props.rest` (oct 2026); `silences` queda como columna
   muerta y **no se debe reutilizar**.
 
+- 🟡 Tempo por resample (`playbackRate`): acelerar o frenar un loop cambia también su tono (6 % ≈ un
+  semitono). Con varias pistas melódicas a distinto bpm pueden desafinar entre sí; para eso se
+  baja la tolerancia (knob Tol). Un stretch que conserve el tono (GrainPlayer, SoundTouch) quedó
+  para más adelante.
+- 🟡 La `duration` de los archivos subidos antes del cambio de tempo se midió sobre el mp3, que suma
+  el relleno del encoder (~50 ms). La migración guardó como `bpm` el tempo del proyecto, pero si el
+  dueño después les cambia los beats o el tipo, `PUT /files/:id` recalcula el bpm con esa duración
+  y queda ~0,6 % por debajo (en 7 s): suenan levemente más agudos. Los subidos después miden la
+  duración sobre el archivo original y no tienen el problema.
+- 🟡 Un loop que queda fuera de tolerancia mientras suena (por mover el tempo o la tolerancia) termina
+  su vuelta con el `playbackRate` nuevo; recién en el próximo sorteo deja de elegirse.
+
 ## Frontend — corridas largas (instalación)
 
 Revisión de fase 6 (oct 2026), leyendo el código de Tracks.vue, mixer.js y Tone 14.7. Lo que no se
@@ -119,14 +131,10 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   3.8), pero se siguen descargando y decodificando (tienen su `Tone.Player`, ocupan memoria) y se
   pueden escuchar con el preview de `Files.vue`. `available` se lee al cargar el proyecto: un archivo
   ocultado con el transporte en marcha sigue sorteándose hasta recargar el proyecto y hacer START.
-- 🟡 `files.beats` choca con un campo calculado del front: `calculateBars()` (`TrackCtrl.js`) pisa
-  `f.beats` con la duración / tempo (lo usan `Tracks.vue` y `Files.vue`), así que el `beats` que carga
-  el creador al subir (tarea 2.4) se guarda en la base pero no se ve ni se usa en la UI. Igual con
-  `duration`, que el front reemplaza por la del buffer al cargar. Resolver al hacer el catálogo o la
-  edición de metadatos (fase 3), sin cambiar el motor de reproducción de paso. `GET /catalog` (tarea
-  3.5) devuelve `beats` y `duration` tal como están en la base, y el diálogo de importar
-  (`ImportFiles.vue`, tarea 3.10) los muestra así, sin pasar por `calculateBars()`: el mismo archivo
-  puede mostrar otros beats en el catálogo y en Files.
+- ✅ Resuelto (oct 2026): `files.beats` chocaba con un campo calculado del front (`calculateBars()`
+  lo pisaba con duración / tempo). Ahora `beats` lo carga el creador, el backend deduce `bpm` y el
+  front calcula aparte `play_rate` / `play_beats` / `in_tempo` (`calculate_timing`, ver "Tempo" en
+  `ARCHITECTURE.md`). Catálogo, Files e importar muestran los mismos beats.
 - ✅ Resuelto (oct 2026): la request de audio que quedaba colgada si `get_file` no encontraba
   sesión (ahora `GET /file/:id` responde 404).
 

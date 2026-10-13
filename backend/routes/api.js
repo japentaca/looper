@@ -476,7 +476,7 @@ router.get('/admin/stats', require_admin, async (req, res) => {
 const PROJECT_NAME_MAX = 64
 const PROJECT_NOT_FOUND = { stat: false, text: "Proyecto inexistente" }
 // config del proyecto (projects.props): solo se guardan estas claves (lista blanca), el resto se ignora
-const PROJECT_PROPS_KEYS = ["tempo", "beats_x_bar", "tag_range", "delay"]
+const PROJECT_PROPS_KEYS = ["tempo", "tempo_tol", "beats_x_bar", "tag_range", "delay"]
 const PROPS_MAX_LENGTH = 4096 // tamaño de las columnas props
 
 // columnas de la lista de proyectos (sin props: eso viene con GET /projects/:id)
@@ -556,8 +556,8 @@ router.post("/projects", require_session, async (req, res) => {
 // se pueden importar.
 
 // columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`)
-const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.bpm", "f.beats",
-  "f.ts", "f.hidden", "u.status as owner_status"]
+const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
+  "f.beats", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
 const FILE_ID_MAX = 36
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
@@ -571,8 +571,8 @@ function file_available(r) {
 // archivo del catálogo como lo ve el usuario `user_id` (sin user_id ni el estado del dueño)
 function file_out(r, user_id) {
   return {
-    id: r.id, original_name: r.original_name, size: r.size, duration: r.duration, bpm: r.bpm,
-    beats: r.beats, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, available: file_available(r),
+    id: r.id, original_name: r.original_name, size: r.size, duration: r.duration, kind: r.kind ?? "loop",
+    bpm: r.bpm, beats: r.beats, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, available: file_available(r),
   }
 }
 
@@ -884,8 +884,9 @@ router.put('/logout', async (req, res) => {
 
 })
 
-// metadatos de un archivo propio: body { original_name?, bpm?, beats? } (solo lo que venga; bpm y
-// beats vacíos o null → sin dato). Solo el dueño: un archivo ajeno o inexistente responde 404.
+// metadatos de un archivo propio: body { original_name?, kind?, beats?, bpm? } (solo lo que venga).
+// kind / beats / bpm siguen las reglas de parse_timing (bpm se deduce de beats y la duración).
+// Solo el dueño: un archivo ajeno o inexistente responde 404.
 // Pista, tags y volumen son de cada proyecto (PUT /projects/:id/files). Responde el archivo
 // (forma del catálogo). Reemplaza a save_fileData
 router.put('/files/:id', require_session, async (req, res) => {
@@ -898,19 +899,16 @@ router.put('/files/:id', require_session, async (req, res) => {
     }
     upd.original_name = name
   }
-  if (body.bpm !== undefined) {
-    upd.bpm = parse_bpm(body.bpm)
-    if (upd.bpm === undefined) return res.send({ stat: false, text: `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}` })
-  }
-  if (body.beats !== undefined) {
-    upd.beats = parse_beats(body.beats)
-    if (upd.beats === undefined) return res.send({ stat: false, text: `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}` })
-  }
   let user_id = req.user.id
   try {
     let id = String(req.params.id)
-    let file = await global.knex("files").select("id").where({ id: id, user_id: user_id }).first()
+    let file = await global.knex("files").select("id", "duration", "kind", "beats").where({ id: id, user_id: user_id }).first()
     if (!file) return res.status(404).send(FILE_NOT_FOUND)
+    if (body.kind !== undefined || body.beats !== undefined || body.bpm !== undefined) {
+      let t = parse_timing(body, file.duration, file, null)
+      if (t.error) return res.send({ stat: false, text: t.error })
+      Object.assign(upd, t)
+    }
     if (Object.keys(upd).length) await global.knex("files").update(upd).where({ id: id, user_id: user_id })
     let [row] = await get_catalog_files(global.knex, [id])
     return res.send({ stat: true, data: file_out(row, user_id) })
@@ -1037,15 +1035,15 @@ router.get('/catalog', require_session, async (req, res) => {
   try {
     let { total } = await catalog_query(global.knex, f).count({ total: "*" }).first()
     let rows = await catalog_query(global.knex, f)
-      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.bpm", "f.beats", "f.ts",
+      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.ts",
         "u.name as creator_name", "u.bio as creator_bio",
         global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
       // los más nuevos primero; los migrados sin ts al final
       .orderByRaw("f.ts is null, f.ts desc, f.id")
       .limit(f.per_page).offset((f.page - 1) * f.per_page)
     let items = rows.map(r => ({
-      id: r.id, original_name: r.original_name, duration: r.duration, bpm: r.bpm, beats: r.beats,
-      ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, uses: Number(r.uses) || 0,
+      id: r.id, original_name: r.original_name, duration: r.duration, kind: r.kind ?? "loop", bpm: r.bpm,
+      beats: r.beats, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, uses: Number(r.uses) || 0,
       creator: { name: r.creator_name, bio: r.creator_bio ?? null },
     }))
     return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
@@ -1280,11 +1278,11 @@ function count_traffic(req, res) {
 }
 
 // ---------- subida de archivos ----------
-// Un archivo por request (con su `bpm` y `beats`). Orden de los chequeos:
+// Un archivo por request (con su `kind`, `beats` y/o `bpm`, ver parse_timing). Orden de los chequeos:
 //  1. antes de recibir el cuerpo (upload_precheck): sesión activa (require_session), una subida en
 //     curso por usuario, disco libre y cuota no agotada. Así un rechazo no obliga a recibir el archivo.
 //  2. con el archivo en un temporal: formato por extensión, ffprobe (¿es audio?, duración <= 60 s),
-//     bpm/beats válidos, project_id (opcional) propio y cuota con la duración real.
+//     project_id (opcional) propio, kind/beats/bpm válidos y cuota con la duración real.
 //  3. conversión a MP3 V0 en la cola global (concurrencia 1).
 //  4. transacción: se vuelve a chequear la cuota (y el proyecto), se inserta la fila y, con
 //     project_id, la de project_files (el archivo queda en ese proyecto, sin pista ni tags).
@@ -1399,6 +1397,51 @@ function parse_beats(v) {
   return Number.isInteger(n) && n >= 1 && n <= BEATS_MAX ? n : undefined
 }
 
+// tipo y tempo de un archivo a partir del body (subida o PUT /files/:id), su duración (segundos) y
+// lo que ya tiene (`current`: { kind, beats }). Devuelve { kind, beats, bpm } o { error }.
+// - kind: "loop" | "shot" (si no viene, el actual). Un shot no tiene beats ni bpm.
+// - loop: manda `beats`. Si no vienen beats pero sí bpm, beats = round(duración × bpm / 60); si no
+//   viene ninguno, los actuales o, si no hay, suggest_beats con `tempo_hint` (tempo del proyecto).
+//   El bpm se recalcula siempre: beats × 60 / duración.
+const FILE_KINDS = ["loop", "shot"]
+function parse_timing(body, duration, current, tempo_hint) {
+  let kind = body.kind === undefined || body.kind === null || body.kind === "" ? current.kind ?? "loop" : body.kind
+  if (!FILE_KINDS.includes(kind)) return { error: `Tipo inválido: tiene que ser ${FILE_KINDS.join(" o ")}` }
+  if (kind == "shot") return { kind: kind, beats: null, bpm: null }
+  let d = Number(duration)
+  if (!Number.isFinite(d) || d <= 0) return { error: "El archivo no tiene duración: no se puede calcular su tempo" }
+  let beats = parse_beats(body.beats)
+  if (beats === undefined) return { error: `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}` }
+  if (beats === null) {
+    let bpm = parse_bpm(body.bpm)
+    if (bpm === undefined) return { error: `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}` }
+    if (bpm !== null) beats = Math.max(1, Math.round(d * bpm / 60))
+    else if (current.beats) beats = current.beats
+    else beats = suggest_beats(d, tempo_hint)
+  }
+  let bpm = utils.loop_bpm(beats, d)
+  if (bpm < BPM_MIN || bpm > BPM_MAX) {
+    return { error: `Con ${beats} beats el loop queda en ${bpm} BPM: tiene que estar entre ${BPM_MIN} y ${BPM_MAX} (¿es un shot?)` }
+  }
+  return { kind: kind, beats: beats, bpm: bpm }
+}
+// beats sugeridos sin otro dato (misma regla que suggest_timing de frontend/src/helpers/TrackCtrl.js):
+// la cantidad exacta si a ese tempo cierra a menos de 1 %; si no, la cantidad "redonda" que deja el
+// loop más cerca del tempo (del proyecto, o SUGGEST_TEMPO_DEFAULT)
+const SUGGEST_TEMPO_DEFAULT = 120
+const NICE_BEATS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256]
+function suggest_beats(duration, tempo) {
+  tempo = Number(tempo) > 0 ? Number(tempo) : SUGGEST_TEMPO_DEFAULT
+  let exact = Math.round(duration * tempo / 60)
+  if (exact >= 1 && Math.abs(exact * 60 / duration / tempo - 1) < 0.01) return exact
+  let best = null
+  for (let n of NICE_BEATS) {
+    let dev = Math.abs(Math.log(n * 60 / duration / tempo))
+    if (!best || dev < best.dev) best = { n, dev }
+  }
+  return best.n
+}
+
 class QuotaError extends Error { }
 class ProjectGoneError extends Error { }
 
@@ -1426,13 +1469,10 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     if (!UPLOAD_EXTENSIONS.includes(ext)) {
       return fail(400, `Formato no aceptado: ${file.name}. Se aceptan ${UPLOAD_FORMATS_TEXT}`)
     }
-    let bpm = parse_bpm(body.bpm)
-    if (bpm === undefined) return fail(400, `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}`)
-    let beats = parse_beats(body.beats)
-    if (beats === undefined) return fail(400, `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}`)
     // proyecto opcional al que se agrega el archivo subido (propio; si no, 404 como todo proyecto ajeno)
     let project_id = typeof body.project_id == "string" && body.project_id !== "" ? body.project_id : null
-    if (project_id && !await own_project(global.knex, project_id, user_id)) return fail(404, PROJECT_NOT_FOUND.text)
+    let project = project_id ? await own_project(global.knex, project_id, user_id) : null
+    if (project_id && !project) return fail(404, PROJECT_NOT_FOUND.text)
 
     // la duración se mide sobre la entrada (la del mp3 convertido suma el relleno del encoder)
     let info = await utils.probe(file.tempFilePath)
@@ -1441,6 +1481,10 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       return fail(400, `${file.name} dura ${fmt_seconds(info.duration)}: el máximo es 1 minuto por archivo`)
     }
     let duration = info.duration
+    // tipo y tempo (sin beats ni bpm, un loop toma los beats que da el tempo del proyecto)
+    let tempo_hint = project ? parse_props(project.props).tempo : null
+    let timing = parse_timing(body, duration, { kind: "loop", beats: null }, tempo_hint)
+    if (timing.error) return fail(400, timing.error)
 
     let q = await user_quota(global.knex, user_id)
     if (q.used + duration > q.max) {
@@ -1468,8 +1512,9 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       size: size,
       tags: "[]",
       duration: duration,
-      bpm: bpm,
-      beats: beats,
+      kind: timing.kind,
+      bpm: timing.bpm,
+      beats: timing.beats,
       ts: new Date().toISOString().slice(0, 19),
     }
     try {
