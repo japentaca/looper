@@ -1,0 +1,2 @@
+# Scripts de shell siempre con LF (con core.autocrlf=true en Windows, un .sh con CRLF no corre en bash)
+*.sh text eol=lf

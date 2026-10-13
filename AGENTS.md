@@ -30,6 +30,7 @@ backend/
   routes/api.js      # TODOS los endpoints REST (un solo router)
   db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn)
   utils.js           # probe (ffprobe: ¿es audio?, duración) y convert (ffmpeg → mp3 V0), extensión de archivo
+  ecosystem.config.cjs # pm2 en el servidor (app `looper`, una instancia fork, sin secretos)
 frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
   router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue)
@@ -55,6 +56,10 @@ frontend/src/
     mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
+deploy/
+  deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
+  .env.deploy.example # datos de conexión (copiar a .env.deploy, gitignored; sin IPs ni secretos en git)
+  nginx/             # plantilla del server block de looper.jape.com.ar
 storage/             # (gitignored) db.sqlite + audio/. Datos reales del usuario: NO tocar.
 docs/                # documentación para humanos y LLMs (ver abajo)
 ```
@@ -68,6 +73,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
   `/p/<id>?autostart=1` (sin login), recuperación y prueba larga.
 - `docs/PLAN_PUBLICACION.md` — plan acordado para publicar en un VPS multiusuario (decisiones,
   esquema, endpoints y fases). Leer antes de trabajar en usuarios, proyectos, subidas o despliegue.
+- `docs/DEPLOY.md` — despliegue en el VPS: preparación inicial del servidor, despliegue habitual con
+  `deploy/deploy.sh`, respaldo de la base, rollback, verificación y lecciones (pm2, nginx, Cloudflare).
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes
   o Tracks.vue**; muchos comportamientos raros ya están explicados ahí.
 
@@ -93,7 +100,7 @@ node index.js
 cd frontend && npm install
 echo "VITE_APP_BACKEND=http://localhost:31200" > .env.local
 npm run dev
-npm run build_prd    # build de producción (usa .env.prd)
+npm run build_prd    # build de producción (usa .env.prd: https://looper.jape.com.ar)
 ```
 
 `POST /api/register` crea cuentas `pending`; un admin las admite con `PUT /api/admin/users/:id`

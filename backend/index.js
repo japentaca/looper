@@ -28,7 +28,9 @@ import RedisStore from 'connect-redis'
 let redisClient = new Redis({
   port: global.config.redis_port,
   host: global.config.redis_host,
-  //username: global.config.redis_username,
+  // usuario ACL de Redis (en el servidor, uno propio restringido a ~looper*; ver docs/DEPLOY.md).
+  // Vacío = usuario default
+  username: global.config.redis_username || undefined,
   password: global.config.redis_password
 
 })

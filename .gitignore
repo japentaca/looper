@@ -105,3 +105,6 @@ dist
 .tern-port
 .DS_Store
 *.bak
+
+# Datos de conexión del despliegue (copiar de deploy/.env.deploy.example)
+deploy/.env.deploy

@@ -134,5 +134,21 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
 
 - ✅ Resuelto (oct 2026): `better-sqlite3@9` no tenía binarios para Node 24; se actualizó a `^12`
   y `.nvmrc` pasó a Node 24. Backend probado: arranca, migra y responde.
+- 🟡 Producción detrás de Cloudflare: `POST /api/upload` responde recién después de convertir a
+  MP3, y la conversión espera en una cola de concurrencia 1 (1 vCPU). Si la subida más la espera
+  pasan de 100 s, Cloudflare corta con 524 aunque nginx (`proxy_read_timeout` 300 s en
+  `deploy/nginx/looper.jape.com.ar.conf`) siga esperando: el usuario ve un error y el archivo
+  puede quedar guardado igual (no verificado; recargar la lista para ver). Con pocas subidas simultáneas no debería pasar; si pasa, la salida es
+  responder antes de convertir (estado "procesando") en vez de alargar timeouts.
+- 🟡 Despliegue (`deploy/deploy.sh`): el build nuevo reemplaza a `frontend/dist` entero, así que los
+  chunks del build anterior desaparecen. Una pestaña abierta desde antes del despliegue que todavía no
+  cargó una vista con `import()` (galería, proyecto público) falla al navegar a ella hasta recargar
+  la página. Las requests a `/api` no se ven afectadas (salvo el corte del reinicio, unos segundos).
+- 🟡 Producción sin backups: las migraciones corren solas al reiniciar y no tienen vuelta atrás. Antes
+  de desplegar un cambio en `db_migrations.js` hay que respaldar la base a mano (`docs/DEPLOY.md`,
+  "Respaldo de la base"); el respaldo queda en el mismo disco. Los backups siguen fuera del plan.
+- 🟡 Con el usuario ACL de Redis del servidor (sin permiso para `INFO`), ioredis loguea al conectarse
+  "Skipping the ready check because INFO command fails: NOPERM". Es inofensivo. Si se usa un
+  comando de Redis nuevo, hay que sumarlo al ACL (`docs/DEPLOY.md`, paso 3).
 - 🟡 Si Redis no tiene clave pero `.env` define `redis_password`, ioredis loguea un warning
   (inofensivo). Dejar `redis_password` vacío en ese caso.

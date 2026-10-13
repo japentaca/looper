@@ -44,13 +44,13 @@ en el mismo cambio (regla de `AGENTS.md`).
 | Redis | 8.0, escucha solo en localhost, **sin clave**, compartido con `carrillion` | Las claves de Looper ya llevan prefijo `looper_`. *Propuesta*: un usuario ACL de Redis solo para Looper, restringido a `~looper*`, sin tocar el usuario por defecto (ponerle clave rompería `carrillion`) |
 | ffmpeg | No instalado | Lo trae `ffmpeg-static` (política 5) |
 | Looper viejo | No hay ninguno (ni en nginx ni en disco) | `jape.com.ar/looper` de `.env.prd` no existe: solo cambiar la URL |
-| SSH | Puerto 51312, solo con clave en `sshd_config`, pero un drop-in (`sshd_config.d/00-hardening.conf` y `50-cloud-init.conf`) deja **efectivo** `PasswordAuthentication yes` y `PermitRootLogin yes` | Fuera del alcance de Looper. *Recomendación*: desactivar el login con clave |
+| SSH | Detalles fuera del repo (es público) | Fuera del alcance de Looper; revisar el endurecimiento de SSH aparte |
   `unattended-upgrades` para parches de seguridad.
 - **Despliegue disparado desde la máquina de desarrollo** con un script `deploy` que entra por SSH
   y en el VPS hace: `git pull` de `main` (el repo se **clona en el servidor**; es público en GitHub,
   así que no necesita credenciales git — si pasa a privado, usar una *deploy key* de solo lectura),
   `npm ci` en backend y frontend (compila `better-sqlite3`/`bcrypt` para Linux), `npm run build_prd`
-  y `pm2 reload`. Datos SSH en un archivo local ignorado por git o en `~/.ssh/config`. **Sin staging.**
+  y `systemctl restart pm2-looper` (no `pm2 reload`: ver la fila pm2 de "Estado del servidor"). Datos SSH en un archivo local ignorado por git o en `~/.ssh/config`. **Sin staging.**
 - `backend/.env` y `storage/` viven solo en el servidor (fuera de git).
 - **Datos iniciales: se migran** la base y los audios actuales. El usuario actual pasa a `admin` y
   sus pistas, tags y archivos quedan en un primer proyecto; sus archivos entran al catálogo público.
@@ -391,24 +391,25 @@ galería; autostart en kiosko con el link público.
 - [x] DNS `looper.jape.com.ar` en Cloudflare.
 - [x] Revisión de solo lectura del VPS (ver "Estado del servidor").
 - [x] Node 24 en el servidor.
-- [ ] **6.1 nginx.** `deploy/nginx/looper.jape.com.ar.conf` (plantilla en el repo): `dist/` en `/`
+- [x] **6.1 nginx.** `deploy/nginx/looper.jape.com.ar.conf` (plantilla en el repo): `dist/` en `/`
   con `try_files` para las rutas del frontend, `/api` a Node, certificado de `/opt/cert/`, headers
   de seguridad, `client_max_body_size` acorde a las subidas.
   *Acepta*: sintaxis revisada; se valida con `nginx -t` en el servidor en la 6.5.
-- [ ] **6.2 pm2.** `backend/ecosystem.config.cjs` (nombre `looper`, cwd, sin secretos).
+- [x] **6.2 pm2.** `backend/ecosystem.config.cjs` (nombre `looper`, cwd, sin secretos).
   *Acepta*: archivo válido.
-- [ ] **6.3 Script de despliegue.** `deploy/deploy.sh` + `deploy/.env.deploy.example`
+- [x] **6.3 Script de despliegue.** `deploy/deploy.sh` + `deploy/.env.deploy.example`
   (`.env.deploy` en `.gitignore`): por SSH, `git pull`, `npm ci` (backend y frontend),
   `npm run build_prd`, `systemctl restart pm2-looper`. `frontend/.env.prd` →
   `https://looper.jape.com.ar`.
   *Acepta*: `bash -n` OK; ninguna IP ni secreto en archivos versionados.
-- [ ] **6.4 Documentación.** `docs/DEPLOY.md`: preparación inicial del servidor, despliegue,
+- [x] **6.4 Documentación.** `docs/DEPLOY.md`: preparación inicial del servidor, despliegue,
   rollback y lecciones (`systemctl restart`, nunca `pm2 update`; no correr `pm2` como root).
   *Acepta*: sin IPs ni secretos.
 - [ ] **6.5 Puesta en marcha en el servidor** — *la hace la sesión principal, paso a paso y con
   confirmación del dueño; no un subagente*: usuario `looper`, `git clone`, `backend/.env` con
   secretos nuevos, usuario ACL de Redis, migración de `storage/` (base + audios), servicio
-  `pm2-looper`, nginx (`nginx -t` antes de `reload`).
+  `pm2-looper`, nginx (`nginx -t` antes de `reload`). Paso a paso en `docs/DEPLOY.md`
+  ("Preparación inicial").
   *Acepta*: `looper.jape.com.ar` carga y suena; **`jape.com.ar` y `carrilion.jape.com.ar` siguen
   respondiendo 200**.
 

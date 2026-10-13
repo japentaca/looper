@@ -14,10 +14,14 @@ Navegador (Vue + Tone.js)                     Backend (Express, :31200)         
 
 - El frontend en dev corre en `http://localhost:31201` y el backend en el puerto `service_port`.
   CORS se configura con `cors_origin` en `.env` (por defecto `http://localhost:31201`), con `credentials: true`.
-- En producción el frontend apunta a `https://jape.com.ar/looper` (`frontend/.env.prd`); el backend
-  se sirve detrás de un proxy en ese path. La configuración del servidor de producción no está en el repo.
-  (Con la publicación, `.env.prd` pasa a `https://looper.jape.com.ar` en la tarea 6.3; ver "Rutas del
-  frontend".)
+- En producción todo sale de `https://looper.jape.com.ar` (`VITE_APP_BACKEND` de `frontend/.env.prd`,
+  que usa `npm run build_prd`): nginx sirve el `dist/` en `/` y pasa `/api` a Node, así que el
+  frontend y la API son **mismo origen** (CORS solo cuenta en desarrollo). `request.js` usa esa URL
+  como `baseURL` y los wrappers de `api.js` ya llevan `/api/...`; las URLs de audio se arman igual
+  (`VITE_APP_BACKEND + "/api/file/" + id`). Por eso `VITE_APP_BACKEND` va **sin** `/api` y sin `/`
+  final. La configuración de nginx está en el repo como plantilla: ver "Producción (nginx)" en
+  Backend. El proceso del backend lo maneja pm2 ("Producción (pm2)") y se despliega con
+  `deploy/deploy.sh` ("Producción (despliegue)").
 
 ### Rutas del frontend (tarea 4.2)
 
@@ -40,19 +44,12 @@ que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
   con `import()` (chunks aparte).
 - `base` de Vite queda por defecto (`/`): el build se sirve en la raíz de `looper.jape.com.ar` y los
   assets salen como `/assets/...`. En dev, Vite ya devuelve `index.html` para cualquier ruta.
-- **Producción (tarea 6.1):** nginx tiene que devolver `index.html` para las rutas del frontend, si
-  no `/p/<id>` o `/gallery` dan 404 al recargar o al abrir un link directo:
-
-  ```nginx
-  location / {
-    root /ruta/a/looper/frontend/dist;
-    try_files $uri $uri/ /index.html;
-  }
-  location /api/ { proxy_pass http://127.0.0.1:<service_port>; ... }
-  ```
-
-  `/api` va en su propio `location` (nginx elige el prefijo más largo, el orden no importa), así que
-  un 404 de la API nunca cae en `index.html`.
+- **Producción:** nginx tiene que devolver `index.html` para las rutas del frontend, si no
+  `/p/<id>` o `/gallery` dan 404 al recargar o al abrir un link directo. Lo hace el
+  `try_files $uri $uri/ /index.html` de `location /` en la plantilla
+  `deploy/nginx/looper.jape.com.ar.conf` (ver "Producción (nginx)" en Backend). `/api` va en su
+  propio `location` (nginx elige el prefijo más largo, el orden no importa), así que un 404 de la
+  API nunca cae en `index.html`; tampoco un asset inexistente bajo `/assets/` (da 404).
 - `vue-router` está fijado en `~4.5.1`: desde la 4.6 pide Vue 3.5 y el proyecto está en Vue 3.4
   (actualizar Vue es otra tarea).
 
@@ -64,7 +61,7 @@ que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
 |---|---|
 | `global.config` | contenido parseado de `backend/.env` (ver `backend/.env.example`) |
 | `global.knex` | instancia knex sobre better-sqlite3 (`db_file`) |
-| `global.redisClient` | cliente ioredis (también usado como store de sesión, prefijo `looper_s:`) |
+| `global.redisClient` | cliente ioredis (también usado como store de sesión, prefijo `looper_s:`). Con `redis_username` en `.env` se autentica con ese usuario ACL; en el servidor es uno propio limitado a `~looper*` (ver `docs/DEPLOY.md`), así que toda clave nueva de Redis tiene que empezar con `looper` |
 
 Orden de arranque: dotenv → knex → express (`express.json()`) → sesión (Redis) → CORS → router `/api`
 → `await do_migrations()` → `listen`.
@@ -74,6 +71,89 @@ Todos los endpoints están en `backend/routes/api.js` (ver `docs/API.md`). El mi
 archivos"), con temporales en `<tmpdir del sistema>/looper_upload`, límite de 80 MB por archivo
 (`UPLOAD_MAX_MB`) y `abortOnLimit` (responde 413). El mismo límite está en `Uploader.vue`
 (`MAX_UPLOAD_MB`) y tiene que entrar en el `client_max_body_size` de nginx: cambiarlos juntos.
+
+### Producción (nginx)
+
+Plantilla versionada: `deploy/nginx/looper.jape.com.ar.conf`, que en el VPS va a
+`/etc/nginx/conf.d/looper.jape.com.ar.conf` (un archivo por sitio; `00-default.conf` corta los Host
+desconocidos). Se valida con `nginx -t` antes de `systemctl reload nginx`. Resumen:
+
+- Puerto 80 → 301 a HTTPS. En 443 (`http2 on`), certificado de origen de Cloudflare de
+  `/opt/cert/` (los nombres de archivo de la plantilla son placeholder: se copian del server block
+  de `jape.com.ar` en la puesta en marcha).
+- `root` = `frontend/dist` del clon en el servidor, **`/var/lib/looper/looper`** (usuario de
+  sistema `looper`, home `/var/lib/looper`). nginx tiene que poder atravesar esos directorios.
+- `location /` con `try_files $uri $uri/ /index.html` (rutas de vue-router). `index.html` sale con
+  `Cache-Control: no-cache` y `/assets/` (nombres con hash) con un año de caché, ambos con
+  `expires` (no `add_header`, ver abajo).
+- `/api/` → `http://127.0.0.1:31200` (el `service_port` de `.env`; si cambia, cambiar los dos
+  `proxy_pass`), con `Host`, `X-Forwarded-For $remote_addr` y `X-Forwarded-Proto $scheme`. El
+  `real_ip` de Cloudflare ya lo resuelve `conf.d/cloudflare-realip.conf` del servidor, así que
+  `$remote_addr` es la IP real del visitante, y Express (`trust proxy` = loopback) la toma como
+  `req.ip`. La caché `immutable` de `/api/file/:id` la pone Express; nginx no agrega caché a `/api`.
+- Límite de cuerpo: 1 MB en general y **90 MB solo en `location = /api/upload`** (80 MB de la app
+  más margen del multipart), con `proxy_read_timeout`/`proxy_send_timeout` de 300 s porque la
+  respuesta llega después de la conversión (cola de concurrencia 1). Cloudflare corta igual a los
+  100 s sin respuesta (error 524) y no deja pasar cuerpos de más de 100 MB.
+- Headers de seguridad a nivel `server`, con `always`: `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: frame-ancestors 'none'` (sin embebido en iframes), HSTS (un año, sin
+  `includeSubDomains`) y `Referrer-Policy: strict-origin-when-cross-origin`. Un `add_header` dentro
+  de un `location` anula todos los heredados: si se agrega uno, repetir los cuatro.
+
+### Producción (pm2)
+
+El backend corre con pm2 según `backend/ecosystem.config.cjs` (`.cjs` porque el backend es ESM y
+pm2 carga el archivo con `require`). Sigue el patrón de `carrillion` en el mismo servidor: usuario de
+sistema `looper` con su propio daemon pm2 y el servicio `pm2-looper` (`pm2 startup` + `pm2 save`).
+
+- App `looper`, `script: index.js`, `cwd` = `/var/lib/looper/looper/backend`. El `cwd` importa:
+  `dotenv` busca `.env` en el directorio de trabajo, y las rutas relativas de `.env` (si las hay)
+  también se resuelven desde ahí.
+- **Una instancia en modo fork**, nunca cluster ni varias instancias: el token de subida por usuario
+  y la cola de conversión viven en memoria del proceso.
+- `NODE_ENV=production` (Express deja de mandar el stack en las páginas de error). El archivo no
+  tiene secretos: viven en `backend/.env` del servidor.
+- `max_memory_restart: 400M` (el VPS tiene 1,9 GB compartidos con `carrillion`, Redis y nginx). Las
+  subidas van a archivos temporales y ffmpeg es otro proceso, así que el tope solo mide Node; un
+  reinicio por memoria corta la conversión en curso.
+- `exp_backoff_restart_delay` para no reintentar en un bucle cerrado si falla al arrancar (Redis
+  caído, falta `session_secret`), y `time: true` para tener fecha en los logs
+  (`/var/lib/looper/.pm2/logs/`).
+- Se reinicia siempre con `systemctl restart pm2-looper`, nunca con `pm2 update`/`pm2 kill` a mano
+  ni corriendo `pm2` como root (ver "Estado del servidor" en `docs/PLAN_PUBLICACION.md`).
+
+### Producción (despliegue)
+
+`bash deploy/deploy.sh [-y]` desde la máquina de desarrollo (Git Bash en Windows o cualquier bash
+con `ssh` y `git`). No hay staging: lo que está en `origin/main` de GitHub es lo que se despliega.
+La preparación inicial del servidor, el respaldo de la base, el rollback y la verificación están en
+`docs/DEPLOY.md`.
+
+- **Conexión:** host (alias de `~/.ssh/config`), puerto y usuario salen de `deploy/.env.deploy`
+  (copiar de `deploy/.env.deploy.example`; está en `.gitignore`) o de `~/.ssh/config`. Ningún
+  archivo versionado tiene IPs, puertos ni usuarios reales. El usuario de SSH tiene que poder usar
+  `sudo` (o ser root: entonces usa `runuser`); si `sudo` pide clave, la pide en la terminal
+  (`ssh -t`).
+- **Antes de conectar** hace `git fetch` y avisa si hay cambios sin commitear, commits sin pushear,
+  `main` local atrasado o otra rama activa; con avisos pregunta antes de seguir (`-y` lo saltea; sin
+  terminal y sin `-y`, aborta).
+- **En el servidor**, como el usuario `looper` (`sudo -u looper`), en `/var/lib/looper/looper`
+  (configurable con `DEPLOY_APP_DIR`): verifica que el clon esté en `main` y sin cambios en archivos
+  versionados (si no, aborta sin tocar nada), `git pull --ff-only origin main`, `npm ci --omit=dev`
+  en backend (compila `better-sqlite3`/`bcrypt` para Linux; las dependencias de desarrollo son solo
+  ESLint), `npm ci` y `npm run build_prd` en frontend. El build va a un directorio temporal en el
+  home de `looper` y recién al terminar bien reemplaza a `frontend/dist`: si falla, nginx sigue
+  sirviendo el build anterior completo.
+- **Reinicio:** `systemctl restart pm2-looper` como root (nunca `pm2 update`/`pm2 kill`, nunca `pm2`
+  como root). Después espera hasta 40 s a que `DEPLOY_HEALTH_URL` (por defecto
+  `http://127.0.0.1:31200/api/public/projects`, desde el propio servidor) responda sin error; si no hay
+  `curl`, se saltea el chequeo.
+- Con `set -euo pipefail`: cualquier paso que falla corta el despliegue con código distinto de 0.
+  Si falla después del `git pull`, el clon queda en el commit nuevo con el proceso viejo corriendo;
+  se corrige el problema y se vuelve a correr el script (es repetible: sin commits nuevos reinstala y
+  reinicia igual).
+- `.gitattributes` fuerza fin de línea LF en `*.sh` (con `core.autocrlf=true` en Windows, un `.sh`
+  con CRLF no corre en bash).
 
 ### Autenticación
 
