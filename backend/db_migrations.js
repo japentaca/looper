@@ -1,3 +1,6 @@
+import { stat } from 'fs/promises'
+import utils from './utils.js'
+
 // Migraciones idempotentes: crean lo que falte sin tocar lo existente.
 // Sirven tanto para una base nueva como para la base actual (donde algunas tablas
 // se crearon a mano). Para agregar una columna, sumarla acá con create_column_*.
@@ -21,6 +24,11 @@ export default async function do_migrations() {
   await create_column_number("files", "size")
   await create_column_string("files", "props", 4096) // JSON
   await migrate_file_tags()
+  await create_column_float("files", "duration") // segundos (ffprobe); la cuota se mide con esto
+  await create_column_float("files", "bpm") // lo carga el creador
+  await create_column_number("files", "beats") // largo del loop en beats; lo carga el creador
+  await migrate_file_ts()
+  await migrate_file_durations()
 
   await create_table("user_track_groups")
   await create_column_string("user_track_groups", "user_id", 36)
@@ -102,6 +110,47 @@ async function migrate_file_tags() {
     .update({ tags: global.knex.raw("json_array(tag)") })
 }
 
+// ruta en disco del mp3 de un archivo (mismo criterio que routes/api.js)
+function audio_path(file) {
+  return global.config.storage_path + file.user_id + "/" + file.id + ".mp3"
+}
+
+// `files.ts`: fecha de alta (ISO sin ms, como users.ts). Al crear la columna, los archivos que ya
+// existían toman la fecha de modificación de su mp3 (solo corre una vez).
+async function migrate_file_ts() {
+  if (await global.knex.schema.hasColumn("files", "ts")) return
+  await create_column_string("files", "ts", 21)
+  let files = await global.knex("files").select("id", "user_id")
+  for (let file of files) {
+    try {
+      let st = await stat(audio_path(file))
+      await global.knex("files").where({ id: file.id }).update({ ts: st.mtime.toISOString().slice(0, 19) })
+    } catch {
+      // sin mp3 en disco: ts queda null
+    }
+  }
+}
+
+// `files.duration` de los mp3 que no la tengan, medida con ffprobe (no se recodifican).
+// Corre en cada arranque pero solo sobre los null, así que después de la primera vez no hace nada
+// (salvo con archivos cuyo mp3 falta o no es audio: se avisa y quedan null).
+async function migrate_file_durations() {
+  let files = await global.knex("files").whereNull("duration").select("id", "user_id")
+  if (!files.length) return
+  console.log(`Calculo duration de ${files.length} archivo(s) con ffprobe`)
+  let fallidos = 0
+  for (let file of files) {
+    let info = await utils.probe(audio_path(file))
+    if (!info.is_audio) {
+      fallidos++
+      console.warn(`  sin duración: ${file.id} (no existe o no es audio)`)
+      continue
+    }
+    await global.knex("files").where({ id: file.id }).update({ duration: info.duration })
+  }
+  if (fallidos) console.warn(`  ${fallidos} archivo(s) quedaron sin duration`)
+}
+
 // crea la tabla solo con la PK `id` (uuid); las columnas se agregan con create_column_*
 async function create_table(tabla) {
   if (!await global.knex.schema.hasTable(tabla)) {
@@ -125,6 +174,14 @@ async function create_column_number(tabla, columna) {
     console.log(`Creo columna ${columna}  en tabla ${tabla}`)
     await global.knex.schema.alterTable(tabla, function (table) {
       table.integer(columna)
+    })
+  }
+}
+async function create_column_float(tabla, columna) {
+  if (!await global.knex.schema.hasColumn(tabla, columna)) {
+    console.log(`Creo columna ${columna}  en tabla ${tabla}`)
+    await global.knex.schema.alterTable(tabla, function (table) {
+      table.float(columna)
     })
   }
 }

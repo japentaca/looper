@@ -6,7 +6,7 @@ herramienta necesita su propio archivo (`CLAUDE.md`, etc.), ese archivo solo deb
 
 ## Qué es
 
-Looper es un reproductor de loops aleatorio. Cada usuario sube archivos de audio (mp3/wav), los
+Looper es un reproductor de loops aleatorio. Cada usuario sube archivos de audio (mp3/wav/ogg/flac/m4a/aiff, de hasta 1 minuto; se recodifican a mp3), los
 agrupa en **Track Groups** (cada grupo = una pista que suena en paralelo) y los etiqueta con
 **Tags** (secciones musicales). Al darle START, en cada pista se elige un loop al azar compatible
 con el Tag activo; el Tag cambia al azar cada 2^n beats (tiempos). Todo se sincroniza con un tempo (BPM).
@@ -18,7 +18,7 @@ con LLMs.
 
 | Parte | Tecnología |
 |---|---|
-| Backend | Node.js (ESM), Express 4, knex + better-sqlite3, express-session + Redis (ioredis, connect-redis), bcrypt, express-fileupload, ffmpeg (wav→mp3) |
+| Backend | Node.js (ESM), Express 4, knex + better-sqlite3, express-session + Redis (ioredis, connect-redis), bcrypt, express-fileupload, ffmpeg/ffprobe (paquetes `ffmpeg-static`/`ffprobe-static`) |
 | Frontend | Vue 3 (`<script setup>`), Vite 5, Element Plus, Tone.js 14 (motor de audio), axios, @vueuse/core |
 | Datos | SQLite (archivo en `storage/db.sqlite`), audios en `storage/audio/<user_id>/<file_id>.mp3` |
 
@@ -29,7 +29,7 @@ backend/
   index.js           # arranque: dotenv → globals (config, knex, redisClient) → sesión → CORS → /api → migraciones → listen
   routes/api.js      # TODOS los endpoints REST (un solo router)
   db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn)
-  utils.js           # conversión con ffmpeg, extensión de archivo
+  utils.js           # probe (ffprobe: ¿es audio?, duración) y convert (ffmpeg → mp3 V0), extensión de archivo
 frontend/src/
   App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
@@ -67,7 +67,9 @@ docs/                # documentación para humanos y LLMs (ver abajo)
 ## Cómo correr
 
 Requisitos: Node 24 (ver `.nvmrc`; `better-sqlite3` y `bcrypt` son módulos nativos: si se cambia
-de versión de Node hay que `npm rebuild`), Redis accesible, ffmpeg instalado. El frontend debe
+de versión de Node hay que `npm rebuild`), Redis accesible (ffmpeg y ffprobe
+vienen con los paquetes npm `ffmpeg-static`/`ffprobe-static`; `path_to_ffmpeg`/`path_to_ffprobe` en
+`.env` son override opcional). El frontend debe
 correr en el puerto 31201 (fijo con `strictPort` en `vite.config.js`), que debe coincidir con `cors_origin`
 del `backend/.env`; si no coinciden, el login falla por CORS.
 

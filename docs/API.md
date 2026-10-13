@@ -31,7 +31,7 @@ y `admin_update_user(id, { action, ... })` (`PUT /admin/users/:id`), usados por 
 | PUT | `/save_fileData` | sí | `{ file: { id, track_group, tags, props } }` | `{ stat: true }` |
 | PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
 | GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
-| POST | `/upload` | sí | multipart, uno o más archivos (mp3/wav) | 200 sin cuerpo |
+| POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `bpm` y `beats` | `{ stat: true, text, data: archivo }` (misma forma que los `files` de `u_info`). Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, bpm/beats inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
 | GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
 | PUT | `/admin/users/:id` | admin | `{ action, password?, max_seconds? }` | `{ stat: true, data: usuario admin }` (ya actualizado); `{ stat: false, text }` si la acción no corresponde al estado, el usuario es admin, o la clave/cuota no es válida; 400 acción desconocida; 404 usuario inexistente. Ver detalle abajo |
 
@@ -43,9 +43,13 @@ y `admin_update_user(id, { action, ... })` (`PUT /admin/users/:id`), usados por 
 {
   email, name, ts, bytes_used, max_bytes_uploaded,
   status, role, bio, max_seconds, // status: "active" (los otros estados no deberían tener sesión); role: "user" | "admin"; max_seconds: null = default
+  quota: { max_seconds, used_seconds }, // cuota efectiva (max_seconds o default_max_seconds de .env) y suma de files.duration;
+                                        // la usa Uploader.vue para "te quedan m:ss"
   props: { tempo, beats_x_bar, delay: { type, division, feedback, level } }, // config global; {} si no hay nada guardado
                                                                              // (el front completa los defaults)
-  files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3" }], // props.oneShot viejo puede venir: se ignora
+  files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3",
+            duration, bpm, beats, ts }], // props.oneShot viejo puede venir: se ignora. duration: segundos (float);
+                                         // bpm/beats: null hasta que el creador los cargue; ts: fecha de alta o null
   track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, reverb, drift, delay } }], // props: {} si no hay nada guardado
                                                                                 // (el front completa los defaults)
   tags: [{ id, name, color }]
@@ -120,6 +124,38 @@ Solo actualiza `track_group`, `tags` (array de ids de tags, guardado como JSON) 
 (serializado a JSON). El resto de los campos del objeto se ignoran. Filtra por `user_id`: si el
 archivo no existe o es de otro usuario responde 403 `{ stat: false, text: "Archivo inexistente" }`.
 
+### `upload`
+
+Sube **un archivo por request** (multipart; el nombre del campo no importa) con dos campos de texto
+opcionales: `bpm` (número 20..400, se redondea a 2 decimales) y `beats` (entero 1..1024); vacíos o
+ausentes → `null`. Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
+
+1. **Antes de recibir el archivo** (el cuerpo multipart se lee recién después): otra subida del
+   mismo usuario en curso → 409 "Ya tenés una subida en curso: esperá a que termine"; disco de
+   `storage_path` con menos de `disk_min_free_gb` GB libres (`.env`, default 10) → 507 "El servidor
+   está sin espacio: las subidas están suspendidas por ahora"; cuota agotada → 403 "Llegaste a tu
+   cuota de m:ss de audio".
+2. **Con el archivo en un temporal**: más de 80 MB → 413 "El archivo supera los 80 MB" (se corta la
+   conexión); sin archivo → 400 "No llegó ningún archivo"; más de uno → 400 "Se sube un archivo por
+   vez"; extensión fuera de mp3/wav/ogg/flac/m4a/aiff (`.aif` también) → 400 "Formato no aceptado";
+   `bpm`/`beats` fuera de rango → 400; ffprobe dice que no es audio → 400 "<nombre> no es un archivo
+   de audio válido"; dura más de 60 s (con 0,1 s de margen por el relleno de mp3/m4a) → 400
+   "<nombre> dura m:ss: el máximo es 1 minuto por archivo"; la duración no entra en la cuota → 403
+   "No te alcanza la cuota: te quedan m:ss y <nombre> dura m:ss"; disco otra vez → 507.
+3. **Conversión** en la cola global (concurrencia 1) a MP3 VBR V0 44,1 kHz estéreo sin metadatos
+   (todo se recodifica, también los mp3). Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
+4. **Transacción**: vuelve a calcular la cuota (por si cambió mientras se convertía; 403 si ya no
+   entra), inserta la fila en `files` (`duration` medida sobre la entrada, `bpm`, `beats`, `ts`,
+   `size` del mp3, `tags = []`) y suma `size` a `users.bytes_used`.
+
+Cuota: `users.max_seconds` (o `default_max_seconds` de `.env` si es `null`, default 1200 = 20 min)
+contra la suma de `files.duration` de los archivos del usuario. Por ahora todos los archivos de
+`files.user_id` son propios; cuando existan los importados (fase 3) no cuentan.
+
+Los temporales se borran siempre al terminar; si la subida no queda registrada, también el mp3
+convertido. Si el cliente corta la conexión mientras sube, el lugar de "subida en curso" se libera
+al cerrarse la conexión.
+
 ### `admin/users` (admin de usuarios)
 
 Ambos con `require_admin` (401 sin sesión, 403 si `role` no es `admin`). El "usuario admin" que
@@ -135,7 +171,7 @@ Acciones de `PUT /admin/users/:id` (`action`):
 | `block` | `status = 'active'` | → `blocked`; sus sesiones abiertas se cortan en el request siguiente |
 | `unblock` | `status = 'blocked'` | → `active` (también sirve para admitir una solicitud rechazada) |
 | `reset_password` | `password` (8 a 72, como el registro) | guarda el hash bcrypt de la clave que define el admin (se la pasa al usuario por otro canal) y borra `looper_pwchange_fails:<id>`. **No** cierra las sesiones abiertas del usuario (ver `KNOWN_ISSUES.md`) |
-| `set_max_seconds` | `max_seconds`: entero 0..86400 o `null` | cuota de audio en segundos; `null` = default de `.env` (se aplica desde la fase 2) |
+| `set_max_seconds` | `max_seconds`: entero 0..86400 o `null` | cuota de audio en segundos; `null` = `default_max_seconds` de `.env` (la usa `/upload`) |
 
 Si el estado no es el requerido responde `{ stat: false, text: 'No se puede aplicar "<action>" a un
 usuario <status>' }` sin cambiar nada (el update está condicionado al estado de partida). Las

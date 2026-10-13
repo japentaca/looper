@@ -284,24 +284,24 @@ verificación base aplica siempre.
 *Pruebas manuales*: registrarse desde el navegador, aprobar desde el admin, entrar con el usuario
 nuevo, cambiar la clave, bloquearlo con su sesión abierta.
 
-### Fase 2 — Subidas y audio
+### Fase 2 — Subidas y audio ✅
 
-- [ ] **2.1 ffmpeg/ffprobe.** `backend/package.json`, `utils.js`. Agregar `ffmpeg-static` y
+- [x] **2.1 ffmpeg/ffprobe.** `backend/package.json`, `utils.js`. Agregar `ffmpeg-static` y
   `ffprobe-static`; `path_to_ffmpeg`/`path_to_ffprobe` opcionales en `.env`. `execFile` sin shell.
   Funciones `probe` (¿es audio?, duración) y `convert` a MP3 VBR V0 44.1 kHz estéreo sin metadatos.
   *Acepta*: probe y convert funcionan con un wav y un mp3 de prueba generados con el propio ffmpeg
   (no de `storage/`).
-- [ ] **2.2 Esquema de archivos.** `db_migrations.js`. `files.duration`, `bpm`, `beats`, `ts`.
+- [x] **2.2 Esquema de archivos.** `db_migrations.js`. `files.duration`, `bpm`, `beats`, `ts`.
   Migración: `duration` de los mp3 existentes con ffprobe donde sea null (sin recodificarlos).
   *Acepta*: en la copia, los 48 archivos tienen `duration`.
-- [ ] **2.3 Subida.** `routes/api.js`. Formatos mp3/wav/ogg/flac/m4a/aiff; rechazo de no-audio y
+- [x] **2.3 Subida.** `routes/api.js`. Formatos mp3/wav/ogg/flac/m4a/aiff; rechazo de no-audio y
   de más de 60 s; cuota en segundos (`max_seconds`, default `default_max_seconds=1200` en `.env`)
   chequeada antes y dentro de la transacción; una subida en curso por usuario; cola global con
   concurrencia 1; rechazo si el disco libre < 10 GB (`disk_min_free_gb` en `.env`); solo `active`;
   recibe `bpm` y `beats`. Mensajes de error claros.
   *Acepta*: cada caso de rechazo responde su mensaje; una subida válida guarda un mp3 V0 con
   `duration` correcta.
-- [ ] **2.4 UI de subida.** `Uploader.vue`, `helpers/api.js`. Formatos aceptados, campos BPM y
+- [x] **2.4 UI de subida.** `Uploader.vue`, `helpers/api.js`. Formatos aceptados, campos BPM y
   beats, cuota restante ("te quedan mm:ss"), errores del backend.
   *Acepta*: build OK.
 

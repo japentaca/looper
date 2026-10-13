@@ -61,6 +61,25 @@ export function get_user_info(data) {
 
   })
 }
+// subida de UN archivo (multipart) con `bpm` y `beats` opcionales (null/vacío = sin dato).
+// Sin timeout: un archivo grande más la conversión pueden tardar más que el default de request.js.
+// on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión)
+export function upload_file(file, { bpm, beats } = {}, on_progress) {
+  let data = new FormData()
+  data.append("file", file, file.name)
+  if (bpm != null && bpm !== "") data.append("bpm", String(bpm))
+  if (beats != null && beats !== "") data.append("beats", String(beats))
+  return request({
+    url: '/api/upload',
+    method: 'post',
+    data,
+    timeout: 0,
+    onUploadProgress: e => {
+      if (on_progress && e.total) on_progress(Math.round(100 * e.loaded / e.total))
+    }
+  })
+}
+
 // registro público: { email, password, name, bio?, accept_license: true } → la cuenta queda pendiente
 export function register(data) {
   return request({

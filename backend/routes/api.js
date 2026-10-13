@@ -2,6 +2,8 @@ import express from 'express'
 var router = express.Router()
 export default router
 import fs from "fs/promises"
+import os from "os"
+import path from "path"
 import bcrypt from 'bcrypt'
 import { v4 as uuid } from "uuid"
 import fileUpload from 'express-fileupload'
@@ -44,15 +46,6 @@ export function require_admin(req, res, next) {
   if (req.user.role !== "admin") return res.status(403).send({ stat: false, text: "Sin permiso" })
   next()
 }
-
-// mismo límite que MAX_UPLOAD_MB en frontend/src/components/Uploader.vue
-router.use(fileUpload({
-  limits: { fileSize: 40 * 1024 * 1024 },
-  abortOnLimit: true, // responde 413 en vez de guardar el archivo truncado
-  //safeFileNames: true,
-  useTempFiles: true,
-  //tempFileDir: global.config.storage_path
-}))
 
 // intentos de login fallidos por IP: a partir de LOGIN_MAX_FAILS se bloquea por LOGIN_BLOCK_S
 const LOGIN_MAX_FAILS = 10
@@ -493,70 +486,228 @@ function count_traffic(req, res) {
   })
 }
 
-router.post('/upload', require_session, async (req, res) => {
+// ---------- subida de archivos ----------
+// Un archivo por request (con su `bpm` y `beats`). Orden de los chequeos:
+//  1. antes de recibir el cuerpo (upload_precheck): sesión activa (require_session), una subida en
+//     curso por usuario, disco libre y cuota no agotada. Así un rechazo no obliga a recibir el archivo.
+//  2. con el archivo en un temporal: formato por extensión, ffprobe (¿es audio?, duración <= 60 s),
+//     bpm/beats válidos y cuota con la duración real.
+//  3. conversión a MP3 V0 en la cola global (concurrencia 1).
+//  4. transacción: se vuelve a chequear la cuota y se inserta la fila.
+
+const UPLOAD_EXTENSIONS = ["mp3", "wav", "ogg", "flac", "m4a", "aiff", "aif"]
+const UPLOAD_FORMATS_TEXT = "mp3, wav, ogg, flac, m4a o aiff"
+// duración máxima por archivo; el margen cubre los ms de relleno que algunos formatos (mp3, m4a)
+// suman a la duración que informa ffprobe
+const UPLOAD_MAX_SECONDS = 60
+const UPLOAD_SECONDS_MARGIN = 0.1
+// tamaño máximo del archivo recibido: un minuto de wav/aiff estéreo de 192 kHz y 24 bits ocupa ~66 MB.
+// Mismo límite que MAX_UPLOAD_MB en frontend/src/components/Uploader.vue y que client_max_body_size
+// de nginx (con algo de margen para el multipart): cambiarlos juntos
+const UPLOAD_MAX_MB = 80
+const BPM_MIN = 20
+const BPM_MAX = 400
+const BEATS_MAX = 1024
+// defaults si faltan en .env
+const DEFAULT_MAX_SECONDS = 1200
+const DEFAULT_DISK_MIN_FREE_GB = 10
+
+const upload_parser = fileUpload({
+  limits: { fileSize: UPLOAD_MAX_MB * 1024 * 1024 },
+  abortOnLimit: true, // responde 413 en vez de guardar el archivo truncado
+  responseOnLimit: JSON.stringify({ stat: false, text: `El archivo supera los ${UPLOAD_MAX_MB} MB` }),
+  useTempFiles: true,
+  tempFileDir: path.join(os.tmpdir(), "looper_upload"),
+})
+
+// subida en curso por usuario: user_id → token de la subida (en memoria: el backend corre en un
+// solo proceso). El token evita que una subida vieja libere el lugar de otra más nueva
+const uploads_in_progress = new Map()
+
+// cola global de conversión con concurrencia 1: cada trabajo espera a que termine el anterior
+let convert_queue = Promise.resolve()
+function enqueue_conversion(job) {
+  let p = convert_queue.then(job)
+  convert_queue = p.catch(() => { })
+  return p
+}
+
+// segundos → "m:ss"
+function fmt_seconds(s) {
+  s = Math.max(0, Math.floor(s))
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0")
+}
+
+// valor numérico de .env, o el default si falta, está vacío o no es un número >= 0
+function config_number(key, def) {
+  let v = global.config[key]
+  if (v === undefined || String(v).trim() === "") return def
+  let n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? n : def
+}
+
+// cuota del usuario en segundos (users.max_seconds; null = default_max_seconds de .env)
+// y segundos ya usados (suma de files.duration de sus archivos). `db` es knex o una transacción
+async function user_quota(db, user_id) {
+  let user = await db("users").select("max_seconds").where({ id: user_id }).first()
+  let max = user?.max_seconds ?? config_number("default_max_seconds", DEFAULT_MAX_SECONDS)
+  let r = await db("files").sum({ s: "duration" }).where({ user_id: user_id }).first()
+  return { max: max, used: Number(r?.s) || 0 }
+}
+
+// ¿queda al menos disk_min_free_gb libre en el disco de storage_path?
+async function disk_free_ok() {
+  let min_gb = config_number("disk_min_free_gb", DEFAULT_DISK_MIN_FREE_GB)
+  let s = await fs.statfs(global.config.storage_path)
+  return s.bavail * s.bsize >= min_gb * 1024 * 1024 * 1024
+}
+
+const DISK_FULL_TEXT = "El servidor está sin espacio: las subidas están suspendidas por ahora"
+
+// chequeos previos a recibir el archivo. Toma el lugar de "subida en curso" del usuario; se libera
+// al terminar el handler o, si el handler no llegó a empezar (rechazo, 413, conexión cortada), al
+// cerrarse la respuesta
+async function upload_precheck(req, res, next) {
   let user_id = req.user.id
-
-  let failed = []
-  let total_bytes
-  let trx
+  if (uploads_in_progress.has(user_id)) {
+    return res.status(409).send({ stat: false, text: "Ya tenés una subida en curso: esperá a que termine" })
+  }
+  let token = {}
+  uploads_in_progress.set(user_id, token)
+  req.upload_token = token
+  req.upload_release = () => {
+    if (uploads_in_progress.get(user_id) === token) uploads_in_progress.delete(user_id)
+  }
+  res.once("close", () => { if (!req.upload_started) req.upload_release() })
   try {
-    let exists = await isDirExist(global.config.storage_path + user_id)
-    if (!exists) {
-      console.log("creo path", global.config.storage_path + user_id)
-      await fs.mkdir(global.config.storage_path + user_id)
+    if (!await disk_free_ok()) return res.status(507).send({ stat: false, text: DISK_FULL_TEXT })
+    let q = await user_quota(global.knex, user_id)
+    if (q.used >= q.max) {
+      return res.status(403).send({ stat: false, text: `Llegaste a tu cuota de ${fmt_seconds(q.max)} de audio` })
     }
-
-    let temp = await global.knex("users").select("bytes_used").where({ id: user_id }).first()
-    total_bytes = temp.bytes_used || 0
-    trx = await global.knex.transaction()
+    next()
   } catch (e) {
-    console.log("Error upload", e)
+    console.log("Error upload (precheck)", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
   }
-  try {
-    for (let index in req.files) {
-      let file_id = uuid()
-      let file = req.files[index]
+}
 
-      let fn = global.config.storage_path + user_id + "/" + file_id + ".mp3"
-      let ok
-      if (utils.get_file_extension(file.name) == "wav") {
-        ok = await utils.convert_file(file.tempFilePath, fn).then(() => true, (err) => {
-          console.log("Error convirtiendo", file.name, err.message)
-          return false
+// bpm: vacío → null; número entre BPM_MIN y BPM_MAX; undefined si es inválido
+function parse_bpm(v) {
+  if (v === undefined || v === null || String(v).trim() === "") return null
+  let n = Number(v)
+  return Number.isFinite(n) && n >= BPM_MIN && n <= BPM_MAX ? Math.round(n * 100) / 100 : undefined
+}
+// beats: vacío → null; entero entre 1 y BEATS_MAX; undefined si es inválido
+function parse_beats(v) {
+  if (v === undefined || v === null || String(v).trim() === "") return null
+  let n = Number(v)
+  return Number.isInteger(n) && n >= 1 && n <= BEATS_MAX ? n : undefined
+}
+
+class QuotaError extends Error { }
+
+router.post('/upload', require_session, upload_precheck, upload_parser, async (req, res) => {
+  req.upload_started = true
+  let user_id = req.user.id
+  let files = Object.values(req.files || {}).flat()
+  let out_file = null
+  let committed = false
+  // con la respuesta ya enviada (p. ej. el 413 de upload_parser) no se responde de nuevo
+  const fail = (status, text) => {
+    if (!res.headersSent) res.status(status).send({ stat: false, text: text })
+  }
+  try {
+    // respuesta ya enviada, o lugar ya liberado: el cliente cortó la conexión mientras subía (el
+    // parser llama igual al handler cuando vence su uploadTimeout). No se procesa nada
+    if (res.headersSent || uploads_in_progress.get(user_id) !== req.upload_token) return
+    if (files.length == 0) return fail(400, "No llegó ningún archivo")
+    if (files.length > 1) return fail(400, "Se sube un archivo por vez")
+    let file = files[0]
+    if (file.truncated) return fail(413, `El archivo supera los ${UPLOAD_MAX_MB} MB`)
+    let body = req.body || {}
+
+    let ext = utils.get_file_extension(file.name)
+    if (!UPLOAD_EXTENSIONS.includes(ext)) {
+      return fail(400, `Formato no aceptado: ${file.name}. Se aceptan ${UPLOAD_FORMATS_TEXT}`)
+    }
+    let bpm = parse_bpm(body.bpm)
+    if (bpm === undefined) return fail(400, `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}`)
+    let beats = parse_beats(body.beats)
+    if (beats === undefined) return fail(400, `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}`)
+
+    // la duración se mide sobre la entrada (la del mp3 convertido suma el relleno del encoder)
+    let info = await utils.probe(file.tempFilePath)
+    if (!info.is_audio) return fail(400, `${file.name} no es un archivo de audio válido`)
+    if (info.duration > UPLOAD_MAX_SECONDS + UPLOAD_SECONDS_MARGIN) {
+      return fail(400, `${file.name} dura ${fmt_seconds(info.duration)}: el máximo es 1 minuto por archivo`)
+    }
+    let duration = info.duration
+
+    let q = await user_quota(global.knex, user_id)
+    if (q.used + duration > q.max) {
+      return fail(403, `No te alcanza la cuota: te quedan ${fmt_seconds(q.max - q.used)} y ${file.name} dura ${fmt_seconds(duration)}`)
+    }
+    if (!await disk_free_ok()) return fail(507, DISK_FULL_TEXT)
+
+    let dir = global.config.storage_path + user_id
+    await fs.mkdir(dir, { recursive: true })
+    let file_id = uuid()
+    out_file = dir + "/" + file_id + ".mp3"
+    // todo se recodifica (también los mp3) a MP3 VBR V0 44.1 kHz estéreo sin metadatos
+    try {
+      await enqueue_conversion(() => utils.convert(file.tempFilePath, out_file))
+    } catch (e) {
+      console.log("Error convirtiendo", file.name, e.message)
+      return fail(422, `No se pudo convertir ${file.name}`)
+    }
+    let size = (await fs.stat(out_file)).size
+
+    let row = {
+      id: file_id,
+      user_id: user_id,
+      original_name: file.name,
+      size: size,
+      tags: "[]",
+      duration: duration,
+      bpm: bpm,
+      beats: beats,
+      ts: new Date().toISOString().slice(0, 19),
+    }
+    try {
+      await global.knex.transaction(async trx => {
+        // cuota con la duración real, dentro de la transacción (SQLite serializa las escrituras)
+        let q2 = await user_quota(trx, user_id)
+        if (q2.used + duration > q2.max) throw new QuotaError()
+        await trx("files").insert(row)
+        await trx("users").where({ id: user_id }).update({
+          bytes_used: trx.raw("coalesce(bytes_used, 0) + ?", [size])
         })
-      } else {
-        ok = await move_file(file, fn)
-      }
-      // solo se registra el archivo si quedó en disco
-      if (!ok) {
-        failed.push(file.name)
-        continue
-      }
-
-      // tamaño real en disco (en wav es el del mp3 convertido)
-      let size = (await fs.stat(fn)).size
-      total_bytes += size
-      await trx("files").insert({
-        id: file_id,
-        user_id: user_id,
-        size: size,
-        original_name: file.name,
-        tags: "[]"
       })
+    } catch (e) {
+      if (e instanceof QuotaError) return fail(403, `No te alcanza la cuota para ${file.name}`)
+      throw e
     }
-    await trx("users").update({ bytes_used: total_bytes }).where({ id: user_id })
-    await trx.commit()
-  } catch (e) {
-    await trx.rollback()
-    console.log("Error upload", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
+    committed = true
 
-  if (failed.length > 0) {
-    return res.status(500).send({ stat: false, text: "No se pudieron guardar: " + failed.join(", ") })
+    // misma forma que los archivos de get_user_info
+    delete row.user_id
+    return res.send({
+      stat: true,
+      text: `${file.name} subido`,
+      data: { ...row, tags: [], props: {}, track_group: null, name: file_id + ".mp3" }
+    })
+  } catch (e) {
+    console.log("Error upload", e)
+    return fail(500, "Error interno")
+  } finally {
+    // si no quedó registrado, el mp3 convertido sobra
+    if (out_file && !committed) await fs.unlink(out_file).catch(() => { })
+    for (let f of files) {
+      if (f.tempFilePath) await fs.unlink(f.tempFilePath).catch(() => { })
+    }
+    req.upload_release()
   }
-  return res.status(200).end()
 })
 
 // columnas de `users` que se devuelven al front (nunca `password` ni `id`)
@@ -566,8 +717,11 @@ const U_INFO_COLUMNS = ["email", "name", "ts", "bytes_used", "max_bytes_uploaded
 async function return_user_info(user_id) {
   let u_info = await global.knex("users").select(U_INFO_COLUMNS).where({ id: user_id }).first()
   u_info.props = parse_props(u_info.props)
+  // cuota de audio efectiva (con el default de .env resuelto) y segundos usados, para la UI de subida
+  let q = await user_quota(global.knex, user_id)
+  u_info.quota = { max_seconds: q.max, used_seconds: q.used }
 
-  u_info.files = await global.knex("files").select().where({ user_id: user_id })
+  u_info.files =await global.knex("files").select().where({ user_id: user_id })
   u_info.files.map(f => {
     delete f.user_id
     if (f.props) {
@@ -619,20 +773,4 @@ function parse_tags(text) {
   }
 }
 
-const isDirExist = async path => await fs.access(path).then(() => true).catch(() => false)
-
-async function move_file(file, dest) {
-  return new Promise((resolve, reject) => {
-    file.mv(dest, function (err) {
-      if (err) {
-        console.log(err)
-        resolve(false)
-        return
-      }
-      resolve(true)
-
-    })
-
-  })
-}
 

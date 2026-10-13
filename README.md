@@ -4,12 +4,12 @@ Reproductor de loops aleatorio. Subís loops de audio, los agrupás en **Track G
 suenan en paralelo) y les ponés **Tags** (secciones). Al darle START, cada pista va eligiendo loops
 al azar compatibles con el Tag activo, sincronizados a un tempo, y el Tag cambia cada 2^n tiempos.
 
-- Backend: Node.js + Express + SQLite (knex) + Redis (sesiones) + ffmpeg
+- Backend: Node.js + Express + SQLite (knex) + Redis (sesiones) + ffmpeg/ffprobe (paquetes npm)
 - Frontend: Vue 3 + Vite + Element Plus + Tone.js
 
 ## Puesta en marcha
 
-Requisitos: Node 24 (`.nvmrc`), Redis, ffmpeg. El frontend debe correr en el puerto 31201 (debe coincidir con `cors_origin` del backend).
+Requisitos: Node 24 (`.nvmrc`), Redis (ffmpeg y ffprobe los instala `npm install` con `ffmpeg-static`/`ffprobe-static`). El frontend debe correr en el puerto 31201 (debe coincidir con `cors_origin` del backend).
 
 ```bash
 cd backend

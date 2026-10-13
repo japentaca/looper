@@ -8,7 +8,7 @@ Navegador (Vue + Tone.js)                     Backend (Express, :31200)         
 │ App.vue / componentes    │ ────────────────► │ /api/* (routes/api.js)  │ ──► SQLite (knex)
 │ store (composable.js)    │                   │ express-session         │ ──► Redis (sesiones)
 │ Tone.Player × archivo    │ ◄──────────────── │ /api/file/:id (público) │ ──► storage/audio/*.mp3
-│ Tone.Transport (Tracks)  │   mp3 por GET     │ /api/upload → ffmpeg    │ ──► ffmpeg (wav→mp3)
+│ Tone.Transport (Tracks)  │   mp3 por GET     │ /api/upload → ffmpeg    │ ──► ffmpeg (→ mp3 V0)
 └──────────────────────────┘                   └─────────────────────────┘
 ```
 
@@ -31,7 +31,10 @@ Orden de arranque: dotenv → knex → express (`express.json()`) → sesión (R
 → `await do_migrations()` → `listen`.
 
 Todos los endpoints están en `backend/routes/api.js` (ver `docs/API.md`). El middleware
-`express-fileupload` se aplica a todo el router con `useTempFiles: true`, límite de 40 MB por archivo y `abortOnLimit` (responde 413). El mismo límite está en `Uploader.vue` (`MAX_UPLOAD_MB`): cambiar ambos juntos.
+`express-fileupload` se aplica **solo a `POST /upload`**, después de los chequeos previos (ver "Subida de
+archivos"), con temporales en `<tmpdir del sistema>/looper_upload`, límite de 80 MB por archivo
+(`UPLOAD_MAX_MB`) y `abortOnLimit` (responde 413). El mismo límite está en `Uploader.vue`
+(`MAX_UPLOAD_MB`) y tiene que entrar en el `client_max_body_size` de nginx: cambiarlos juntos.
 
 ### Autenticación
 
@@ -101,12 +104,54 @@ reemplaza la fila con el usuario que devuelve el backend; los errores se muestra
 
 ### Subida de archivos
 
-`POST /api/upload` (multipart): por cada archivo genera un `file_id` (uuid), lo mueve a
-`storage_path/<user_id>/<file_id>.mp3` (si es `.wav` lo convierte con ffmpeg a mp3 44.1 kHz
-estéreo 192 kbps) y, solo si quedó en disco, inserta la fila en `files` con el tamaño real y
-actualiza `users.bytes_used`, todo en una transacción. Si algún archivo falla responde 500 con
-`{ stat: false, text }` (el `Uploader.vue` lo muestra como error).
-**El nombre en disco siempre es `<file_id>.mp3`**; el nombre original queda en `files.original_name`.
+`POST /api/upload` (multipart, **un archivo por request**, con `bpm` y `beats` opcionales):
+
+1. `require_session` (solo usuarios `active`) y `upload_precheck`, **antes de leer el cuerpo**: una
+   subida en curso por usuario (un `Map` en memoria `user_id → token`: el backend corre en un solo
+   proceso; el lugar se libera al terminar el handler o, si el handler no llega a empezar, al
+   cerrarse la respuesta; el token evita que una subida vieja cortada libere el lugar de otra
+   nueva), disco libre de `storage_path` >= `disk_min_free_gb` (`fs.statfs`) y cuota no agotada.
+2. `express-fileupload` deja el archivo en un temporal. Se valida la extensión
+   (mp3/wav/ogg/flac/m4a/aiff/aif), `bpm`/`beats`, y con `utils.probe` que sea audio y que dure
+   ≤ 60 s (+0,1 s de margen). La duración se mide **sobre la entrada** (la del mp3 convertido suma
+   ~30 ms de relleno del encoder). Se chequea la cuota con esa duración y otra vez el disco.
+3. `utils.convert` a `storage_path/<user_id>/<file_id>.mp3` dentro de una **cola global con
+   concurrencia 1** (cadena de promesas en memoria: el VPS tiene 1 vCPU). Todo se recodifica a MP3
+   V0, también los mp3.
+4. Transacción: se recalcula la cuota (`users.max_seconds` o `default_max_seconds` contra
+   `sum(files.duration)` del usuario), se inserta la fila en `files` (`duration`, `bpm`, `beats`,
+   `ts`, `size` real del mp3, `tags = []`) y se suma `size` a `users.bytes_used`.
+
+Responde `{ stat: true, text, data: archivo }` o `{ stat: false, text }` con un código por tipo de
+rechazo (ver `API.md`). En `finally` se borran los temporales y, si no se registró, el mp3
+convertido. **El nombre en disco siempre es `<file_id>.mp3`**; el nombre original queda en
+`files.original_name`.
+
+En el front, `Uploader.vue` usa `el-upload` solo para elegir archivos (drag o diálogo, con la lista
+de extensiones aceptadas): arma su propia lista con BPM y beats opcionales por archivo, hace los
+chequeos baratos (extensión, 80 MB, nombre repetido; la duración la estima el navegador solo para
+avisar) y **envía de a un archivo, en serie**, con `api.upload_file` (sin timeout, con progreso). Los
+rechazos muestran el `text` del backend junto al archivo, que queda en la lista. Arriba muestra la
+cuota restante ("Te quedan m:ss") con `u_info.quota` y, al terminar, recarga `get_user_info`.
+
+#### ffmpeg / ffprobe (`utils.js`)
+
+Los binarios vienen de los paquetes npm `ffmpeg-static` y `ffprobe-static` (descargan el binario
+de la plataforma al instalar: Windows en desarrollo, Linux x64 en el VPS). `path_to_ffmpeg` y
+`path_to_ffprobe` en `.env` son un override opcional. Se ejecutan con `execFile` (sin shell: las
+rutas van como argumentos, así que espacios o caracteres raros no rompen nada).
+
+- `probe(file)` → `{ is_audio, duration, format, codec }`: corre `ffprobe -print_format json
+  -show_format -show_streams`. `is_audio` es true si hay un stream de audio y una duración > 0.
+  Si el archivo no es multimedia o no existe devuelve `is_audio: false` (no lanza); solo lanza si
+  ffprobe no se puede ejecutar (error de configuración).
+- `convert(in, out)` → MP3 **VBR V0** (`libmp3lame -q:a 0`), 44.1 kHz, estéreo, solo el primer
+  stream de audio, **sin metadatos** (`-map_metadata -1`, sin ID3v2 ni carátula) y con cabecera
+  Xing/LAME (guarda el retardo del encoder, para que el decodificador recorte el silencio inicial y
+  el loop empalme). Lanza si ffmpeg falla.
+
+La duración que da ffprobe de un mp3 ya convertido es ~30 ms mayor que la del original (estimación
+por el padding del encoder): la duración "real" de un archivo conviene medirla sobre la entrada.
 
 ## Modelo de datos (SQLite)
 
@@ -114,8 +159,8 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 
 | Tabla | Columnas | Notas |
 |---|---|---|
-| `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = default de `.env`, se usa desde la fase 2). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` la migración dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin`; también pasa a minúsculas los emails que no lo estén (en cada arranque). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
+| `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` la migración dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin`; también pasa a minúsculas los emails que no lo estén (en cada arranque). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto), `duration`, `bpm`, `beats`, `ts` | sin PK; `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `bpm` (float) y `beats` (entero) los carga el creador (`null` mientras no); `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos existentes tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `bpm`, `beats` y `ts`; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |

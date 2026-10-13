@@ -15,9 +15,9 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   formulario y se cambió la clave (la vieja sigue en el historial público de git, pero ya no sirve).
 - ✅ Resuelto (oct 2026): el secreto de sesión estaba fijo en `index.js`; ahora es `session_secret`
   en `.env` (obligatorio: sin él el backend no arranca).
-- 🟠 `utils.convert_file` arma un comando de shell interpolando rutas sin comillas: falla con
-  espacios en `storage_path` y es frágil ante rutas controladas por terceros. Usar `execFile` con
-  array de argumentos.
+- ✅ Resuelto (oct 2026): `utils.convert_file` armaba un comando de shell interpolando rutas sin
+  comillas (fallaba con espacios en `storage_path`). Ahora ffmpeg/ffprobe se ejecutan con
+  `execFile` y array de argumentos, y vienen de `ffmpeg-static`/`ffprobe-static`.
 - 🟡 `PUT /change_password` no cierra las otras sesiones abiertas del usuario, y el
   `reset_password` del admin (`PUT /admin/users/:id`) tampoco cierra ninguna (connect-redis no
   indexa sesiones por usuario). Si la clave se filtró, bloquear al usuario (corta todas sus
@@ -27,8 +27,9 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 ## Backend
 
-- 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026 y descontado en `delete_file`),
-  pero no se usa para nada; tampoco `max_bytes_uploaded`. Si se implementa una cuota, validarlo en `upload`.
+- 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
+  descontado en `delete_file`), pero es solo informativo: la cuota es en segundos de audio
+  (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa.
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
@@ -78,6 +79,11 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
 
 ## Frontend — general
 
+- 🟡 `files.beats` choca con un campo calculado del front: `calculateBars()` (`TrackCtrl.js`) pisa
+  `f.beats` con la duración / tempo (lo usan `Tracks.vue` y `Files.vue`), así que el `beats` que carga
+  el creador al subir (tarea 2.4) se guarda en la base pero no se ve ni se usa en la UI. Igual con
+  `duration`, que el front reemplaza por la del buffer al cargar. Resolver al hacer el catálogo o la
+  edición de metadatos (fase 3), sin cambiar el motor de reproducción de paso.
 - ✅ Resuelto (oct 2026): la request de audio que quedaba colgada si `get_file` no encontraba
   sesión (ahora `GET /file/:id` responde 404).
 
