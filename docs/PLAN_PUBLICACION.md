@@ -129,7 +129,8 @@ en el mismo cambio (regla de `AGENTS.md`).
 - **Ocultar archivo** (admin) o **bloquear usuario**: reversibles, sin cascada. Esos archivos
   quedan **fuera del sorteo** del motor (y del catálogo) en todos los proyectos; vuelven al
   desocultar/desbloquear. Una pista sin archivos sorteables queda en silencio.
-- Botón de denuncia en el catálogo → entrada en el admin.
+- Botón de denuncia en el catálogo → entrada en el admin. **Solo usuarios logueados** (límite por
+  usuario, p. ej. 20 por día); cuando se agregue Turnstile, se abre a visitantes sin sesión.
 
 ### Acceso público de solo lectura (política 7)
 
@@ -189,8 +190,8 @@ Todos validan sesión + `status` y filtran por dueño, salvo los públicos.
   desbloquear, cuota, reset de clave), `GET/PUT /admin/reports`, `PUT /admin/files/:id/hidden`,
   `PUT /admin/projects/:id/hidden`, `GET /admin/stats` (tráfico del mes, disco libre, usuarios).
 
-Frontend: hacen falta rutas (`/`, `/p/:id`, `/admin`, registro). *Propuesta de dependencia a
-aprobar: `vue-router`*; alternativa sin dependencia: rutas a mano con `location.pathname`.
+Frontend: hacen falta rutas (`/`, `/p/:id`, `/admin`, registro). **Decidido: `vue-router`**
+(dependencia nueva aprobada, con historial HTML5 y `try_files` en nginx).
 
 ## Ejecución con agentes
 
@@ -308,43 +309,43 @@ nuevo, cambiar la clave, bloquearlo con su sesión abierta.
 *Pruebas manuales*: subir cada formato; rechazos por duración, no-audio y cuota; **un loop V0
 empalma sin clic en Tone.js**.
 
-### Fase 3 — Proyectos y catálogo
+### Fase 3 — Proyectos y catálogo ✅
 
-- [ ] **3.1 Esquema de proyectos.** `db_migrations.js`. Tablas `projects` y `project_files`;
+- [x] **3.1 Esquema de proyectos.** `db_migrations.js`. Tablas `projects` y `project_files`;
   `project_id` en `user_track_groups` y `user_tags`; `files.hidden`.
   *Acepta*: tablas y columnas creadas, idempotente.
-- [ ] **3.2 Migración de datos.** `db_migrations.js`. Un proyecto por usuario con su `users.props`;
+- [x] **3.2 Migración de datos.** `db_migrations.js`. Un proyecto por usuario con su `users.props`;
   `project_files` desde `files.track_group/tags/props`; `project_id` en pistas y tags. Corre una
   sola vez (detecta si ya migró). Las columnas viejas quedan documentadas como obsoletas.
   *Acepta*: en la copia, pistas, tags y archivos del proyecto = los que tenía el usuario.
-- [ ] **3.3 API de proyectos.** `routes/api.js`. `GET/POST /projects`,
+- [x] **3.3 API de proyectos.** `routes/api.js`. `GET/POST /projects`,
   `GET/PUT/DELETE /projects/:id`, `PUT /projects/:id/track_groups`, `PUT /projects/:id/tags`.
   `get_user_info` devuelve usuario + lista de proyectos. Proyecto ajeno → 404.
   *Acepta*: CRUD completo; un usuario no ve ni edita proyectos de otro.
-- [ ] **3.4 API de archivos en proyectos.** `routes/api.js`. `PUT /projects/:id/files` (importar,
+- [x] **3.4 API de archivos en proyectos.** `routes/api.js`. `PUT /projects/:id/files` (importar,
   quitar, editar pista/tags/volumen, validando que pista y tags sean del proyecto),
   `PUT /files/:id` (metadatos, solo el dueño), `DELETE /files/:id` (audio + cascada en todos los
   `project_files`). Se eliminan `save_fileData` y `delete_file`. Cada archivo devuelto trae
   `available` (false si está oculto o su dueño bloqueado).
   *Acepta*: importar un archivo ajeno disponible funciona; uno oculto no; borrar cascadea.
-- [ ] **3.5 Catálogo.** `routes/api.js`. `GET /catalog` con filtros (BPM ± tolerancia, beats,
+- [x] **3.5 Catálogo.** `routes/api.js`. `GET /catalog` con filtros (BPM ± tolerancia, beats,
   creador, texto), paginado, solo disponibles, con nombre público del creador y cantidad de usos.
   *Acepta*: filtros y paginado; ningún email ni dato sensible en la respuesta.
-- [ ] **3.6 Store por proyecto.** `composable.js`, `helpers/api.js`, `TrackCtrl.js`. Proyecto
+- [x] **3.6 Store por proyecto.** `composable.js`, `helpers/api.js`, `TrackCtrl.js`. Proyecto
   activo; cargar solo sus archivos (`Tone.Player` solo para esos); config (tempo, compás, delay,
   `tag_range`) desde `projects.props`; guardados contra los endpoints nuevos.
   *Acepta*: build OK; no quedan llamadas a endpoints eliminados.
-- [ ] **3.7 UI de proyectos.** Componente nuevo + `App.vue`. Elegir, crear, renombrar y borrar
+- [x] **3.7 UI de proyectos.** Componente nuevo + `App.vue`. Elegir, crear, renombrar y borrar
   proyectos; visibilidad privada/pública.
   *Acepta*: build OK.
-- [ ] **3.8 Motor: no disponibles fuera del sorteo.** `Tracks.vue`, `Files.vue`. La selección
+- [x] **3.8 Motor: no disponibles fuera del sorteo.** `Tracks.vue`, `Files.vue`. La selección
   aleatoria ignora archivos con `available = false`; una pista sin sorteables queda en silencio;
   tarjeta atenuada en Files.
   *Acepta*: build OK; sección del motor de `ARCHITECTURE.md` actualizada.
-- [ ] **3.9 Aviso de memoria.** `composable.js` + UI. Antes de cargar: segundos × 44 100 × 2 × 4;
+- [x] **3.9 Aviso de memoria.** `composable.js` + UI. Antes de cargar: segundos × 44 100 × 2 × 4;
   aviso con "¿cargar igual?" si supera ¼ de `navigator.deviceMemory` (o un valor fijo sin esa API).
   *Acepta*: build OK.
-- [ ] **3.10 Diálogo de importar.** Componente nuevo. Catálogo con filtros, preview con
+- [x] **3.10 Diálogo de importar.** Componente nuevo. Catálogo con filtros, preview con
   `toneLib.js` y total de memoria del proyecto a medida que se suman archivos.
   *Acepta*: build OK.
 
@@ -354,7 +355,7 @@ memoria aparece con un proyecto grande.
 
 ### Fase 4 — Público
 
-*Antes de lanzar*: resolver lo de "Pendiente de definir" (rutas y denuncias).
+*Decidido*: rutas con `vue-router`; denuncias solo de usuarios logueados.
 
 - [ ] **4.1 API pública.** `routes/api.js`. `GET /public/projects` (galería) y
   `GET /public/project/:id` (404 si es privado, está oculto o el dueño está bloqueado); límite por IP.
@@ -411,14 +412,9 @@ galería; autostart en kiosko con el link público.
   *Acepta*: `looper.jape.com.ar` carga y suena; **`jape.com.ar` y `carrilion.jape.com.ar` siguen
   respondiendo 200**.
 
-## Pendiente de definir
-
-- Antes de la Fase 4: quién puede denunciar (propuesta: solo usuarios logueados, evita spam).
-- Antes de la Fase 4: rutas del frontend con `vue-router` (dependencia nueva) o a mano con
-  `location.pathname`.
 
 ## Más adelante (fuera de este plan)
 
-Backups, email (verificación y recuperación), Turnstile en registro, login con Google, detección
+Backups, email (verificación y recuperación), Turnstile en registro (y denuncias abiertas a visitantes), login con Google, detección
 de BPM/tonalidad, stretch, editor gráfico de loops, semilla reproducible, pesos y transiciones
 entre Tags, Web MIDI, grabar la sesión.

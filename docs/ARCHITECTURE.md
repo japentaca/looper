@@ -93,6 +93,39 @@ los requests rechazados (500, sin conexión) muestran el texto con `error_text()
 (pide la actual y la nueva dos veces; la coincidencia se chequea en el front). Las validaciones de
 longitud y formato las hace el backend; el front solo limita los campos (`maxlength`).
 
+**UI de proyectos:** `Projects.vue`, un diálogo que se abre con el botón PROJECTS de la barra
+superior (al lado, un LCD con el nombre del proyecto activo y `PUB`/`PRV`). Al abrirse refresca la
+lista (`refresh_projects()`) y muestra cada proyecto con un LED en el activo, el aviso `hidden` si el
+admin lo ocultó, un switch Private/Public (`PUT /projects/:id { visibility }`) y los botones *Open*,
+*Rename* (`ElMessageBox.prompt` → `PUT /projects/:id { name }`) y *Delete*. *Create* crea un
+proyecto vacío (`POST /projects`) y lo abre. Abrir (o crear) con el transporte en marcha pide
+confirmación y hace STOP antes de cargar (`switch_project`). Borrar pide confirmación; si es el
+activo hace STOP, manda los guardados diferidos pendientes, lo borra y llama a
+`store_get_user_info()`, que abre otro (o crea `My project` si no queda ninguno). Abrir, crear y
+borrar están deshabilitados mientras se cargan los audios (`TrackCtrl.isReady`). El STOP lo hace
+`stop_transport()` de `TrackCtrl.js`: `stop()` es local de `Tracks.vue`, que lo registra al montarse
+con `register_stop(stop)` (y lo quita al desmontarse).
+
+**Importar del catálogo:** `ImportFiles.vue`, un diálogo que se abre con el botón IMPORT de la barra
+superior (al lado de PROJECTS; deshabilitado sin proyecto abierto). Busca en `GET /catalog`
+(`get_catalog`, 25 por página) con filtros de texto en el nombre, creador (nombre exacto; también se
+filtra haciendo clic en el creador de una fila), BPM ± tolerancia (el botón `= TEMPO` pone el tempo
+del proyecto) y beats. Cada fila muestra nombre, BPM, beats y duración tal como están en la base
+(no pasan por `calculateBars()`), creador (la bio en un tooltip), usos y fecha; las que ya están en
+el proyecto activo (cruce con `store.files`) aparecen marcadas *in project* y no se pueden elegir, y
+las propias, *mine*. La selección se guarda por id y se mantiene al cambiar de página o de filtro
+(se vacía al cambiar de proyecto). Preview con `toneLib.js`: si el archivo ya está cargado en el
+proyecto usa su buffer (`playFile`); si no, `playUrl` descarga y decodifica solo ese archivo
+(`GET /file/:id`), guarda únicamente el buffer del último preview y descarta uno que termine de
+cargar después de otro pedido o de STOP; al cerrar el diálogo se corta un preview de un archivo que
+no es del proyecto. Abajo, el **total de memoria** del proyecto: `estimate_files_memory(store.files)`
+más lo seleccionado, contra `memory_warning_limit()` (la misma cuenta del aviso al abrir un
+proyecto), con una barra que pasa a rojo al superar el límite. *Import* (deshabilitado mientras se
+cargan audios) manda `PUT /projects/:id/files { add: [ids] }` al proyecto activo —si el total supera
+el límite pregunta antes "Import anyway?"— y después recarga el proyecto con `load_project(id)`, como
+después de una subida, para crear los players de los archivos nuevos (sin STOP; ver
+`KNOWN_ISSUES.md`).
+
 **UI de admin:** `Admin.vue`, un diálogo que se abre con el botón ADMIN de la barra superior. `App.vue`
 muestra el botón y monta el componente solo si `store.u_info.role === 'admin'`; para los demás no
 existe en el DOM (y el backend igual exige `require_admin`). Al abrirse trae todos los usuarios
@@ -132,7 +165,9 @@ de extensiones aceptadas): arma su propia lista con BPM y beats opcionales por a
 chequeos baratos (extensión, 80 MB, nombre repetido; la duración la estima el navegador solo para
 avisar) y **envía de a un archivo, en serie**, con `api.upload_file` (sin timeout, con progreso). Los
 rechazos muestran el `text` del backend junto al archivo, que queda en la lista. Arriba muestra la
-cuota restante ("Te quedan m:ss") con `u_info.quota` y, al terminar, recarga `get_user_info`.
+cuota restante ("Te quedan m:ss") con `u_info.quota`. Cada archivo se sube con el `project_id` del
+proyecto activo (queda en el proyecto, sin pista ni tags) y, al terminar, recarga `get_user_info` (y
+con eso el proyecto activo).
 
 #### ffmpeg / ffprobe (`utils.js`)
 
@@ -159,21 +194,44 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 
 | Tabla | Columnas | Notas |
 |---|---|---|
-| `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` la migración dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin`; también pasa a minúsculas los emails que no lo estén (en cada arranque). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto), `duration`, `bpm`, `beats`, `ts` | sin PK; `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `bpm` (float) y `beats` (entero) los carga el creador (`null` mientras no); `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos existentes tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `bpm`, `beats` y `ts`; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
-| `user_tags` | `id` PK, `user_id`, `name`, `color` | |
+| `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` la migración dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin`; también pasa a minúsculas los emails que no lo estén (en cada arranque). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` (**obsoleta** desde la fase 3: `migrate_projects` la copió a `projects.props` del primer proyecto del usuario; queda como respaldo; nada la lee ni la escribe: la config sale de `GET /projects/:id` y se guarda con `PUT /projects/:id`; `save_user_props` se eliminó en la tarea 3.6) = era la config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer) |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto), `duration`, `bpm`, `beats`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin en la fase 5; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `bpm` (float) y `beats` (entero) los carga el creador (`null` mientras no); `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos existentes tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `bpm`, `beats` y `ts`; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: `migrate_projects` las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; `/upload` todavía inserta `tags = "[]"`). Metadatos (`original_name`, `bpm`, `beats`) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences`, `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
+| `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice) | `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
+| `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility`, `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files` (no los archivos). `migrate_projects` creó uno por usuario existente (nombre `My project`). `visibility` = `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
+| `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (`migrate_projects` cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume }`. Reemplazan a `files.track_group/tags/props` |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 | `traffic` | `id` PK (`"YYYY-MM-DD"`, día UTC), `bytes`, `requests` | audio servido por `GET /file/:id`. Total del mes: `select sum(bytes) from traffic where id like '2026-10-%'` |
 
-`db_migrations.js` crea todo el esquema de forma idempotente (base nueva o existente). En la base
-actual `files` no tiene PK porque se creó a mano. No hay claves foráneas; la integridad se maneja desde el frontend (al borrar
-un Tag o Track Group, el front limpia la referencia en cada archivo).
+`db_migrations.js` crea todo el esquema de forma idempotente (base nueva o existente), con
+helpers `create_table`, `create_column_string` (con default opcional: `NOT NULL DEFAULT`),
+`create_column_number`, `create_column_float`, `create_column_flag` (entero 0/1 `NOT NULL DEFAULT 0`),
+`create_index` (índice simple `<tabla>_<columna>_index`) y `create_unique_index`. En la base
+actual `files` no tiene PK porque se creó a mano. No hay claves foráneas; la integridad se maneja desde la aplicación: al borrar
+un Tag o Track Group, el front limpia la referencia en cada archivo en memoria (sin guardarlos uno por
+uno) y guarda la colección: `PUT /projects/:id/track_groups`
+/ `tags` limpian en `project_files` del proyecto las referencias a pistas o tags que ya no están
+(pista → `null`, el tag se quita del array). `PUT /projects/:id/files` valida que la pista y los tags
+de cada archivo sean del mismo proyecto, y `DELETE /files/:id` borra las filas de `project_files`
+que usan el archivo en todos los proyectos.
 
-`save_trackGroups` y `save_tags` **reemplazan la colección entera** del usuario (delete + insert).
-Solo se guardan las columnas de una lista blanca por tabla (`USER_ROWS_COLUMNS` en `routes/api.js`:
-`id, name, color, props` para track groups, `id, name, color` para tags); `props` se serializa a JSON.
-Los campos extra que el cliente agrega a los objetos se ignoran.
+**Migración a proyectos** (`migrate_projects`, fase 3): pasa los datos de antes de los proyectos a
+un primer proyecto por usuario, en una sola transacción. Por cada usuario crea un proyecto
+(`My project`, privado, `props` = su `users.props` tal cual), pone ese `project_id` en sus pistas
+y tags (las que lo tengan en `null`) y crea una fila de `project_files` por cada archivo suyo con
+`track_group`, `tags` y `props` copiados tal cual de `files`. Corre **una sola vez**: si ya existe
+algún proyecto se da por migrado y no hace nada (los proyectos solo se crean ahí o desde la API).
+Si falla, la transacción se revierte y se reintenta en el próximo arranque. Con una base sin
+usuarios no crea nada. Las columnas viejas no se borran (quedan obsoletas, ver la tabla).
+
+`PUT /projects/:id/track_groups` y `PUT /projects/:id/tags` **reemplazan la colección entera** del
+proyecto (delete + insert, en una transacción). Solo se guardan las columnas de una lista blanca
+por tabla (`PROJECT_ROWS_COLUMNS` en `routes/api.js`: `id, name, color, props` para track groups,
+`id, name, color` para tags); `props` se serializa a JSON. Los campos extra que el cliente agrega a
+los objetos se ignoran. Los ids los genera el cliente (uuid) y son PK de toda la tabla: un id
+repetido en el array o que ya usa otra fila (de otro proyecto o usuario) responde 400 sin cambiar
+nada. Reemplazan a `save_trackGroups` / `save_tags`, que se eliminaron en la tarea 3.3 (borraban
+las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`).
 
 ## Frontend
 
@@ -181,7 +239,20 @@ Los campos extra que el cliente agrega a los objetos se ignoran.
 
 `helpers/composable.js` exporta un `store` reactivo global (no hay Pinia):
 
-- `store.files`: archivos del usuario, enriquecidos en el cliente con `track_group_obj`, `tag_objs`
+- `store.projects` (lista de proyectos del usuario, de `u_info.projects`) y `store.project` (el
+  proyecto activo: `{ id, name, visibility, hidden, ts }`). Pistas, tags, archivos y config
+  (`TrackCtrl`) son siempre los del proyecto activo, y todos los guardados van contra él:
+  `save_trackGroups()` / `save_tags()` (colección completa → `PUT /projects/:id/track_groups` y
+  `/tags`), `save_file(file)` (pista, tags y volumen del archivo → `PUT /projects/:id/files`
+  `{ update }`), `save_project_props_debounced()` (tempo, compás, rango de Tag y delay →
+  `PUT /projects/:id` `{ props }`, 500 ms) y `delete_project_file(file)` (propio: `DELETE /files/:id`,
+  en cascada; importado: lo quita del proyecto con `{ remove }`). `load_project(id)` abre otro
+  proyecto; antes manda los guardados diferidos pendientes (`flush_pending_saves()`, exportada) para
+  que no salgan con el id del proyecto nuevo. No detiene el transporte: la UI usa
+  `switch_project(id)`, que hace STOP (`stop_transport()`), olvida el Tag actual y llama a
+  `load_project`. `refresh_projects()` vuelve a pedir la lista (`GET /projects`).
+- `store.files`: archivos del proyecto activo (filas de `project_files` unidas con el catálogo: `own`,
+  `available`, pista, tags y volumen del proyecto), enriquecidos en el cliente con `track_group_obj`, `tag_objs`
   (objetos de `store.tags` de cada id de `tags`; se mantienen con `set_file_tags` / `toggle_file_tag`),
   `isLoaded`, `duration`, `duration_fixed`, `beats`, `bars`, `index`, `original_name_short`, etc.
   Estos campos **no** existen en la DB.
@@ -198,15 +269,37 @@ Los campos extra que el cliente agrega a los objetos se ignoran.
 ### Carga inicial
 
 `App.vue` `onMounted` → `store_get_user_info()`:
-1. `GET /api/get_user_info` trae usuario + archivos + track groups + tags.
-   La config global (`u_info.props`: tempo, compás, delay) se aplica enseguida a `TrackCtrl` y a
-   `Tone.Transport` (`apply_user_props`, con defaults para lo que falte o sea inválido), **antes** de
-   cargar los audios, así `calculateBars()` (paso 4) calcula los beats con el tempo guardado. Cargar
-   no guarda nada. En una recarga con el transporte en marcha o con un guardado pendiente no se
-   aplica (lo que está en pantalla es más nuevo que lo de la base).
+1. `GET /api/get_user_info` trae el usuario, su cuota y la lista de proyectos (`store.projects`).
+   Se abre (`load_project`) el proyecto activo si sigue en la lista (recarga después de una subida o
+   de un re-login); si no, el último abierto en este navegador (`localStorage` `looper_project_id`,
+   si es de este usuario); si no, el primero. Si el usuario no tiene ningún proyecto (cuenta nueva o
+   borró todos) se crea uno vacío, `My project`. `GET /api/projects/:id` trae config, pistas, tags y
+   archivos.
+   La config del proyecto (`props`: tempo, compás, rango de Tag, delay) se aplica enseguida a
+   `TrackCtrl` y a `Tone.Transport` (`apply_project_props`, con defaults para lo que falte o sea
+   inválido), **antes** de cargar los audios, así `calculateBars()` (paso 4) calcula los beats con el
+   tempo guardado. Cargar no guarda nada. En una recarga **del mismo proyecto** con el transporte en
+   marcha o con un guardado pendiente no se aplica (lo que está en pantalla es más nuevo que lo de la
+   base); al cambiar de proyecto se aplica siempre.
+   **Aviso de memoria** (solo al abrir otro proyecto, no en la recarga del mismo después de cada
+   subida): antes de tocar el store se estima la memoria de los audios decodificados (Tone.js los
+   guarda como PCM float32 estéreo: `duration` × 44 100 × 2 × 4 bytes, ~21 MB por minuto; un archivo
+   sin `duration` se estima por `size` a 128 kbps). Si supera ¼ de `navigator.deviceMemory` (solo
+   Chromium; sin esa API se supone 4 GB, o sea 1 GB de límite) se pregunta con un `ElMessageBox`
+   "Load anyway?". Si se cancela, `load_project` devuelve `false` y queda abierto el proyecto anterior
+   (con `switch_project` ya detenido); si no había uno usable (primera carga, o se borró el activo) la
+   app queda sin proyecto (`store.project = null`, `unload_project()`, que libera todos los players y
+   deja `TrackCtrl.isReady = true` porque no hay audios pendientes) y el LCD de la barra muestra
+   `NO PROJECT`: se abre, crea o borra otro desde PROJECTS (con `isReady` en `false` esos botones
+   quedarían deshabilitados). Al recargar la página se vuelve a elegir el recordado (o el primero) y
+   se vuelve a preguntar. Con `?autostart=1` no se pregunta (se carga igual).
+   `estimate_files_memory(files)` y `memory_warning_limit()` se exportan: el diálogo de importar
+   (`ImportFiles.vue`) muestra el total con la misma cuenta.
 2. Arma índices y resuelve `track_group_obj` / `tag_objs` de cada archivo (descarta ids de tags
    que ya no existen).
-3. Crea un `Tone.Player` por archivo con URL `/api/file/<id>` y espera a que
+3. Libera los players (y saca de `files_by_id`) los archivos que no son del proyecto: solo hay
+   `Tone.Player` para los archivos del proyecto abierto (memoria del navegador, ver el plan).
+   Crea un `Tone.Player` por archivo con URL `/api/file/<id>` y espera a que
    todos carguen (`Promise.allSettled`).
    Cada player que termina (bien o con error) suma a `store.load_progress.done`; `App.vue` lo
    muestra como barra de avance (cantidad de archivos, no bytes) y contador junto al LED de estado.
@@ -219,22 +312,30 @@ Los campos extra que el cliente agrega a los objetos se ignoran.
 
 Conceptos:
 - **Track** = un Track Group (pista); cada track reproduce un archivo a la vez. Hay un track por
-  cada track group, tenga o no archivos (sin archivos queda en silencio).
+  cada track group, tenga o no archivos (sin archivos sorteables queda en silencio).
+- **Sorteables** = archivos del proyecto con buffer cargado (`isLoaded`) y `available !== false`
+  (tarea 3.8). Un archivo no disponible (oculto por el admin o de un dueño bloqueado) sigue en el
+  proyecto y en `store.files` (con su player), pero `start()` lo saca de `files_per_TRG` y de
+  `files_per_TAG`: nunca se sortea ni aporta su Tag al sorteo de Tags. Una pista cuyos archivos son
+  todos no disponibles queda en silencio, igual que una vacía. `Files.vue` lo muestra atenuado
+  (cartucho y fila de la tabla, con la marca "unavailable"). `available` se lee al cargar el
+  proyecto: si el admin oculta un archivo mientras suena, recién deja de sortearse al recargar el
+  proyecto y hacer START de nuevo.
 - **Tag activo** (`current_TAG`) = filtra qué archivos pueden sonar. Un archivo puede tener varios
   tags y es compatible con el Tag activo si lo incluye; un archivo sin tags es compatible con cualquier Tag.
-  Los Tags que se sortean son la unión de los tags de todos los archivos cargados.
+  Los Tags que se sortean son la unión de los tags de todos los archivos sorteables.
 - **Beats de un archivo** = `round(duration / (60 / tempo))` (`TrackCtrl.js`). Los loops deben estar
   cortados a compás para que el encastre sea correcto.
 
 Flujo:
-1. `start()`: agrupa archivos por track group (`files_per_TRG`, con un array, quizás vacío, para
+1. `start()`: agrupa los archivos sorteables por track group (`files_per_TRG`, con un array, quizás vacío, para
    cada track group) y por tag; crea un track por cada track group de `store.track_groups`; elige un Tag (`selectTag`) y calcula archivos disponibles por track
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**. Se
    registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
    sin borrarlo y el próximo START lo reutiliza desde el tiempo 0. Se borra en `onBeforeUnmount`.
    Lo único que se crea por START es el `Tone.Loop` del drift (`start_drift`), que STOP elimina.
-3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX (`TrackCtrl.tag_range`, guardado en `users.props`)
+3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX (`TrackCtrl.tag_range`, guardado en `projects.props`)
    (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
@@ -381,7 +482,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   de 50 ms (cancela la rampa en curso; el drift sigue en el compás siguiente).
   Los knobs chicos "Rev", "Dly" y "Drift" van en una fila propia de la tira (tres de 36 px con 2 px
   de separación ocupan justo los 112 px).
-- **Delay global** (config en `TrackCtrl.delay`, guardada en `users.props.delay`): un único bus como
+- **Delay global** (config en `TrackCtrl.delay`, guardada en `projects.props.delay`): un único bus como
   la reverb: sends → `delay_in` → delay activo → `fade` → `delay_out` (`Tone.Volume`, nivel de retorno
   `delay.level` en dB) → `Destination` (pasa por el limitador). Solo devuelve las repeticiones (wet = 1).
   No va a la reverb y el drift no lo modula. Tipos (`delay.type`):
@@ -408,7 +509,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   Send por pista: `props.delay` en dB (`null` = nada), un `Tone.Gain` colgado de la salida del canal
   (post-fader, post-mute y post-solo, igual que la reverb). Knob "Dly" en la tira: −40..0 dB, el mínimo = `null`.
   Controles globales en el panel Transport: LCD con tipo y división, botones TYPE y TIME (ciclan) y
-  knobs Feedback y Level. Cambios de tempo, compás, rango de cambio de Tag y delay se guardan con `save_user_props_debounced()` (500 ms).
+  knobs Feedback y Level. Cambios de tempo, compás, rango de cambio de Tag y delay se guardan en el proyecto con `save_project_props_debounced()` (500 ms).
 - **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
   (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
   pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.
@@ -423,4 +524,8 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 ### Preview
 
 `helpers/toneLib.js` tiene un `mainPlayer` separado para escuchar un archivo suelto desde la lista
-(`Files.vue` → `playFile`). Copia el buffer del player del archivo.
+(`Files.vue` → `playFile`). Copia el buffer del player del archivo. Para un archivo del catálogo
+que no está en el proyecto (`ImportFiles.vue`), `playUrl(file, url)` descarga y decodifica solo ese
+archivo en un `Tone.ToneAudioBuffer` (volumen fijo de −6 dB, el default de un archivo); mientras
+carga marca `file.isPreviewLoading`. Solo queda referenciado el buffer del último preview, y cada
+pedido (`playFile`, `playUrl`, `playerStop`) invalida al que siga cargando, así no arranca tarde.

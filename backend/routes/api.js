@@ -309,71 +309,421 @@ router.put('/admin/users/:id', require_admin, async (req, res) => {
 })
 
 
-router.put("/save_trackGroups", require_session, async (req, res) => {
-  await replace_user_rows("user_track_groups", req, res)
+// ---------- proyectos ----------
+// Un solo dueño por proyecto: toda query filtra por projects.user_id = req.user.id y un proyecto
+// ajeno (o inexistente) responde 404, sin distinguir. Las pistas (user_track_groups) y tags
+// (user_tags) son del proyecto (`project_id`); los archivos se asocian por project_files.
+// `save_trackGroups` / `save_tags` se eliminaron: borraban todas las filas del usuario (de todos sus
+// proyectos) y reinsertaban sin project_id. Los reemplazan PUT /projects/:id/track_groups y /tags.
+
+const PROJECT_NAME_MAX = 64
+const PROJECT_VISIBILITIES = ["private", "public"]
+const PROJECT_NOT_FOUND = { stat: false, text: "Proyecto inexistente" }
+// config del proyecto (projects.props): solo se guardan estas claves (lista blanca), el resto se ignora
+const PROJECT_PROPS_KEYS = ["tempo", "beats_x_bar", "tag_range", "delay"]
+const PROPS_MAX_LENGTH = 4096 // tamaño de las columnas props
+
+// columnas de la lista de proyectos (sin props: eso viene con GET /projects/:id)
+const PROJECT_LIST_COLUMNS = ["id", "name", "visibility", "hidden", "ts"]
+
+// proyectos del usuario, del más viejo al más nuevo
+async function list_projects(user_id) {
+  let rows = await global.knex("projects").select(PROJECT_LIST_COLUMNS)
+    .where({ user_id: user_id }).orderBy([{ column: "ts" }, { column: "name" }])
+  return rows.map(project_summary)
+}
+function project_summary(r) {
+  return { id: r.id, name: r.name, visibility: r.visibility, hidden: !!r.hidden, ts: r.ts }
+}
+
+// el proyecto `id` si es del usuario; si no, undefined (→ 404)
+async function own_project(db, id, user_id) {
+  return await db("projects").select().where({ id: String(id), user_id: user_id }).first()
+}
+
+// nombre de proyecto: string recortado de 1 a PROJECT_NAME_MAX; undefined si es inválido
+function parse_project_name(v) {
+  if (typeof v !== "string") return undefined
+  let name = v.trim()
+  return name && [...name].length <= PROJECT_NAME_MAX ? name : undefined
+}
+const PROJECT_NAME_TEXT = `El nombre del proyecto debe tener entre 1 y ${PROJECT_NAME_MAX} caracteres`
+
+// props del proyecto (lista blanca) serializadas; undefined si no es un objeto o es demasiado grande
+function serialize_project_props(body) {
+  if (!body || typeof body != "object" || Array.isArray(body)) return undefined
+  let props = {}
+  for (let k of PROJECT_PROPS_KEYS) {
+    if (body[k] !== undefined) props[k] = body[k]
+  }
+  let text = JSON.stringify(props)
+  return text.length <= PROPS_MAX_LENGTH ? text : undefined
+}
+
+router.get("/projects", require_session, async (req, res) => {
+  try {
+    return res.send({ stat: true, data: await list_projects(req.user.id) })
+  } catch (e) {
+    console.log("Error projects", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
 })
-router.put("/save_tags", require_session, async (req, res) => {
-  await replace_user_rows("user_tags", req, res)
+
+// crea un proyecto vacío: body { name, visibility?, props? }. Responde el proyecto (forma de la lista)
+router.post("/projects", require_session, async (req, res) => {
+  let body = req.body || {}
+  let name = parse_project_name(body.name)
+  if (name === undefined) return res.send({ stat: false, text: PROJECT_NAME_TEXT })
+  let visibility = body.visibility ?? "private"
+  if (!PROJECT_VISIBILITIES.includes(visibility)) return res.status(400).send({ stat: false, text: "Visibilidad inválida" })
+  let props = serialize_project_props(body.props ?? {})
+  if (props === undefined) return res.status(400).send({ stat: false, text: "Datos inválidos" })
+  let row = {
+    id: uuid(),
+    user_id: req.user.id,
+    name: name,
+    visibility: visibility,
+    props: props,
+    ts: new Date().toISOString().slice(0, 19),
+  }
+  try {
+    await global.knex("projects").insert(row)
+    return res.send({ stat: true, data: project_summary(row) })
+  } catch (e) {
+    console.log("Error POST projects", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// ---------- archivos (catálogo) y archivos en proyectos ----------
+// `files` es el catálogo global (un archivo = un mp3 con su dueño); `project_files` es el uso de un
+// archivo en un proyecto (pista, tags y volumen). Un archivo está como mucho una vez por proyecto.
+// Un archivo está disponible si no lo ocultó el admin y su dueño está activo (no bloqueado): los no
+// disponibles siguen en los proyectos que ya los usan (available = false, fuera del sorteo), pero no
+// se pueden importar.
+
+// columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`)
+const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.bpm", "f.beats",
+  "f.ts", "f.hidden", "u.status as owner_status"]
+const FILE_NAME_MAX = 128
+const FILE_ID_MAX = 36
+// props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
+const PROJECT_FILE_PROPS_KEYS = ["volume"]
+const FILE_NOT_FOUND = { stat: false, text: "Archivo inexistente" }
+
+function file_available(r) {
+  return !r.hidden && r.owner_status === "active"
+}
+
+// archivo del catálogo como lo ve el usuario `user_id` (sin user_id ni el estado del dueño)
+function file_out(r, user_id) {
+  return {
+    id: r.id, original_name: r.original_name, size: r.size, duration: r.duration, bpm: r.bpm,
+    beats: r.beats, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, available: file_available(r),
+  }
+}
+
+// archivos de un proyecto: los del catálogo más su pista, tags y props dentro del proyecto
+async function list_project_files(db, project_id, user_id) {
+  let rows = await db("project_files as pf")
+    .join("files as f", "f.id", "pf.file_id")
+    .leftJoin("users as u", "u.id", "f.user_id")
+    .select([...FILE_COLUMNS, "pf.track_group", "pf.tags", "pf.props"])
+    .where("pf.project_id", project_id)
+  return rows.map(r => ({
+    ...file_out(r, user_id),
+    track_group: r.track_group ?? null, tags: parse_tags(r.tags), props: parse_props(r.props),
+  }))
+}
+
+// archivos del catálogo por id (con el estado del dueño)
+async function get_catalog_files(db, ids) {
+  return await db("files as f").leftJoin("users as u", "u.id", "f.user_id")
+    .select(FILE_COLUMNS).whereIn("f.id", ids)
+}
+
+// proyecto completo: datos, props (config), pistas, tags y archivos (con su pista, tags y volumen
+// dentro del proyecto). Es lo que antes venía en get_user_info
+router.get("/projects/:id", require_session, async (req, res) => {
+  let user_id = req.user.id
+  try {
+    let p = await own_project(global.knex, req.params.id, user_id)
+    if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
+    let data = project_summary(p)
+    data.props = parse_props(p.props)
+
+    let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
+    data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
+    data.tags = await global.knex("user_tags").select("id", "name", "color").where({ project_id: p.id })
+
+    // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
+    data.files = await list_project_files(global.knex, p.id, user_id)
+    return res.send({ stat: true, data: data })
+  } catch (e) {
+    console.log("Error GET projects/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// edita el proyecto: body { name?, visibility?, props? } (solo lo que venga). `props` reemplaza la
+// config completa (lista blanca). `hidden` no se edita acá (lo modera el admin). Responde el proyecto
+router.put("/projects/:id", require_session, async (req, res) => {
+  let body = req.body || {}
+  let upd = {}
+  if (body.name !== undefined) {
+    upd.name = parse_project_name(body.name)
+    if (upd.name === undefined) return res.send({ stat: false, text: PROJECT_NAME_TEXT })
+  }
+  if (body.visibility !== undefined) {
+    if (!PROJECT_VISIBILITIES.includes(body.visibility)) return res.status(400).send({ stat: false, text: "Visibilidad inválida" })
+    upd.visibility = body.visibility
+  }
+  if (body.props !== undefined) {
+    upd.props = serialize_project_props(body.props)
+    if (upd.props === undefined) return res.status(400).send({ stat: false, text: "Datos inválidos" })
+  }
+  try {
+    let p = await own_project(global.knex, req.params.id, req.user.id)
+    if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
+    if (Object.keys(upd).length) await global.knex("projects").update(upd).where({ id: p.id, user_id: req.user.id })
+    return res.send({ stat: true, data: project_summary({ ...p, ...upd }) })
+  } catch (e) {
+    console.log("Error PUT projects/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// borra el proyecto con sus pistas, tags y filas de project_files. Los archivos (catálogo) quedan
+router.delete("/projects/:id", require_session, async (req, res) => {
+  try {
+    let found = await global.knex.transaction(async trx => {
+      let p = await own_project(trx, req.params.id, req.user.id)
+      if (!p) return false
+      await trx("project_files").delete().where({ project_id: p.id })
+      await trx("user_track_groups").delete().where({ project_id: p.id })
+      await trx("user_tags").delete().where({ project_id: p.id })
+      await trx("projects").delete().where({ id: p.id, user_id: req.user.id })
+      return true
+    })
+    if (!found) return res.status(404).send(PROJECT_NOT_FOUND)
+    return res.send({ stat: true })
+  } catch (e) {
+    console.log("Error DELETE projects/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+router.put("/projects/:id/track_groups", require_session, async (req, res) => {
+  await replace_project_rows("user_track_groups", req, res)
+})
+router.put("/projects/:id/tags", require_session, async (req, res) => {
+  await replace_project_rows("user_tags", req, res)
 })
 
 // columnas que se guardan de cada objeto recibido (lista blanca): los campos que el cliente agrega
 // a los objetos (o columnas sin uso como `silences`) se ignoran, si no romperían el insert.
 // Las columnas JSON se serializan con JSON.stringify.
-const USER_ROWS_COLUMNS = {
+const PROJECT_ROWS_COLUMNS = {
   user_track_groups: { columns: ["id", "name", "color", "props"], json: ["props"] },
   user_tags: { columns: ["id", "name", "color"], json: [] },
 }
+const ROW_ID_MAX = 36
 
-// reemplaza todas las filas del usuario en la tabla por las recibidas, en una transacción
-// para no perder la colección si falla un insert
-async function replace_user_rows(table, req, res) {
-  if (!Array.isArray(req.body)) return res.status(400).send({ stat: false, text: "Datos inválidos" })
+class RowsError extends Error { }
+
+// reemplaza todas las pistas o tags del proyecto por las recibidas (array con la colección
+// completa), en una transacción para no perder la colección si falla un insert. Los ids los genera
+// el cliente (uuid) y son únicos en toda la tabla: un id repetido (en el array o usado en otro
+// proyecto) responde 400 sin cambiar nada. Las referencias de project_files a pistas o tags que
+// ya no están se limpian (pista → null; se quitan de `tags`)
+async function replace_project_rows(table, req, res) {
+  let rows = req.body
+  if (!Array.isArray(rows)) return res.status(400).send({ stat: false, text: "Datos inválidos" })
+  let { columns, json } = PROJECT_ROWS_COLUMNS[table]
+  let ids = new Set()
+  for (let r of rows) {
+    if (!r || typeof r != "object" || typeof r.id != "string" || !r.id || r.id.length > ROW_ID_MAX) {
+      return res.status(400).send({ stat: false, text: "Datos inválidos: cada elemento necesita un id" })
+    }
+    if (ids.has(r.id)) return res.status(400).send({ stat: false, text: "Id repetido: " + r.id })
+    ids.add(r.id)
+  }
   let user_id = req.user.id
-  let { columns, json } = USER_ROWS_COLUMNS[table]
   try {
-    await global.knex.transaction(async trx => {
-      await trx(table).delete().where({ user_id: user_id })
-      for (let r of req.body) {
-        let row = { user_id: user_id }
+    let found = await global.knex.transaction(async trx => {
+      let p = await own_project(trx, req.params.id, user_id)
+      if (!p) return false
+      // un id que ya existe en otra fila (de otro proyecto o usuario) no se pisa
+      let taken = await trx(table).select("id").whereIn("id", [...ids])
+        .andWhere(q => q.whereNot({ project_id: p.id }).orWhereNull("project_id"))
+      if (taken.length) throw new RowsError("Id ya usado: " + taken[0].id)
+
+      await trx(table).delete().where({ project_id: p.id })
+      for (let r of rows) {
+        let row = { user_id: user_id, project_id: p.id }
         for (let c of columns) {
           if (r[c] === undefined) continue
           row[c] = json.includes(c) ? JSON.stringify(r[c] ?? {}) : r[c]
         }
         await trx(table).insert(row)
       }
+
+      // limpia en project_files las referencias a filas que ya no están
+      let pfs = await trx("project_files").select("id", "track_group", "tags").where({ project_id: p.id })
+      for (let pf of pfs) {
+        if (table === "user_track_groups") {
+          if (pf.track_group && !ids.has(pf.track_group)) {
+            await trx("project_files").update({ track_group: null }).where({ id: pf.id })
+          }
+        } else {
+          let tags = parse_tags(pf.tags)
+          let kept = tags.filter(t => ids.has(t))
+          if (kept.length !== tags.length) {
+            await trx("project_files").update({ tags: JSON.stringify(kept) }).where({ id: pf.id })
+          }
+        }
+      }
+      return true
     })
-    res.send({ stat: true })
+    if (!found) return res.status(404).send(PROJECT_NOT_FOUND)
+    return res.send({ stat: true })
   } catch (e) {
+    if (e instanceof RowsError) return res.status(400).send({ stat: false, text: e.message })
     console.log("Error guardando", table, e)
-    res.status(500).send({ stat: false, text: "Error interno" })
+    return res.status(500).send({ stat: false, text: "Error interno" })
   }
 }
 
+// id de archivo (o de pista/tag) recibido: string no vacío de hasta FILE_ID_MAX
+function valid_row_id(v) {
+  return typeof v == "string" && v.length > 0 && v.length <= FILE_ID_MAX
+}
 
+// campos de un archivo en un proyecto recibidos (solo los presentes): track_group (id o null),
+// tags (array de ids, sin repetidos), props (lista blanca; volume = número). Lanza RowsError si algo
+// es inválido. Devuelve los valores ya listos para la base
+function parse_project_file_fields(o, file_id) {
+  let out = {}
+  if (o.track_group !== undefined) {
+    if (o.track_group !== null && o.track_group !== "" && !valid_row_id(o.track_group)) {
+      throw new RowsError("Pista inválida para " + file_id)
+    }
+    out.track_group = o.track_group || null
+  }
+  if (o.tags !== undefined) {
+    if (!Array.isArray(o.tags) || !o.tags.every(valid_row_id)) throw new RowsError("Tags inválidos para " + file_id)
+    out.tags = [...new Set(o.tags)]
+  }
+  if (o.props !== undefined) {
+    if (!o.props || typeof o.props != "object" || Array.isArray(o.props)) throw new RowsError("Props inválidas para " + file_id)
+    let props = {}
+    for (let k of PROJECT_FILE_PROPS_KEYS) {
+      if (o.props[k] !== undefined) props[k] = o.props[k]
+    }
+    if (props.volume !== undefined && !Number.isFinite(props.volume)) throw new RowsError("Volumen inválido para " + file_id)
+    out.props = props
+  }
+  return out
+}
 
-// config global del usuario (users.props): solo se guardan estas claves (lista blanca), el resto
-// se ignora. Reemplaza lo guardado (el front manda siempre la config completa).
-const USER_PROPS_KEYS = ["tempo", "beats_x_bar", "tag_range", "delay"]
-const USER_PROPS_MAX_LENGTH = 4096 // tamaño de la columna
-router.put("/save_user_props", require_session, async (req, res) => {
-  let body = req.body
-  if (!body || typeof body != "object" || Array.isArray(body)) {
+// cambios en los archivos de un proyecto, todos en una transacción (si uno es inválido no se aplica
+// ninguno; 400 con el motivo). Body { add?, update?, remove? }:
+//  add: [file_id | { id, track_group?, tags?, props? }]  importa archivos del catálogo (propios o
+//       ajenos) que estén disponibles y no estén ya en el proyecto
+//  update: [{ id, track_group?, tags?, props? }]  edita archivos del proyecto (solo los campos que
+//       vengan; props reemplaza las props completas)
+//  remove: [file_id]  quita archivos del proyecto (el archivo sigue en el catálogo)
+// Un mismo archivo no puede aparecer dos veces en el body. Pista y tags tienen que ser del proyecto.
+// Responde los archivos del proyecto ya actualizados (forma de GET /projects/:id)
+router.put("/projects/:id/files", require_session, async (req, res) => {
+  let body = req.body || {}
+  let add = body.add ?? [], update = body.update ?? [], remove = body.remove ?? []
+  if (!Array.isArray(add) || !Array.isArray(update) || !Array.isArray(remove)) {
     return res.status(400).send({ stat: false, text: "Datos inválidos" })
   }
-  let props = {}
-  for (let k of USER_PROPS_KEYS) {
-    if (body[k] !== undefined) props[k] = body[k]
-  }
-  let text = JSON.stringify(props)
-  if (text.length > USER_PROPS_MAX_LENGTH) return res.status(400).send({ stat: false, text: "Datos inválidos" })
+  let user_id = req.user.id
   try {
-    await global.knex("users").update({ props: text }).where({ id: req.user.id })
-    return res.send({ stat: true })
+    // validación de forma (sin base)
+    let seen = new Set()
+    const check_id = id => {
+      if (!valid_row_id(id)) throw new RowsError("Datos inválidos: cada archivo necesita un id")
+      if (seen.has(id)) throw new RowsError("Archivo repetido: " + id)
+      seen.add(id)
+    }
+    let adds = add.map(a => {
+      let o = typeof a == "string" ? { id: a } : a
+      if (!o || typeof o != "object") throw new RowsError("Datos inválidos")
+      check_id(o.id)
+      return { id: o.id, fields: parse_project_file_fields(o, o.id) }
+    })
+    let updates = update.map(o => {
+      if (!o || typeof o != "object") throw new RowsError("Datos inválidos")
+      check_id(o.id)
+      return { id: o.id, fields: parse_project_file_fields(o, o.id) }
+    })
+    for (let id of remove) check_id(id)
+
+    let files = await global.knex.transaction(async trx => {
+      let p = await own_project(trx, req.params.id, user_id)
+      if (!p) return null
+      let in_project = new Set((await trx("project_files").select("file_id").where({ project_id: p.id })).map(r => r.file_id))
+
+      // importar: el archivo existe, está disponible y no está ya en el proyecto
+      if (adds.length) {
+        let catalog = new Map((await get_catalog_files(trx, adds.map(a => a.id))).map(f => [f.id, f]))
+        for (let a of adds) {
+          let f = catalog.get(a.id)
+          if (!f) throw new RowsError("Archivo inexistente: " + a.id)
+          if (!file_available(f)) throw new RowsError("Archivo no disponible: " + a.id)
+          if (in_project.has(a.id)) throw new RowsError("El archivo ya está en el proyecto: " + a.id)
+        }
+      }
+      for (let id of [...updates.map(u => u.id), ...remove]) {
+        if (!in_project.has(id)) throw new RowsError("El archivo no está en el proyecto: " + id)
+      }
+
+      // pista y tags tienen que ser de este proyecto
+      let trgs = new Set((await trx("user_track_groups").select("id").where({ project_id: p.id })).map(r => r.id))
+      let tags = new Set((await trx("user_tags").select("id").where({ project_id: p.id })).map(r => r.id))
+      for (let { id, fields } of [...adds, ...updates]) {
+        if (fields.track_group && !trgs.has(fields.track_group)) {
+          throw new RowsError("La pista no es del proyecto: " + fields.track_group + " (archivo " + id + ")")
+        }
+        let bad = (fields.tags || []).find(t => !tags.has(t))
+        if (bad) throw new RowsError("El tag no es del proyecto: " + bad + " (archivo " + id + ")")
+      }
+
+      for (let { id, fields } of adds) {
+        await trx("project_files").insert({
+          id: uuid(),
+          project_id: p.id,
+          file_id: id,
+          track_group: fields.track_group ?? null,
+          tags: JSON.stringify(fields.tags ?? []),
+          props: JSON.stringify(fields.props ?? {}),
+        })
+      }
+      for (let { id, fields } of updates) {
+        let upd = {}
+        if (fields.track_group !== undefined) upd.track_group = fields.track_group
+        if (fields.tags !== undefined) upd.tags = JSON.stringify(fields.tags)
+        if (fields.props !== undefined) upd.props = JSON.stringify(fields.props)
+        if (Object.keys(upd).length) await trx("project_files").update(upd).where({ project_id: p.id, file_id: id })
+      }
+      if (remove.length) await trx("project_files").delete().where({ project_id: p.id }).whereIn("file_id", remove)
+
+      return await list_project_files(trx, p.id, user_id)
+    })
+    if (!files) return res.status(404).send(PROJECT_NOT_FOUND)
+    return res.send({ stat: true, data: files })
   } catch (e) {
-    console.log("Error save_user_props", e)
+    if (e instanceof RowsError) return res.status(400).send({ stat: false, text: e.message })
+    console.log("Error PUT projects/:id/files", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
   }
 })
+
+
 
 router.put('/logout', async (req, res) => {
   if (req.session?.isLogged) {
@@ -385,49 +735,173 @@ router.put('/logout', async (req, res) => {
 
 })
 
-router.put('/save_fileData', require_session, async (req, res) => {
-  try {
-    let file = req.body.file
-    let upd_obj = {
-      track_group: file.track_group ?? null,
-      // array de ids de tags; se descarta lo que no sea string
-      tags: JSON.stringify(Array.isArray(file.tags) ? file.tags.filter(t => typeof t == "string") : []),
-      props: JSON.stringify(file.props)
+// metadatos de un archivo propio: body { original_name?, bpm?, beats? } (solo lo que venga; bpm y
+// beats vacíos o null → sin dato). Solo el dueño: un archivo ajeno o inexistente responde 404.
+// Pista, tags y volumen son de cada proyecto (PUT /projects/:id/files). Responde el archivo
+// (forma del catálogo). Reemplaza a save_fileData
+router.put('/files/:id', require_session, async (req, res) => {
+  let body = req.body || {}
+  let upd = {}
+  if (body.original_name !== undefined) {
+    let name = typeof body.original_name == "string" ? body.original_name.trim() : ""
+    if (!name || [...name].length > FILE_NAME_MAX) {
+      return res.send({ stat: false, text: `El nombre debe tener entre 1 y ${FILE_NAME_MAX} caracteres` })
     }
-    let n = await global.knex("files").update(upd_obj).where({ id: file.id, user_id: req.user.id })
-    if (n == 0) return res.status(403).send({ stat: false, text: "Archivo inexistente" })
-    return res.send({ stat: true })
-  } catch (e) {
-    console.log("Error save_fileData", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+    upd.original_name = name
   }
-
-})
-
-router.put('/delete_file', require_session, async (req, res) => {
+  if (body.bpm !== undefined) {
+    upd.bpm = parse_bpm(body.bpm)
+    if (upd.bpm === undefined) return res.send({ stat: false, text: `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}` })
+  }
+  if (body.beats !== undefined) {
+    upd.beats = parse_beats(body.beats)
+    if (upd.beats === undefined) return res.send({ stat: false, text: `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}` })
+  }
   let user_id = req.user.id
   try {
-    let file = await global.knex("files").select().where({ user_id: user_id, id: req.body.id }).first()
-    if (!file) {
-      console.log("delete_file: archivo inexistente o de otro usuario", req.body.id)
-      return res.status(403).send({ stat: false, text: "Archivo inexistente" })
-    }
-    try {
-      await fs.unlink(global.config.storage_path + user_id + "/" + req.body.id + ".mp3")
-    } catch (e) {
-      // si ya no estaba en disco, igual se borra la fila
-      if (e.code !== "ENOENT") throw e
-    }
-    await global.knex.transaction(async trx => {
-      await trx("files").delete().where({ user_id: user_id, id: req.body.id })
+    let id = String(req.params.id)
+    let file = await global.knex("files").select("id").where({ id: id, user_id: user_id }).first()
+    if (!file) return res.status(404).send(FILE_NOT_FOUND)
+    if (Object.keys(upd).length) await global.knex("files").update(upd).where({ id: id, user_id: user_id })
+    let [row] = await get_catalog_files(global.knex, [id])
+    return res.send({ stat: true, data: file_out(row, user_id) })
+  } catch (e) {
+    console.log("Error PUT files/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// borra un archivo propio: en una transacción quita sus filas de project_files en **todos** los
+// proyectos (propios y ajenos que lo importaron), la fila de `files` y descuenta su tamaño de
+// bytes_used; después borra el mp3. Solo el dueño (ajeno o inexistente → 404). Responde
+// { removed_from_projects: n } (filas de project_files borradas). Reemplaza a delete_file
+router.delete('/files/:id', require_session, async (req, res) => {
+  let user_id = req.user.id
+  let id = String(req.params.id)
+  try {
+    let n = await global.knex.transaction(async trx => {
+      let file = await trx("files").select("size").where({ id: id, user_id: user_id }).first()
+      if (!file) return null
+      let removed = await trx("project_files").delete().where({ file_id: id })
+      await trx("files").delete().where({ id: id, user_id: user_id })
       // se descuenta el tamaño del archivo, sin bajar de 0
       await trx("users").where({ id: user_id }).update({
         bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [file.size || 0])
       })
+      return removed
     })
-    return res.send({ stat: true })
+    if (n === null) return res.status(404).send(FILE_NOT_FOUND)
+    // el mp3 se borra con la fila ya borrada: si falla, queda un archivo huérfano en disco (inofensivo)
+    // en vez de una fila que apunta a un mp3 inexistente. El id viene de la base (es un uuid)
+    if (UUID_RE.test(id)) {
+      await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
+        if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
+      })
+    }
+    return res.send({ stat: true, data: { removed_from_projects: n } })
   } catch (e) {
-    console.log("Error delete_file", e)
+    console.log("Error DELETE files/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// catálogo: archivos disponibles (no ocultos, dueño activo) de todos los usuarios, para importar.
+// Query (todo opcional): bpm + bpm_tol (± tolerancia), beats, creator (nombre público exacto, sin
+// distinguir mayúsculas), q (texto en el nombre del archivo), page (desde 1) y per_page.
+// Cada archivo trae el nombre público y la bio del creador y `uses` (proyectos que lo usan); nunca
+// el email ni el id del dueño
+const CATALOG_PER_PAGE = 50
+const CATALOG_PER_PAGE_MAX = 100
+const CATALOG_BPM_TOL = 2
+const CATALOG_BPM_TOL_MAX = 50
+const CATALOG_TEXT_MAX = 64
+
+// filtros del catálogo leídos de la query: { f } o { error } (texto para el 400)
+function parse_catalog_query(query) {
+  let get = k => {
+    let v = query[k]
+    if (v === undefined) return { ok: true, v: "" }
+    if (typeof v != "string") return { ok: false }
+    return { ok: true, v: v.trim() }
+  }
+  let f = {}
+  for (let k of ["bpm", "bpm_tol", "beats", "creator", "q", "page", "per_page"]) {
+    let r = get(k)
+    if (!r.ok) return { error: `Parámetro inválido: ${k}` }
+    f[k] = r.v
+  }
+  let out = { page: 1, per_page: CATALOG_PER_PAGE }
+  if (f.bpm) {
+    out.bpm = parse_bpm(f.bpm)
+    if (out.bpm === undefined) return { error: `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}` }
+    let tol = f.bpm_tol ? Number(f.bpm_tol) : CATALOG_BPM_TOL
+    if (!Number.isFinite(tol) || tol < 0 || tol > CATALOG_BPM_TOL_MAX) {
+      return { error: `Tolerancia de BPM inválida: tiene que ser un número entre 0 y ${CATALOG_BPM_TOL_MAX}` }
+    }
+    out.bpm_tol = tol
+  }
+  if (f.beats) {
+    out.beats = parse_beats(f.beats)
+    if (out.beats === undefined) return { error: `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}` }
+  }
+  if (f.creator) {
+    if ([...f.creator].length > CATALOG_TEXT_MAX) return { error: "Creador inválido" }
+    out.creator = f.creator.toLowerCase()
+  }
+  if (f.q) {
+    if ([...f.q].length > CATALOG_TEXT_MAX) return { error: `El texto de búsqueda tiene más de ${CATALOG_TEXT_MAX} caracteres` }
+    out.q = f.q
+  }
+  if (f.page) {
+    out.page = Number(f.page)
+    if (!Number.isInteger(out.page) || out.page < 1) return { error: "Página inválida" }
+  }
+  if (f.per_page) {
+    out.per_page = Number(f.per_page)
+    if (!Number.isInteger(out.per_page) || out.per_page < 1 || out.per_page > CATALOG_PER_PAGE_MAX) {
+      return { error: `per_page tiene que ser un entero entre 1 y ${CATALOG_PER_PAGE_MAX}` }
+    }
+  }
+  return { f: out }
+}
+
+// escapa los comodines de LIKE (se usa con ESCAPE '\')
+function like_escape(s) {
+  return s.replace(/[\\%_]/g, c => "\\" + c)
+}
+
+// query base del catálogo con los filtros aplicados (solo disponibles: lo mismo que file_available)
+function catalog_query(db, f) {
+  let qb = db("files as f").join("users as u", "u.id", "f.user_id")
+    .where("u.status", "active").andWhere("f.hidden", 0)
+  if (f.bpm !== undefined) qb.whereBetween("f.bpm", [f.bpm - f.bpm_tol, f.bpm + f.bpm_tol])
+  if (f.beats !== undefined) qb.where("f.beats", f.beats)
+  if (f.creator !== undefined) qb.whereRaw("lower(u.name) = ?", [f.creator])
+  if (f.q !== undefined) qb.whereRaw("f.original_name like ? escape '\\'", ["%" + like_escape(f.q) + "%"])
+  return qb
+}
+
+router.get('/catalog', require_session, async (req, res) => {
+  let { f, error } = parse_catalog_query(req.query || {})
+  if (error) return res.status(400).send({ stat: false, text: error })
+  let user_id = req.user.id
+  try {
+    let { total } = await catalog_query(global.knex, f).count({ total: "*" }).first()
+    let rows = await catalog_query(global.knex, f)
+      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.bpm", "f.beats", "f.ts",
+        "u.name as creator_name", "u.bio as creator_bio",
+        global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
+      // los más nuevos primero; los migrados sin ts al final
+      .orderByRaw("f.ts is null, f.ts desc, f.id")
+      .limit(f.per_page).offset((f.page - 1) * f.per_page)
+    let items = rows.map(r => ({
+      id: r.id, original_name: r.original_name, duration: r.duration, bpm: r.bpm, beats: r.beats,
+      ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, uses: Number(r.uses) || 0,
+      creator: { name: r.creator_name, bio: r.creator_bio ?? null },
+    }))
+    return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
+  } catch (e) {
+    console.log("Error GET catalog", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
   }
 })
@@ -491,9 +965,10 @@ function count_traffic(req, res) {
 //  1. antes de recibir el cuerpo (upload_precheck): sesión activa (require_session), una subida en
 //     curso por usuario, disco libre y cuota no agotada. Así un rechazo no obliga a recibir el archivo.
 //  2. con el archivo en un temporal: formato por extensión, ffprobe (¿es audio?, duración <= 60 s),
-//     bpm/beats válidos y cuota con la duración real.
+//     bpm/beats válidos, project_id (opcional) propio y cuota con la duración real.
 //  3. conversión a MP3 V0 en la cola global (concurrencia 1).
-//  4. transacción: se vuelve a chequear la cuota y se inserta la fila.
+//  4. transacción: se vuelve a chequear la cuota (y el proyecto), se inserta la fila y, con
+//     project_id, la de project_files (el archivo queda en ese proyecto, sin pista ni tags).
 
 const UPLOAD_EXTENSIONS = ["mp3", "wav", "ogg", "flac", "m4a", "aiff", "aif"]
 const UPLOAD_FORMATS_TEXT = "mp3, wav, ogg, flac, m4a o aiff"
@@ -606,6 +1081,7 @@ function parse_beats(v) {
 }
 
 class QuotaError extends Error { }
+class ProjectGoneError extends Error { }
 
 router.post('/upload', require_session, upload_precheck, upload_parser, async (req, res) => {
   req.upload_started = true
@@ -635,6 +1111,9 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     if (bpm === undefined) return fail(400, `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}`)
     let beats = parse_beats(body.beats)
     if (beats === undefined) return fail(400, `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}`)
+    // proyecto opcional al que se agrega el archivo subido (propio; si no, 404 como todo proyecto ajeno)
+    let project_id = typeof body.project_id == "string" && body.project_id !== "" ? body.project_id : null
+    if (project_id && !await own_project(global.knex, project_id, user_id)) return fail(404, PROJECT_NOT_FOUND.text)
 
     // la duración se mide sobre la entrada (la del mp3 convertido suma el relleno del encoder)
     let info = await utils.probe(file.tempFilePath)
@@ -679,23 +1158,35 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
         // cuota con la duración real, dentro de la transacción (SQLite serializa las escrituras)
         let q2 = await user_quota(trx, user_id)
         if (q2.used + duration > q2.max) throw new QuotaError()
+        // el proyecto pudo borrarse mientras se convertía
+        if (project_id && !await own_project(trx, project_id, user_id)) throw new ProjectGoneError()
         await trx("files").insert(row)
         await trx("users").where({ id: user_id }).update({
           bytes_used: trx.raw("coalesce(bytes_used, 0) + ?", [size])
         })
+        // con project_id, el archivo entra al proyecto sin pista ni tags
+        if (project_id) {
+          await trx("project_files").insert({
+            id: uuid(), project_id: project_id, file_id: file_id, track_group: null, tags: "[]", props: "{}",
+          })
+        }
       })
     } catch (e) {
       if (e instanceof QuotaError) return fail(403, `No te alcanza la cuota para ${file.name}`)
+      if (e instanceof ProjectGoneError) return fail(404, PROJECT_NOT_FOUND.text)
       throw e
     }
     committed = true
 
-    // misma forma que los archivos de get_user_info
-    delete row.user_id
+    // misma forma que los archivos de GET /projects/:id (sin pista ni tags); `project_id` = proyecto
+    // al que se agregó (null si no se pidió ninguno)
     return res.send({
       stat: true,
       text: `${file.name} subido`,
-      data: { ...row, tags: [], props: {}, track_group: null, name: file_id + ".mp3" }
+      data: {
+        ...file_out({ ...row, hidden: 0, owner_status: "active" }, user_id),
+        track_group: null, tags: [], props: {}, project_id: project_id,
+      }
     })
   } catch (e) {
     console.log("Error upload", e)
@@ -710,51 +1201,23 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
   }
 })
 
-// columnas de `users` que se devuelven al front (nunca `password` ni `id`)
-const U_INFO_COLUMNS = ["email", "name", "ts", "bytes_used", "max_bytes_uploaded", "props", "status", "role", "bio", "max_seconds"]
+// columnas de `users` que se devuelven al front (nunca `password` ni `id`; `props` quedó obsoleta:
+// la config es de cada proyecto)
+const U_INFO_COLUMNS = ["email", "name", "ts", "bytes_used", "max_bytes_uploaded", "status", "role", "bio", "max_seconds"]
 
-// datos del usuario leídos de la base en cada llamada (no de la sesión, que solo guarda el id)
+// datos del usuario leídos de la base en cada llamada (no de la sesión, que solo guarda el id):
+// el usuario, su cuota y la lista de sus proyectos. Pistas, tags, archivos y config vienen de
+// GET /projects/:id
 async function return_user_info(user_id) {
   let u_info = await global.knex("users").select(U_INFO_COLUMNS).where({ id: user_id }).first()
-  u_info.props = parse_props(u_info.props)
   // cuota de audio efectiva (con el default de .env resuelto) y segundos usados, para la UI de subida
   let q = await user_quota(global.knex, user_id)
   u_info.quota = { max_seconds: q.max, used_seconds: q.used }
-
-  u_info.files =await global.knex("files").select().where({ user_id: user_id })
-  u_info.files.map(f => {
-    delete f.user_id
-    if (f.props) {
-      f.props = JSON.parse(f.props)
-    } else { f.props = {} }
-    f.tags = parse_tags(f.tags)
-    delete f.tag // columna obsoleta, reemplazada por `tags`
-    f.name = f.id + ".mp3"
-  })
-
-
-  //u_info.files.sort((a, b) => { return a.original_name < b.original_name })
-  let t = await global.knex("user_track_groups").select().where({ user_id: user_id })
-  u_info.track_groups = t.map(r => {
-    delete r.user_id
-    delete r.silences // columna sin uso
-    r.props = parse_props(r.props)
-    return r
-  })
-  t = await global.knex("user_tags").select().where({ user_id: user_id })
-  u_info.tags = t.map(r => {
-    delete r.user_id
-    return r
-  })
-
-
-
-
+  u_info.projects = await list_projects(user_id)
   return u_info
-
 }
 
-// props JSON (de un track group o del usuario): {} si es null o inválido
+// props JSON (de un track group, un archivo en un proyecto o un proyecto): {} si es null o inválido
 function parse_props(text) {
   try {
     let props = JSON.parse(text)

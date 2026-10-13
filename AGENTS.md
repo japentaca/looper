@@ -39,12 +39,14 @@ frontend/src/
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave
+    Projects.vue     # diálogo de proyectos: abrir, crear, renombrar, borrar, visibilidad
+    ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, StepLeds
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
-    toneLib.js       # reproductor de preview (un archivo suelto)
+    toneLib.js       # reproductor de preview (un archivo suelto, del proyecto o del catálogo por url)
     mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)

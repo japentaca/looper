@@ -10,7 +10,8 @@
     <div v-show="(fileListViewMode == 'Box')" class="box">
       <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags -->
       <div v-for="(file, index) in store.files" :key="file.id" class="cart"
-        :class="{ playing: is_sounding(file), drag_over: drag_index === index }" @dragover="ondragover($event, index)"
+        :class="{ playing: is_sounding(file), drag_over: drag_index === index, unavailable: file.available === false }"
+        :title="file.available === false ? unavailable_title : undefined" @dragover="ondragover($event, index)"
         @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
         <div class="grip">
           <Led color="green" :lit="is_sounding(file)" />
@@ -28,6 +29,7 @@
           <p class="specs">
             <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ file.beats }} beats</template>
             <template v-else>loading…</template>
+            <span v-if="file.available === false" class="unavailable_mark"> · unavailable</span>
           </p>
           <p class="tags">
             <span class="chip" :class="{ empty: !file.track_group_obj }"
@@ -55,7 +57,7 @@
       </div>
     </div>
     <div v-show="(fileListViewMode == 'Table')">
-      <el-table :data="store.files" style="width: 100%">
+      <el-table :data="store.files" style="width: 100%" :row-class-name="row_class">
         <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
         <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
         <el-table-column sortable prop="beats" label="Beats" width="80" />
@@ -163,8 +165,7 @@
 <script setup>
 
 import { ref, watch, computed } from "vue"
-import { store, audio_players, track_groups_by_id, toggle_file_tag } from "../helpers/composable"
-import { delete_file, save_fileData } from "../helpers/api"
+import { store, audio_players, track_groups_by_id, toggle_file_tag, save_file, delete_project_file } from "../helpers/composable"
 import Fader from "./hw/Fader.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
@@ -174,6 +175,13 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import * as toneLib from "../helpers/toneLib"
 
 const fileListViewMode = ref("Table")
+
+// archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
+// no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
+const unavailable_title = "Unavailable: hidden by an admin or its owner is blocked. It is not played."
+function row_class({ row }) {
+  return row.available === false ? "unavailable_row" : ""
+}
 
 
 const volume_marks = [0, -10, -20, -30, -40, -50].map(v => ({ value: v, label: v }))
@@ -191,11 +199,11 @@ const unassigned_tags = computed(() => store.tags.filter(t => !curr_edit_file.va
 
 async function toggleTag(file, id) {
   toggle_file_tag(file, id)
-  await save_fileData({ file: file })
+  await save_file(file)
 }
 async function onChange(file) {
   console.log("change,file", file)
-  await save_fileData({ file: file })
+  await save_file(file)
 }
 
 async function ondrop(e, index) {
@@ -208,7 +216,7 @@ async function ondrop(e, index) {
     console.log("drop trg", id)
     store.files[index].track_group = id
     store.files[index].track_group_obj = track_groups_by_id[id]
-    await save_fileData({ file: store.files[index] })
+    await save_file(store.files[index])
   } else if (msg_type == "tag") {
     // un archivo puede tener varios tags: soltar un tag que ya tiene lo quita
     await toggleTag(store.files[index], e.dataTransfer.getData("id"))
@@ -255,9 +263,12 @@ function is_sounding(file) {
 
 
 
+// un archivo propio se borra del todo (audio y en todos los proyectos que lo usan); uno importado
+// solo se quita de este proyecto
 function deleteFile(file) {
   ElMessageBox.confirm(
-    'Will permanently delete the file. Continue?',
+    file.own ? 'Will permanently delete the file (also from every project that uses it). Continue?'
+      : 'Will remove the file from this project. Continue?',
     'Warning',
     {
       confirmButtonText: 'OK',
@@ -266,18 +277,11 @@ function deleteFile(file) {
     }
   )
     .then(async () => {
-
-      console.log(audio_players[file.id])
-      audio_players[file.id].dispose()
-      //delete store.audio_players[file.id]
-      store.files.splice(file.index, 1)
-      for (let i = 0; i < store.files.length; i++) {
-        store.files[i].index = i
-      }
-      await delete_file(file)
+      if (!await delete_project_file(file)) return
+      if (curr_edit_file.value?.id === file.id) dialogVisible.value = false
       ElMessage({
         type: 'success',
-        message: 'Delete completed',
+        message: file.own ? 'Delete completed' : 'Removed from project',
       })
     })
     .catch((e) => {
@@ -359,6 +363,22 @@ const iconSize = ref(18)
 /* destino de un pad arrastrado */
 .cart.drag_over {
   box-shadow: 0 0 0 2px var(--hw_yellow), 0 0 14px rgba(255, 210, 60, 0.35);
+}
+
+/* no disponible: fuera del sorteo, cartucho atenuado (las acciones siguen usables) */
+.cart.unavailable .label,
+.cart.unavailable .grip {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+.unavailable_mark {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.el-table :deep(.unavailable_row) {
+  opacity: 0.45;
 }
 
 /* estrías de agarre en el borde superior, con el LED a la derecha */

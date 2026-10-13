@@ -8,36 +8,6 @@ export function login(data) {
   })
 }
 
-export function save_trackGroups(data) {
-  return request({
-    url: '/api/save_trackGroups',
-    method: 'put',
-    data
-  })
-}
-// config global del usuario (tempo, compás, delay): objeto, se guarda en users.props
-export function save_user_props(data) {
-  return request({
-    url: '/api/save_user_props',
-    method: 'put',
-    data
-  })
-}
-export function save_fileData(data) {
-  return request({
-    url: '/api/save_fileData',
-    method: 'put',
-    data
-  })
-}
-export function save_tags(data) {
-  return request({
-    url: '/api/save_tags',
-    method: 'put',
-    data
-  })
-}
-
 
 export function logout() {
   return request({
@@ -46,9 +16,20 @@ export function logout() {
 
   })
 }
-export function delete_file(data) {
+// borra un archivo propio (audio + sus filas en todos los proyectos): recibe el archivo o su id.
+// Responde { stat, data: { removed_from_projects } }
+export function delete_file(file) {
+  let id = typeof file == 'object' ? file.id : file
   return request({
-    url: '/api/delete_file',
+    url: '/api/files/' + encodeURIComponent(id),
+    method: 'delete'
+  })
+}
+
+// metadatos de un archivo propio: { original_name?, bpm?, beats? } → { stat, data: archivo }
+export function update_file(id, data) {
+  return request({
+    url: '/api/files/' + encodeURIComponent(id),
     method: 'put',
     data
   })
@@ -61,14 +42,16 @@ export function get_user_info(data) {
 
   })
 }
-// subida de UN archivo (multipart) con `bpm` y `beats` opcionales (null/vacío = sin dato).
+// subida de UN archivo (multipart) con `bpm` y `beats` opcionales (null/vacío = sin dato) y
+// `project_id` opcional (proyecto propio al que se agrega el archivo, sin pista ni tags).
 // Sin timeout: un archivo grande más la conversión pueden tardar más que el default de request.js.
 // on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión)
-export function upload_file(file, { bpm, beats } = {}, on_progress) {
+export function upload_file(file, { bpm, beats, project_id } = {}, on_progress) {
   let data = new FormData()
   data.append("file", file, file.name)
   if (bpm != null && bpm !== "") data.append("bpm", String(bpm))
   if (beats != null && beats !== "") data.append("beats", String(beats))
+  if (project_id) data.append("project_id", String(project_id))
   return request({
     url: '/api/upload',
     method: 'post',
@@ -122,6 +105,87 @@ export function admin_update_user(id, data) {
     url: '/api/admin/users/' + encodeURIComponent(id),
     method: 'put',
     data
+  })
+}
+
+// proyectos del usuario: [{ id, name, visibility, hidden, ts }]
+export function get_projects() {
+  return request({
+    url: '/api/projects',
+    method: 'get'
+  })
+}
+
+// crea un proyecto vacío: { name, visibility?, props? } → { stat, data: proyecto }
+export function create_project(data) {
+  return request({
+    url: '/api/projects',
+    method: 'post',
+    data
+  })
+}
+
+// proyecto completo: { id, name, visibility, hidden, ts, props, track_groups, tags, files }
+export function get_project(id) {
+  return request({
+    url: '/api/projects/' + encodeURIComponent(id),
+    method: 'get'
+  })
+}
+
+// edita el proyecto: { name?, visibility?, props? } (props reemplaza la config completa)
+export function update_project(id, data) {
+  return request({
+    url: '/api/projects/' + encodeURIComponent(id),
+    method: 'put',
+    data
+  })
+}
+
+// borra el proyecto con sus pistas, tags y archivos asociados (los archivos del catálogo quedan)
+export function delete_project(id) {
+  return request({
+    url: '/api/projects/' + encodeURIComponent(id),
+    method: 'delete'
+  })
+}
+
+// reemplaza las pistas del proyecto: array completo [{ id, name, color, props }]
+export function save_project_track_groups(id, data) {
+  return request({
+    url: '/api/projects/' + encodeURIComponent(id) + '/track_groups',
+    method: 'put',
+    data
+  })
+}
+
+// reemplaza los tags del proyecto: array completo [{ id, name, color }]
+export function save_project_tags(id, data) {
+  return request({
+    url: '/api/projects/' + encodeURIComponent(id) + '/tags',
+    method: 'put',
+    data
+  })
+}
+
+// cambios en los archivos del proyecto, en una transacción: { add?, update?, remove? }
+//  add: [file_id | { id, track_group?, tags?, props? }], update: [{ id, track_group?, tags?, props? }],
+//  remove: [file_id]. Responde { stat, data: archivos del proyecto ya actualizados }
+export function save_project_files(id, data) {
+  return request({
+    url: '/api/projects/' + encodeURIComponent(id) + '/files',
+    method: 'put',
+    data
+  })
+}
+
+// catálogo de archivos disponibles (paginado). params opcionales:
+//  { bpm, bpm_tol, beats, creator, q, page, per_page } → { stat, data: { items, total, page, per_page } }
+export function get_catalog(params = {}) {
+  return request({
+    url: '/api/catalog',
+    method: 'get',
+    params
   })
 }
 

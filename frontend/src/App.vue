@@ -27,6 +27,21 @@
         </div>
       </div>
 
+      <!-- proyecto activo (LCD) y botones de los diálogos de proyectos y de importar del catálogo -->
+      <!-- sin proyecto abierto (se canceló el aviso de memoria) el botón sigue, para abrir otro -->
+      <div v-if="store.isLogged == true" class="project">
+        <span class="silk">Project</span>
+        <Lcd small :digits="0">
+          <template v-if="store.project">
+            <span class="project_name" :title="store.project.name">{{ store.project.name }}</span>
+            <span class="project_vis">{{ store.project.visibility == 'public' ? 'PUB' : 'PRV' }}</span>
+          </template>
+          <span v-else class="project_name">NO PROJECT</span>
+        </Lcd>
+        <LedButton size="small" text="PROJECTS" @click="projectsVisible = true" />
+        <LedButton size="small" text="IMPORT" :disabled="!store.project" @click="importVisible = true" />
+      </div>
+
       <div v-if="store.curr_file.isPreviewing" class="preview">
         <Lcd small :digits="0">
           <span class="preview_text"><b>Preview</b> {{ store.curr_file.original_name }}</span>
@@ -83,6 +98,8 @@
 
     <Login :visible="store.loginVisible" />
     <Account v-if="store.isLogged == true" v-model="accountVisible" />
+    <Projects v-if="store.isLogged == true" v-model="projectsVisible" />
+    <ImportFiles v-if="store.isLogged == true" v-model="importVisible" />
     <!-- solo para role = admin: a los demás ni se monta (el backend igual lo exige con require_admin) -->
     <Admin v-if="is_admin" v-model="adminVisible" />
   </div>
@@ -93,6 +110,8 @@ import SidebarItem from "./components/SidebarItem.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
 import Account from "./components/Account.vue"
+import Projects from "./components/Projects.vue"
+import ImportFiles from "./components/ImportFiles.vue"
 import Admin from "./components/Admin.vue"
 import Uploader from "./components/Uploader.vue"
 import Tracks from "./components/Tracks.vue"
@@ -155,6 +174,8 @@ const loading_audio = computed(() => store.isLogged == true && !TrackCtrl.isRead
 
 const activeCollapsable = ref('2')
 const accountVisible = ref(false) // diálogo de cuenta (bio y cambio de clave)
+const projectsVisible = ref(false) // diálogo de proyectos (abrir, crear, renombrar, borrar, visibilidad)
+const importVisible = ref(false) // diálogo de importar del catálogo al proyecto activo
 const adminVisible = ref(false) // diálogo de admin de usuarios
 const is_admin = computed(() => store.isLogged == true && store.u_info.role === "admin")
 onMounted(async () => {
@@ -272,6 +293,31 @@ onMounted(async () => {
 
 .user {
   opacity: 0.8;
+}
+
+.project {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project_name {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.project_vis {
+  margin-left: 8px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  opacity: 0.75;
 }
 
 .preview {

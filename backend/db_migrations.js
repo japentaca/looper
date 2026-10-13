@@ -1,4 +1,5 @@
 import { stat } from 'fs/promises'
+import { v4 as uuid } from 'uuid'
 import utils from './utils.js'
 
 // Migraciones idempotentes: crean lo que falte sin tocar lo existente.
@@ -13,22 +14,24 @@ export default async function do_migrations() {
   await create_column_string("users", "ts", 21)
   await create_column_number("users", "bytes_used")
   await create_column_number("users", "max_bytes_uploaded")
-  await create_column_string("users", "props", 4096) // JSON: config global (tempo, beats_x_bar, delay)
+  await create_column_string("users", "props", 4096) // obsoleto: pasó a projects.props (migrate_projects); queda como respaldo
   await migrate_users()
 
   await create_table("files")
   await create_column_string("files", "user_id", 36)
   await create_column_string("files", "original_name", 256)
-  await create_column_string("files", "track_group", 256)
+  await create_column_string("files", "track_group", 256) // obsoleto: pasó a project_files (migrate_projects)
   await create_column_string("files", "tag", 256) // obsoleto: reemplazado por `tags`, queda como respaldo
   await create_column_number("files", "size")
-  await create_column_string("files", "props", 4096) // JSON
-  await migrate_file_tags()
+  await create_column_string("files", "props", 4096) // obsoleto: pasó a project_files (migrate_projects)
+  await migrate_file_tags() // `files.tags` también quedó obsoleto: pasó a project_files
   await create_column_float("files", "duration") // segundos (ffprobe); la cuota se mide con esto
   await create_column_float("files", "bpm") // lo carga el creador
   await create_column_number("files", "beats") // largo del loop en beats; lo carga el creador
   await migrate_file_ts()
   await migrate_file_durations()
+  // oculto por el admin (moderación): 0 | 1. Fuera del catálogo y del sorteo, sin cascada
+  await create_column_flag("files", "hidden")
 
   await create_table("user_track_groups")
   await create_column_string("user_track_groups", "user_id", 36)
@@ -36,11 +39,36 @@ export default async function do_migrations() {
   await create_column_string("user_track_groups", "color", 32)
   await create_column_string("user_track_groups", "silences", 4096) // sin uso
   await create_column_string("user_track_groups", "props", 4096) // JSON: config de la pista (volume, mute, solo...)
+  await create_column_string("user_track_groups", "project_id", 36)
+  await create_index("user_track_groups", "project_id")
 
   await create_table("user_tags")
   await create_column_string("user_tags", "user_id", 36)
   await create_column_string("user_tags", "name", 256)
   await create_column_string("user_tags", "color", 32)
+  await create_column_string("user_tags", "project_id", 36)
+  await create_index("user_tags", "project_id")
+
+  // proyectos (fase 3 de publicación): un solo dueño; pistas, tags y archivos son por proyecto
+  await create_table("projects")
+  await create_column_string("projects", "user_id", 36)
+  await create_column_string("projects", "name", 256)
+  await create_column_string("projects", "visibility", 16, "private") // private | public
+  await create_column_flag("projects", "hidden") // oculto por el admin: 0 | 1
+  await create_column_string("projects", "props", 4096) // JSON: tempo, beats_x_bar, tag_range, delay (antes users.props)
+  await create_column_string("projects", "ts", 21)
+  await create_index("projects", "user_id")
+
+  // archivos de cada proyecto (propios o importados del catálogo) con su pista, tags y volumen
+  await create_table("project_files")
+  await create_column_string("project_files", "project_id", 36)
+  await create_column_string("project_files", "file_id", 36)
+  await create_column_string("project_files", "track_group", 36) // id de user_track_groups del mismo proyecto
+  await create_column_string("project_files", "tags", 4096) // JSON: array de ids de user_tags del mismo proyecto
+  await create_column_string("project_files", "props", 4096) // JSON: { volume }
+  await create_index("project_files", "project_id")
+  await create_index("project_files", "file_id")
+  await migrate_projects()
 
   await create_table("sets")
   await create_column_string("sets", "user_id", 36)
@@ -151,6 +179,52 @@ async function migrate_file_durations() {
   if (fallidos) console.warn(`  ${fallidos} archivo(s) quedaron sin duration`)
 }
 
+// proyectos (fase 3): pasa los datos de cada usuario a un primer proyecto propio.
+// - projects: uno por usuario, con su `users.props` (config: tempo, compás, tag_range, delay)
+// - project_id en sus pistas (user_track_groups) y tags (user_tags)
+// - project_files: uno por cada archivo suyo, con `files.track_group/tags/props` tal cual
+// Corre una sola vez: si ya hay algún proyecto, se da por migrado (los proyectos solo se crean
+// acá o después desde la API). Todo en una transacción: si falla, no queda a medias y se reintenta
+// en el próximo arranque. Las columnas viejas (`users.props`, `files.track_group/tags/props`) no
+// se borran: quedan obsoletas, como respaldo.
+const FIRST_PROJECT_NAME = "My project"
+
+async function migrate_projects() {
+  if (await global.knex("projects").first("id")) return
+  let users = await global.knex("users").select("id", "props")
+  if (!users.length) return
+  console.log(`Migro datos a proyectos: un proyecto por usuario (${users.length})`)
+  let ts = new Date().toISOString().slice(0, 19)
+  await global.knex.transaction(async trx => {
+    for (let user of users) {
+      let project_id = uuid()
+      await trx("projects").insert({
+        id: project_id,
+        user_id: user.id,
+        name: FIRST_PROJECT_NAME,
+        props: user.props ?? null,
+        ts: ts,
+      })
+      let n_tg = await trx("user_track_groups").where({ user_id: user.id }).whereNull("project_id")
+        .update({ project_id: project_id })
+      let n_tags = await trx("user_tags").where({ user_id: user.id }).whereNull("project_id")
+        .update({ project_id: project_id })
+      let files = await trx("files").where({ user_id: user.id }).select("id", "track_group", "tags", "props")
+      for (let f of files) {
+        await trx("project_files").insert({
+          id: uuid(),
+          project_id: project_id,
+          file_id: f.id,
+          track_group: f.track_group,
+          tags: f.tags,
+          props: f.props,
+        })
+      }
+      console.log(`  usuario ${user.id}: ${n_tg} pista(s), ${n_tags} tag(s), ${files.length} archivo(s)`)
+    }
+  })
+}
+
 // crea la tabla solo con la PK `id` (uuid); las columnas se agregan con create_column_*
 async function create_table(tabla) {
   if (!await global.knex.schema.hasTable(tabla)) {
@@ -161,13 +235,34 @@ async function create_table(tabla) {
   }
 }
 
-async function create_column_string(tabla, columna, length) {
+// con `default_value`, la columna es NOT NULL con ese default (las filas existentes lo toman)
+async function create_column_string(tabla, columna, length, default_value) {
   if (!await global.knex.schema.hasColumn(tabla, columna)) {
     console.log(`Creo columna ${columna}  en tabla ${tabla}`)
     await global.knex.schema.alterTable(tabla, function (table) {
-      table.string(columna, length)
+      let col = table.string(columna, length)
+      if (default_value !== undefined) col.notNullable().defaultTo(default_value)
     })
   }
+}
+// bandera 0 | 1, NOT NULL default 0: las filas existentes y los insert que no la mencionan quedan en 0
+async function create_column_flag(tabla, columna) {
+  if (!await global.knex.schema.hasColumn(tabla, columna)) {
+    console.log(`Creo columna ${columna}  en tabla ${tabla}`)
+    await global.knex.schema.alterTable(tabla, function (table) {
+      table.integer(columna).notNullable().defaultTo(0)
+    })
+  }
+}
+// índice simple `<tabla>_<columna>_index` (para filtrar por dueño / proyecto / archivo)
+async function create_index(tabla, columna) {
+  let index_name = `${tabla}_${columna}_index`
+  let existe = await global.knex("sqlite_master").where({ type: "index", name: index_name }).first()
+  if (existe) return
+  console.log(`Creo índice ${index_name}`)
+  await global.knex.schema.alterTable(tabla, function (table) {
+    table.index([columna], index_name)
+  })
 }
 async function create_column_number(tabla, columna) {
   if (!await global.knex.schema.hasColumn(tabla, columna)) {

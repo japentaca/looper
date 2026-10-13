@@ -22,7 +22,7 @@
           :options="[{ value: '3', label: '3/4' }, { value: '4', label: '4/4' }]" @change="onSignatureChange" />
       </div>
 
-      <!-- delay global sincronizado al tempo (TrackCtrl.delay, guardado en users.props). Cada pista le
+      <!-- delay global sincronizado al tempo (TrackCtrl.delay, guardado en projects.props). Cada pista le
         manda señal con su knob "Dly" -->
       <div class="group delay">
         <div class="delay_sel">
@@ -163,10 +163,10 @@
 import * as Tone from "tone"
 import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import {
-  store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_user_props_debounced
+  store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_project_props_debounced
 } from "../helpers/composable"
 import {
-  TrackCtrl, calculateBars, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
+  TrackCtrl, calculateBars, register_stop, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
 } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -209,21 +209,21 @@ function reset() {
 
 
 
-// faders del rango (exponente n de 2^n beats, en TrackCtrl.tag_range, guardado en users.props):
+// faders del rango (exponente n de 2^n beats, en TrackCtrl.tag_range, guardado en projects.props):
 // mover uno empuja al otro para que siempre min <= max
 const tag_range_marks = [5, 6, 7, 8, 9].map(n => ({ value: n, label: Math.pow(2, n) }))
 const tag_range_min = computed({
   get: () => TrackCtrl.tag_range[0],
   set: (v) => {
     TrackCtrl.tag_range = [v, Math.max(v, TrackCtrl.tag_range[1])]
-    save_user_props_debounced()
+    save_project_props_debounced()
   }
 })
 const tag_range_max = computed({
   get: () => TrackCtrl.tag_range[1],
   set: (v) => {
     TrackCtrl.tag_range = [Math.min(v, TrackCtrl.tag_range[0]), v]
-    save_user_props_debounced()
+    save_project_props_debounced()
   }
 })
 
@@ -280,13 +280,13 @@ function strip_file(trg, track) {
 function onBPMSliderchange(value) {
   Tone.Transport.bpm.value = value
   calculateBars()
-  save_user_props_debounced()
+  save_project_props_debounced()
 }
 
 function onSignatureChange(value) {
   Tone.Transport.timeSignature = parseInt(value)
   calculateBars()
-  save_user_props_debounced()
+  save_project_props_debounced()
 }
 
 // --- delay global (TrackCtrl.delay; mixer.js lo aplica con watchers) ---
@@ -294,7 +294,7 @@ const DELAY_TYPE_LABELS = { pingpong: "PING", stereo: "STEREO", dotted: "DOTTED"
 const DELAY_DIVISION_LABELS = { "16n": "1/16", "8t": "1/8T", "8n": "1/8", "8n.": "1/8.", "4n": "1/4", "4n.": "1/4.", "2n": "1/2" }
 function set_delay_cfg(key, v) {
   TrackCtrl.delay[key] = v
-  save_user_props_debounced()
+  save_project_props_debounced()
 }
 // los botones TYPE y TIME pasan a la opción siguiente (vuelven a la primera después de la última)
 function cycle_delay(key, options) {
@@ -390,6 +390,8 @@ function start() {
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
     if (!f.isLoaded) continue // sin buffer, Tone no lo puede reproducir
+    // no disponible (oculto por el admin o dueño bloqueado): fuera del sorteo, tampoco aporta su Tag
+    if (f.available === false) continue
     if (f.track_group) {
       if (!files_per_TRG[f.track_group]) {
         files_per_TRG[f.track_group] = []
@@ -518,7 +520,10 @@ function schedule_resume() {
 
 // un solo listener por instancia del componente (no por START); se quita al desmontar
 Tone.context.on("statechange", on_context_state)
+// los demás componentes detienen el motor con stop_transport() (TrackCtrl.js)
+register_stop(stop)
 onBeforeUnmount(() => {
+  register_stop(null)
   Tone.context.off("statechange", on_context_state)
   clearTimeout(resume_timer)
   Tone.Transport.clear(beat_repeat_id)
@@ -601,7 +606,7 @@ function set_next_step(time, n, downbeat) {
 
     if (track.remaining_beats == 0) {
       track.resting = false
-      // pista sin archivos (o sin ninguno compatible con el Tag): queda en silencio
+      // pista sin archivos sorteables (ninguno disponible y compatible con el Tag): queda en silencio
       if (!available_files_per_TRG[track.track_group.id]?.length) return
       //player[track.track_group.id].buffer=
       //if (track.curr_file) {

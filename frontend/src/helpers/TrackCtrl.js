@@ -20,8 +20,8 @@ export const TAG_RANGE_MIN = 5
 export const TAG_RANGE_MAX = 9
 export const TAG_RANGE_DEFAULT = [6, 7]
 
-// tempo, compás, rango de cambio de Tag y delay son la config global del usuario: se guardan en
-// users.props (save_user_props_debounced en composable.js) y se aplican al cargar el usuario
+// tempo, compás, rango de cambio de Tag y delay son la config del proyecto activo: se guardan en
+// projects.props (save_project_props_debounced en composable.js) y se aplican al cargar el proyecto
 export const TrackCtrl = reactive({
   tempo: TEMPO_DEFAULT,
   beats_x_bar: BEATS_X_BAR_DEFAULT,
@@ -39,6 +39,15 @@ export const TrackCtrl = reactive({
   },
   tracks: []
 })
+// STOP del motor. stop() es local de Tracks.vue: lo registra al montarse (y lo quita al desmontarse)
+// para que otros componentes puedan detener el transporte, p. ej. antes de cambiar de proyecto
+let stop_fn = null
+export function register_stop(fn) {
+  stop_fn = fn
+}
+export function stop_transport() {
+  if (TrackCtrl.isPlaying && stop_fn) stop_fn()
+}
 export function calculateBars() {
 
   for (let i = 0; i < store.files.length; i++) {

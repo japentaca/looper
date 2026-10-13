@@ -28,15 +28,16 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 ## Backend
 
 - 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
-  descontado en `delete_file`), pero es solo informativo: la cuota es en segundos de audio
+  descontado en `DELETE /files/:id`), pero es solo informativo: la cuota es en segundos de audio
   (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa.
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
 - 🟡 `files.props.oneShot` (por archivo) quedó obsoleto: el modo one-shot es por pista
   (`user_track_groups.props.mode`, oct 2026). Se quitó el checkbox de `Files.vue` y el default en
-  `composable.js`; los valores viejos siguen en la base (no se borraron) y se reenvían tal cual al
-  guardar el archivo, pero nada los lee. **No reutilizarlo.**
+  `composable.js`; los valores viejos quedaron en `project_files.props` (copiados por la migración),
+  pero nada los lee y `save_file` solo guarda `volume` (el backend también filtra con lista blanca),
+  así que desaparecen al guardar el archivo. **No reutilizarlo.**
 - 🟡 Las pistas one-shot no encienden su pad en la barra lateral (`SidebarItem.vue` mira
   `curr_file.isPlaying` y una one-shot no tiene `curr_file`). Además `start_file` pone
   `isPlaying = true` en el archivo disparado y nadie lo baja cuando termina solo (tampoco en loops
@@ -79,11 +80,29 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
 
 ## Frontend — general
 
+- 🟡 `load_project(id)` por sí sola no detiene el transporte: para cambiar de proyecto usar
+  `switch_project(id)` (hace STOP), como `Projects.vue`.
+- 🟡 Importar del catálogo (`ImportFiles.vue`) recarga el proyecto entero con `load_project` (igual
+  que después de una subida): vuelve a descargar (de la caché) y decodificar todos los audios, no
+  solo los nuevos, y con el transporte en marcha tiene los mismos efectos que la recarga después de
+  una subida (ver "Frontend — corridas largas").
+- 🟡 El aviso de memoria al abrir un proyecto (tarea 3.9) es una estimación: supone 44 100 Hz
+  estéreo (un AudioContext a 48 kHz ocupa ~9 % más; un archivo mono, la mitad) y
+  `navigator.deviceMemory` solo existe en Chromium, redondeada y con tope de 8 GB (el límite nunca
+  pasa de 2 GB); en Firefox/Safari se usa un valor fijo (4 GB → 1 GB). No pregunta en la recarga del
+  mismo proyecto (después de cada subida) ni con `?autostart=1`.
+- 🟡 Los archivos con `available = false` (ocultos o de un dueño bloqueado) ya no se sortean (tarea
+  3.8), pero se siguen descargando y decodificando (tienen su `Tone.Player`, ocupan memoria) y se
+  pueden escuchar con el preview de `Files.vue`. `available` se lee al cargar el proyecto: un archivo
+  ocultado con el transporte en marcha sigue sorteándose hasta recargar el proyecto y hacer START.
 - 🟡 `files.beats` choca con un campo calculado del front: `calculateBars()` (`TrackCtrl.js`) pisa
   `f.beats` con la duración / tempo (lo usan `Tracks.vue` y `Files.vue`), así que el `beats` que carga
   el creador al subir (tarea 2.4) se guarda en la base pero no se ve ni se usa en la UI. Igual con
   `duration`, que el front reemplaza por la del buffer al cargar. Resolver al hacer el catálogo o la
-  edición de metadatos (fase 3), sin cambiar el motor de reproducción de paso.
+  edición de metadatos (fase 3), sin cambiar el motor de reproducción de paso. `GET /catalog` (tarea
+  3.5) devuelve `beats` y `duration` tal como están en la base, y el diálogo de importar
+  (`ImportFiles.vue`, tarea 3.10) los muestra así, sin pasar por `calculateBars()`: el mismo archivo
+  puede mostrar otros beats en el catálogo y en Files.
 - ✅ Resuelto (oct 2026): la request de audio que quedaba colgada si `get_file` no encontraba
   sesión (ahora `GET /file/:id` responde 404).
 

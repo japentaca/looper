@@ -20,7 +20,6 @@
 // y para Tags (kind="tag"). Lo que cambia entre ambos está en KINDS.
 import { ref, computed } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { save_fileData } from '../helpers/api'
 import { store, rebuildIndexes, save_tags, save_trackGroups, set_file_tags } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
 
@@ -111,12 +110,9 @@ async function deleteItem() {
     }
   }
   cfg.list().splice(props.index, 1)
-  // los archivos que tenían este item quedan sin asignar
-  store.files.map(async (file) => {
-    if (cfg.unassign(file, id)) {
-      await save_fileData({ file: file })
-    }
-  })
+  // los archivos que tenían este item quedan sin asignar (en el backend lo limpia el mismo guardado
+  // de la colección: PUT /projects/:id/track_groups o /tags)
+  store.files.forEach(file => cfg.unassign(file, id))
   rebuildIndexes()
   await cfg.save()
 }

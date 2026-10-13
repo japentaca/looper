@@ -151,7 +151,7 @@ async function doUpload() {
       item.progress = 0
       item.error = ""
       try {
-        let res = await upload_file(item.raw, { bpm: item.bpm, beats: item.beats }, p => { item.progress = p })
+        let res = await upload_file(item.raw, { bpm: item.bpm, beats: item.beats, project_id: store.project?.id }, p => { item.progress = p })
         if (res?.stat) {
           item.status = "done"
           ok++

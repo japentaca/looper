@@ -23,6 +23,8 @@ http://localhost:31201/?autostart=1
 ```
 
 Es una vez por carga de página: si después se hace STOP, no vuelve a arrancar solo hasta recargar.
+Con `?autostart=1` tampoco se muestra el aviso de memoria de un proyecto grande ("Load anyway?"):
+se carga igual, porque en una instalación no hay nadie para contestarlo.
 
 El navegador **no deja sonar audio sin un gesto del usuario**. Si el AudioContext no arranca, en vez
 de hacer START se muestra un cartel "Click to start" que cubre la ventana: un clic en cualquier
