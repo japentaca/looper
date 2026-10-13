@@ -32,14 +32,15 @@ que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
 |---|---|---|
 | `/` | `App.vue` (la app de siempre: proyectos, edición, motor) | la de siempre (login) |
 | `/p/:id` | `views/PublicProject.vue`: proyecto público en **modo lectura** (tarea 4.3, ver "Modo lectura" en Frontend): START/STOP, tempo y mixer local, nada se guarda (404 → "Project not found") | no (con sesión, igual es modo lectura) |
-| `/gallery` | `views/Gallery.vue`: `GET /api/public/projects` paginado, cada tarjeta enlaza a `/p/:id` | no |
+| `/gallery` | `views/Gallery.vue` (grilla en `components/GalleryGrid.vue`, compartida con el diálogo): `GET /api/public/projects` paginado, cada tarjeta enlaza a `/p/:id` | no |
 | cualquier otra | redirige a `/` | |
 
 - `?autostart=1` se conserva: `Tracks.vue` y `composable.js` lo leen de `window.location.search`,
   que el router no toca (`/?autostart=1` sigue funcionando igual).
 - Entre `/` y las vistas públicas se navega con `<a href>` (recarga completa), para que el store y el
   motor de la app no se mezclen con los de una vista pública. El botón GALLERY de la app abre la
-  galería en otra pestaña (no corta lo que suena). Entre galería y proyecto público, `router-link`.
+  galería en un diálogo (`GalleryDialog.vue`); abrir un proyecto desde ahí es una navegación completa a
+  `/p/:id` en la misma pestaña (corta lo que suena). Entre galería y proyecto público, `router-link`.
 - `App.vue` se importa de forma estática (la app carga como antes); las vistas públicas se cargan
   con `import()` (chunks aparte).
 - `base` de Vite queda por defecto (`/`): el build se sirve en la raíz de `looper.jape.com.ar` y los
@@ -203,8 +204,8 @@ email ni id). Ambos pasan por un límite de requests por IP en Redis (`looper_pu
 minuto → 429). El audio sigue saliendo de `GET /api/file/:id`, sin ese límite. Ver `docs/API.md`.
 
 **Denuncias (tarea 4.4):** `POST /api/report` pide sesión (`require_session`; sin sesión, 401). Se
-denuncia un archivo disponible del catálogo o un proyecto visible de la galería, ajeno; lo que no
-existe o no está a la vista responde 404 (no revela proyectos privados). Una denuncia abierta del
+denuncia un archivo disponible del catálogo o un proyecto visible (no oculto, dueño activo), ajeno; lo que no
+existe o no está a la vista responde 404 (no revela lo oculto). Una denuncia abierta del
 mismo usuario sobre lo mismo no se duplica (responde éxito con `duplicate: true`). Límite por
 usuario en Redis (`looper_report:<user_id>`, 20 denuncias nuevas cada 24 h desde la primera → 429).
 Cada una queda en la tabla `reports` con `status = 'open'`; la revisión es del admin (moderación,
@@ -248,9 +249,9 @@ los requests rechazados (500, sin conexión) muestran el texto con `error_text()
 longitud y formato las hace el backend; el front solo limita los campos (`maxlength`).
 
 **UI de proyectos:** `Projects.vue`, un diálogo que se abre con el botón PROJECTS de la barra
-superior (al lado, un LCD con el nombre del proyecto activo y `PUB`/`PRV`). Al abrirse refresca la
+superior (al lado, un LCD con el nombre del proyecto activo). Al abrirse refresca la
 lista (`refresh_projects()`) y muestra cada proyecto con un LED en el activo, el aviso `hidden` si el
-admin lo ocultó, un switch Private/Public (`PUT /projects/:id { visibility }`) y los botones *Open*,
+admin lo ocultó y los botones *Open*,
 *Rename* (`ElMessageBox.prompt` → `PUT /projects/:id { name }`) y *Delete*. *Create* crea un
 proyecto vacío (`POST /projects`) y lo abre. Abrir (o crear) con el transporte en marcha pide
 confirmación y hace STOP antes de cargar (`switch_project`). Borrar pide confirmación; si es el
@@ -292,11 +293,10 @@ Desde la tarea 5.2 suma dos pestañas más (al abrir o con RELOAD trae usuarios,
 estadísticas en paralelo):
 - *Reports (n abiertas)*: denuncias de `GET /admin/reports`, filtradas por estado (*Open* por
   defecto, *Resolved*, *Dismissed* o *All*; el filtro va al backend). Cada fila muestra el target
-  con su tipo: un proyecto es un link a `/p/<id>` en otra pestaña (da 404 mientras esté oculto o sea
-  privado), un archivo tiene un botón de preview (`toneLib`: usa el buffer si el archivo está cargado
+  con su tipo: un proyecto es un link a `/p/<id>` en otra pestaña (da 404 mientras esté oculto), un archivo tiene un botón de preview (`toneLib`: usa el buffer si el archivo está cargado
   en el proyecto activo, si no descarga solo ese mp3 con `GET /file/:id`, que sirve también los
-  ocultos; el preview se corta al cerrar el diálogo, como en el catálogo). Etiquetas *hidden*,
-  *private* y el estado del dueño si no está `active`; un target borrado se ve como *deleted*.
+  ocultos; el preview se corta al cerrar el diálogo, como en el catálogo). Etiquetas *hidden*
+  y el estado del dueño si no está `active`; un target borrado se ve como *deleted*.
   Acciones: *Hide* (con confirmación) / *Unhide* del target (`PUT /admin/files|projects/:id/hidden`;
   actualiza todas las denuncias sobre lo mismo) y *Resolve* / *Dismiss* / *Reopen*
   (`PUT /admin/reports/:id`; si con el estado nuevo la denuncia ya no entra en el filtro, sale de la
@@ -368,7 +368,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto), `duration`, `bpm`, `beats`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `bpm` (float) y `beats` (entero) los carga el creador (`null` mientras no); `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos existentes tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `bpm`, `beats` y `ts`; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: `migrate_projects` las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; `/upload` todavía inserta `tags = "[]"`). Metadatos (`original_name`, `bpm`, `beats`) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences`, `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice) | `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
-| `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility`, `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files` (no los archivos). `migrate_projects` creó uno por usuario existente (nombre `My project`). `visibility` = `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
+| `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility` (**obsoleta**: todos los proyectos son públicos), `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files` (no los archivos). `migrate_projects` creó uno por usuario existente (nombre `My project`). `visibility` = `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
 | `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (`migrate_projects` cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume }`. Reemplazan a `files.track_group/tags/props` |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 | `reports` | `id` PK, `target_type`, `target_id` (índice), `reporter_user_id` (índice), `reason`, `status`, `ts` | Denuncias (tarea 4.4, `POST /report`). `target_type` = `file` \| `project`; `target_id` = id de `files` o de `projects`; `reporter_user_id` = quien denuncia; `reason` = texto (1 a 500 caracteres); `status` = `open` \| `resolved` \| `dismissed` (`NOT NULL DEFAULT 'open'`; el admin lo cambia con `PUT /admin/reports/:id`, tarea 5.1; solo las `open` cuentan para no duplicar en `POST /report`); `ts` = fecha (ISO sin ms). Sin claves foráneas: borrar el archivo o el proyecto no borra sus denuncias (`GET /admin/reports` las devuelve con `target: null`) |
@@ -388,7 +388,7 @@ que usan el archivo en todos los proyectos.
 
 **Migración a proyectos** (`migrate_projects`, fase 3): pasa los datos de antes de los proyectos a
 un primer proyecto por usuario, en una sola transacción. Por cada usuario crea un proyecto
-(`My project`, privado, `props` = su `users.props` tal cual), pone ese `project_id` en sus pistas
+(`My project`, `props` = su `users.props` tal cual), pone ese `project_id` en sus pistas
 y tags (las que lo tengan en `null`) y crea una fila de `project_files` por cada archivo suyo con
 `track_group`, `tags` y `props` copiados tal cual de `files`. Corre **una sola vez**: si ya existe
 algún proyecto se da por migrado y no hace nada (los proyectos solo se crean ahí o desde la API).
@@ -411,7 +411,7 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
 `helpers/composable.js` exporta un `store` reactivo global (no hay Pinia):
 
 - `store.projects` (lista de proyectos del usuario, de `u_info.projects`) y `store.project` (el
-  proyecto activo: `{ id, name, visibility, hidden, ts }`). Pistas, tags, archivos y config
+  proyecto activo: `{ id, name, hidden, ts }`). Pistas, tags, archivos y config
   (`TrackCtrl`) son siempre los del proyecto activo, y todos los guardados van contra él:
   `save_trackGroups()` / `save_tags()` (colección completa → `PUT /projects/:id/track_groups` y
   `/tags`), `save_file(file)` (pista, tags y volumen del archivo → `PUT /projects/:id/files`

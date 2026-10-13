@@ -331,7 +331,7 @@ function admin_reports_query(db) {
     .select(["r.id", "r.target_type", "r.target_id", "r.reason", "r.status", "r.ts",
       "r.reporter_user_id", "ru.name as reporter_name",
       "f.id as file_id", "f.original_name as file_name", "f.hidden as file_hidden",
-      "p.id as project_id", "p.name as project_name", "p.hidden as project_hidden", "p.visibility as project_visibility",
+      "p.id as project_id", "p.name as project_name", "p.hidden as project_hidden",
       "ou.id as owner_id", "ou.name as owner_name", "ou.status as owner_status"])
 }
 
@@ -342,7 +342,7 @@ function admin_report_out(r) {
   if (r.target_type === "file" && r.file_id) {
     target = { name: r.file_name, hidden: !!r.file_hidden }
   } else if (r.target_type === "project" && r.project_id) {
-    target = { name: r.project_name, hidden: !!r.project_hidden, visibility: r.project_visibility }
+    target = { name: r.project_name, hidden: !!r.project_hidden }
   }
   if (target) target.owner = r.owner_id ? { id: r.owner_id, name: r.owner_name, status: r.owner_status } : null
   return {
@@ -413,8 +413,8 @@ router.put('/admin/projects/:id/hidden', require_admin, async (req, res) => {
   try {
     let n = await global.knex("projects").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
     if (n == 0) return res.status(404).send(PROJECT_NOT_FOUND)
-    let p = await global.knex("projects").select("id", "name", "visibility", "hidden").where({ id: id }).first()
-    return res.send({ stat: true, data: { id: p.id, name: p.name, visibility: p.visibility, hidden: !!p.hidden } })
+    let p = await global.knex("projects").select("id", "name", "hidden").where({ id: id }).first()
+    return res.send({ stat: true, data: { id: p.id, name: p.name, hidden: !!p.hidden } })
   } catch (e) {
     console.log("Error admin/projects/:id/hidden", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
@@ -453,7 +453,7 @@ router.get('/admin/stats', require_admin, async (req, res) => {
         users: users,
         files: { total: await count("files"), hidden: await count("files", { hidden: 1 }) },
         projects: {
-          total: await count("projects"), public: await count("projects", { visibility: "public" }),
+          total: await count("projects"),
           hidden: await count("projects", { hidden: 1 }),
         },
         reports: { open: await count("reports", { status: "open" }) },
@@ -474,14 +474,13 @@ router.get('/admin/stats', require_admin, async (req, res) => {
 // proyectos) y reinsertaban sin project_id. Los reemplazan PUT /projects/:id/track_groups y /tags.
 
 const PROJECT_NAME_MAX = 64
-const PROJECT_VISIBILITIES = ["private", "public"]
 const PROJECT_NOT_FOUND = { stat: false, text: "Proyecto inexistente" }
 // config del proyecto (projects.props): solo se guardan estas claves (lista blanca), el resto se ignora
 const PROJECT_PROPS_KEYS = ["tempo", "beats_x_bar", "tag_range", "delay"]
 const PROPS_MAX_LENGTH = 4096 // tamaño de las columnas props
 
 // columnas de la lista de proyectos (sin props: eso viene con GET /projects/:id)
-const PROJECT_LIST_COLUMNS = ["id", "name", "visibility", "hidden", "ts"]
+const PROJECT_LIST_COLUMNS = ["id", "name", "hidden", "ts"]
 
 // proyectos del usuario, del más viejo al más nuevo
 async function list_projects(user_id) {
@@ -490,7 +489,7 @@ async function list_projects(user_id) {
   return rows.map(project_summary)
 }
 function project_summary(r) {
-  return { id: r.id, name: r.name, visibility: r.visibility, hidden: !!r.hidden, ts: r.ts }
+  return { id: r.id, name: r.name, hidden: !!r.hidden, ts: r.ts }
 }
 
 // el proyecto `id` si es del usuario; si no, undefined (→ 404)
@@ -526,20 +525,17 @@ router.get("/projects", require_session, async (req, res) => {
   }
 })
 
-// crea un proyecto vacío: body { name, visibility?, props? }. Responde el proyecto (forma de la lista)
+// crea un proyecto vacío: body { name, props? }. Responde el proyecto (forma de la lista)
 router.post("/projects", require_session, async (req, res) => {
   let body = req.body || {}
   let name = parse_project_name(body.name)
   if (name === undefined) return res.send({ stat: false, text: PROJECT_NAME_TEXT })
-  let visibility = body.visibility ?? "private"
-  if (!PROJECT_VISIBILITIES.includes(visibility)) return res.status(400).send({ stat: false, text: "Visibilidad inválida" })
   let props = serialize_project_props(body.props ?? {})
   if (props === undefined) return res.status(400).send({ stat: false, text: "Datos inválidos" })
   let row = {
     id: uuid(),
     user_id: req.user.id,
     name: name,
-    visibility: visibility,
     props: props,
     ts: new Date().toISOString().slice(0, 19),
   }
@@ -622,7 +618,7 @@ router.get("/projects/:id", require_session, async (req, res) => {
   }
 })
 
-// edita el proyecto: body { name?, visibility?, props? } (solo lo que venga). `props` reemplaza la
+// edita el proyecto: body { name?, props? } (solo lo que venga). `props` reemplaza la
 // config completa (lista blanca). `hidden` no se edita acá (lo modera el admin). Responde el proyecto
 router.put("/projects/:id", require_session, async (req, res) => {
   let body = req.body || {}
@@ -630,10 +626,6 @@ router.put("/projects/:id", require_session, async (req, res) => {
   if (body.name !== undefined) {
     upd.name = parse_project_name(body.name)
     if (upd.name === undefined) return res.send({ stat: false, text: PROJECT_NAME_TEXT })
-  }
-  if (body.visibility !== undefined) {
-    if (!PROJECT_VISIBILITIES.includes(body.visibility)) return res.status(400).send({ stat: false, text: "Visibilidad inválida" })
-    upd.visibility = body.visibility
   }
   if (body.props !== undefined) {
     upd.props = serialize_project_props(body.props)
@@ -1089,13 +1081,20 @@ async function public_rate_limit(req, res, next) {
   }
 }
 
-// proyectos visibles al público (con el dueño unido como `u`)
+// proyectos visibles al público (con el dueño unido como `u`): todos los proyectos son públicos;
+// solo quedan afuera los ocultos por el admin y los de dueños no activos
 function public_projects_query(db) {
   return db("projects as p").join("users as u", "u.id", "p.user_id")
-    .where("p.visibility", "public").andWhere("p.hidden", 0).andWhere("u.status", "active")
+    .where("p.hidden", 0).andWhere("u.status", "active")
 }
 
-// galería: proyectos públicos, los más nuevos primero. Query opcional: page (desde 1) y per_page
+// archivos disponibles (los que suenan) de un proyecto `p`
+const PROJECT_AVAILABLE_FILES_SQL = `select count(*) from project_files pf join files f on f.id = pf.file_id
+  join users fu on fu.id = f.user_id
+  where pf.project_id = p.id and f.hidden = 0 and fu.status = 'active'`
+
+// galería: proyectos públicos con al menos un archivo disponible (los vacíos no se listan, aunque
+// su link /p/<id> funcione), los más nuevos primero. Query opcional: page (desde 1) y per_page
 router.get('/public/projects', public_rate_limit, async (req, res) => {
   let q = req.query || {}
   let page = 1, per_page = PUBLIC_PER_PAGE
@@ -1113,13 +1112,11 @@ router.get('/public/projects', public_rate_limit, async (req, res) => {
     }
   }
   try {
-    let { total } = await public_projects_query(global.knex).count({ total: "*" }).first()
-    let rows = await public_projects_query(global.knex)
+    let gallery_query = db => public_projects_query(db).whereRaw(`(${PROJECT_AVAILABLE_FILES_SQL}) > 0`)
+    let { total } = await gallery_query(global.knex).count({ total: "*" }).first()
+    let rows = await gallery_query(global.knex)
       .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio",
-        // archivos disponibles del proyecto (los que suenan)
-        global.knex.raw(`(select count(*) from project_files pf join files f on f.id = pf.file_id
-          join users fu on fu.id = f.user_id
-          where pf.project_id = p.id and f.hidden = 0 and fu.status = 'active') as files`)])
+        global.knex.raw(`(${PROJECT_AVAILABLE_FILES_SQL}) as files`)])
       .orderByRaw("p.ts is null, p.ts desc, p.id")
       .limit(per_page).offset((page - 1) * per_page)
     let items = rows.map(r => ({

@@ -101,7 +101,7 @@ async function load(id, retry = false) {
   if (n != load_n) return // llegó otro :id mientras cargaba
   loading.value = false
   if (!res.ok) {
-    if (res.status == 404) error.value = "Project not found (it may be private or no longer available)."
+    if (res.status == 404) error.value = "Project not found (it may have been removed or is no longer available)."
     else if (res.status == 429) error.value = "Too many requests: try again in a minute."
     else error.value = res.text
     if (AUTOSTART && is_retryable(res.status)) {

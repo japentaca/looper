@@ -53,7 +53,7 @@ export default async function do_migrations() {
   await create_table("projects")
   await create_column_string("projects", "user_id", 36)
   await create_column_string("projects", "name", 256)
-  await create_column_string("projects", "visibility", 16, "private") // private | public
+  await create_column_string("projects", "visibility", 16, "private") // OBSOLETA: todos los proyectos son públicos
   await create_column_flag("projects", "hidden") // oculto por el admin: 0 | 1
   await create_column_string("projects", "props", 4096) // JSON: tempo, beats_x_bar, tag_range, delay (antes users.props)
   await create_column_string("projects", "ts", 21)

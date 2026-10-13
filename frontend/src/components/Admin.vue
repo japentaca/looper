@@ -81,7 +81,6 @@
                 <span class="target_name">{{ row.target.name }}</span>
               </template>
               <el-tag v-if="row.target?.hidden" size="small" type="warning" class="flag">hidden</el-tag>
-              <el-tag v-if="row.target?.visibility == 'private'" size="small" type="info" class="flag">private</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="Owner" width="120">
@@ -311,7 +310,7 @@ function project_href(id) {
 }
 
 function project_link_title(target) {
-  if (target.hidden || target.visibility != "public") return "Open public link (404 while hidden or private)"
+  if (target.hidden) return "Open public link (404 while hidden)"
   return "Open public link"
 }
 

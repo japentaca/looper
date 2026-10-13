@@ -52,9 +52,9 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | PUT | `/logout` | — | — | `{ stat: true }` |
 | GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` (usuario, cuota y lista de proyectos; **sin** archivos, pistas, tags ni config) o `{ stat: false }` (200) sin sesión o con la sesión recién cortada |
 | GET | `/projects` | sí | — | `{ stat: true, data: [proyecto] }` (forma de la lista, ver abajo), del más viejo al más nuevo |
-| POST | `/projects` | sí | `{ name, visibility?, props? }` | `{ stat: true, data: proyecto }` (vacío: sin pistas, tags ni archivos); `{ stat: false, text }` si el nombre no tiene 1–64 caracteres; 400 si `visibility` no es `private`/`public` o `props` no es un objeto |
+| POST | `/projects` | sí | `{ name, props? }` | `{ stat: true, data: proyecto }` (vacío: sin pistas, tags ni archivos); `{ stat: false, text }` si el nombre no tiene 1–64 caracteres; 400 si `props` no es un objeto |
 | GET | `/projects/:id` | sí | — | `{ stat: true, data: proyecto completo }` (con `props`, `track_groups`, `tags` y `files`); 404 si no es del usuario |
-| PUT | `/projects/:id` | sí | `{ name?, visibility?, props? }` (solo lo que venga) | `{ stat: true, data: proyecto }` (forma de la lista, ya actualizado); mismas validaciones que `POST`; 404 si no es del usuario |
+| PUT | `/projects/:id` | sí | `{ name?, props? }` (solo lo que venga) | `{ stat: true, data: proyecto }` (forma de la lista, ya actualizado); mismas validaciones que `POST`; 404 si no es del usuario |
 | DELETE | `/projects/:id` | sí | — | `{ stat: true }`; borra el proyecto, sus pistas, tags y filas de `project_files` (los archivos del catálogo quedan); 404 si no es del usuario |
 | PUT | `/projects/:id/track_groups` | sí | array **completo** `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array, falta un `id` o hay un id repetido o usado en otro proyecto; 404 si no es del usuario |
 | PUT | `/projects/:id/tags` | sí | array **completo** `[{ id, name, color }]` | ídem `track_groups` |
@@ -63,8 +63,8 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | DELETE | `/files/:id` | sí | — | `{ stat: true, data: { removed_from_projects } }`; borra el archivo **en cascada** de todos los proyectos (propios y ajenos), la fila, el mp3 y descuenta `users.bytes_used`; 404 si no es del usuario o no existe |
 | GET | `/catalog` | sí | query opcional: `bpm`, `bpm_tol`, `beats`, `creator`, `q`, `page`, `per_page` | `{ stat: true, data: { items: [archivo del catálogo con creador y usos], total, page, per_page } }` (solo archivos disponibles); 400 `{ stat: false, text }` si un parámetro es inválido. Ver detalle abajo |
 | GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
-| GET | `/public/projects` | no | query opcional: `page`, `per_page` | `{ stat: true, data: { items: [proyecto de la galería], total, page, per_page } }` (proyectos `public`, no ocultos, con dueño `active`); 400 si un parámetro es inválido; 429 por el límite por IP. Ver `public` abajo |
-| GET | `/public/project/:id` | no | — | `{ stat: true, data: proyecto público }` (config, pistas, tags, archivos **disponibles** y creador); 404 `{ stat: false, text: "Proyecto inexistente" }` si no existe, es privado, está oculto o su dueño no está `active` (sin distinguir); 429 por el límite por IP. Ver `public` abajo |
+| GET | `/public/projects` | no | query opcional: `page`, `per_page` | `{ stat: true, data: { items: [proyecto de la galería], total, page, per_page } }` (proyectos no ocultos, con dueño `active` y al menos un archivo disponible); 400 si un parámetro es inválido; 429 por el límite por IP. Ver `public` abajo |
+| GET | `/public/project/:id` | no | — | `{ stat: true, data: proyecto público }` (config, pistas, tags, archivos **disponibles** y creador); 404 `{ stat: false, text: "Proyecto inexistente" }` si no existe, está oculto o su dueño no está `active` (sin distinguir); 429 por el límite por IP. Ver `public` abajo |
 | POST | `/report` | sí | `{ target_type: "file" \| "project", target_id, reason }` | `{ stat: true, text, data: { duplicate } }` (crea una fila en `reports` con `status = 'open'`, o `duplicate: true` si ya había una abierta del mismo usuario sobre lo mismo); `{ stat: false, text }` si el motivo está vacío o pasa de 500 caracteres, o el target es propio; 400 `target_type`/`target_id` inválidos; 404 si el archivo o proyecto no existe o no está a la vista; 429 por el límite diario. Ver `report` abajo |
 | POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `bpm`, `beats` y `project_id` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, bpm/beats inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
 | GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
@@ -72,7 +72,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | GET | `/admin/reports` | admin | query `status` opcional: `open` \| `resolved` \| `dismissed` (sin él o vacío: todas) | `{ stat: true, data: [denuncia admin] }`, las más nuevas primero (hasta 500); 400 si `status` es otro valor. Ver `admin/reports` abajo |
 | PUT | `/admin/reports/:id` | admin | `{ status: "resolved" \| "dismissed" \| "open" }` | `{ stat: true, data: denuncia admin }` (ya actualizada); 400 si `status` es otro valor; 404 `{ stat: false, text: "Denuncia inexistente" }` |
 | PUT | `/admin/files/:id/hidden` | admin | `{ hidden: bool }` | `{ stat: true, data: { id, name, hidden, available } }` (ya actualizado); 400 si `hidden` no es booleano; 404 "Archivo inexistente". Ver `admin` (ocultar) abajo |
-| PUT | `/admin/projects/:id/hidden` | admin | `{ hidden: bool }` | `{ stat: true, data: { id, name, visibility, hidden } }` (ya actualizado); 400 si `hidden` no es booleano; 404 "Proyecto inexistente" (de cualquier usuario) |
+| PUT | `/admin/projects/:id/hidden` | admin | `{ hidden: bool }` | `{ stat: true, data: { id, name, hidden } }` (ya actualizado); 400 si `hidden` no es booleano; 404 "Proyecto inexistente" (de cualquier usuario) |
 | GET | `/admin/stats` | admin | — | `{ stat: true, data: estadísticas }`. Ver `admin/stats` abajo |
 
 ## Detalles
@@ -85,7 +85,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
   status, role, bio, max_seconds, // status: "active" (los otros estados no deberían tener sesión); role: "user" | "admin"; max_seconds: null = default
   quota: { max_seconds, used_seconds }, // cuota efectiva (max_seconds o default_max_seconds de .env) y suma de files.duration;
                                         // la usa Uploader.vue para "te quedan m:ss"
-  projects: [{ id, name, visibility, hidden, ts }] // proyectos del usuario (forma de la lista de GET /projects)
+  projects: [{ id, name, hidden, ts }] // proyectos del usuario (forma de la lista de GET /projects)
 }
 ```
 
@@ -138,7 +138,7 @@ vacía o `null` → `null`. El nombre público no se cambia. `get_user_info` dev
 Proyecto en la **forma de la lista** (`GET /projects`, `u_info.projects`, respuesta de `POST` y `PUT`):
 
 ```js
-{ id, name, visibility: "private" | "public", hidden: bool, ts } // hidden: oculto por el admin (PUT /admin/projects/:id/hidden; el dueño lo sigue viendo)
+{ id, name, hidden: bool, ts } // hidden: oculto por el admin (PUT /admin/projects/:id/hidden; el dueño lo sigue viendo)
 ```
 
 **Proyecto completo** (`GET /projects/:id`): lo de arriba más
@@ -159,7 +159,7 @@ puede venir en archivos migrados: se ignora. `available` es `false` si el admin 
 (`files.hidden`) o su dueño no está `active` (bloqueado): el archivo sigue en el proyecto pero queda
 fuera del sorteo (tarea 3.8) y no se puede importar. Ver `projects/:id/files`.
 
-- `POST /projects`: `name` se recorta, 1 a 64 caracteres. `visibility` default `private`. `props`
+- `POST /projects`: `name` se recorta, 1 a 64 caracteres. Todos los proyectos son públicos (no hay visibilidad). `props`
   opcional (default `{}`), con la misma lista blanca que abajo. `hidden` nace en 0.
 - `PUT /projects/:id`: actualiza solo los campos presentes. `props` **reemplaza** la config completa
   (lista blanca `tempo`, `beats_x_bar`, `tag_range`, `delay`; el resto se ignora; hasta 4096
@@ -284,8 +284,9 @@ responde `items: []` con el `total` real.
 
 ### `public` (acceso público de solo lectura)
 
-Sin sesión (si viene una cookie, se ignora para estos datos). Un proyecto es **visible** si
-`visibility = 'public'`, `hidden = 0` (no lo ocultó el admin) y su dueño tiene `status = 'active'`.
+Sin sesión (si viene una cookie, se ignora para estos datos). Todos los proyectos son públicos: uno es **visible** si
+`hidden = 0` (no lo ocultó el admin) y su dueño tiene `status = 'active'`. La galería además omite
+los que no tienen ningún archivo disponible (su link `/p/<id>` igual responde).
 Nunca traen el email, el id ni el estado del dueño: del creador solo `{ name, bio }` (nombre
 público y bio, `bio` null si no tiene).
 
@@ -324,7 +325,7 @@ default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los 
 ```
 
 Solo vienen los archivos **disponibles** (no ocultos, dueño `active`): los no disponibles no se
-mandan (en `GET /projects/:id` el dueño los ve con `available = false`). No trae `visibility` ni
+mandan (en `GET /projects/:id` el dueño los ve con `available = false`). No trae
 `hidden`. Un id de más de 36 caracteres responde 404 sin consultar la base.
 
 El frontend lo usa en `/p/:id` (modo lectura, tarea 4.3) con `load_public_project(id)` de
@@ -339,9 +340,9 @@ Solo usuarios logueados (sin sesión, 401 como todo `require_session`). Se valid
    no, 400; con más de 36 caracteres, 404 sin consultar la base).
 2. `reason`: string recortado de 1 a 500 caracteres (si no, `{ stat: false, text }` con 200).
 3. El target tiene que **existir y estar a la vista** del usuario: un archivo **disponible** del
-   catálogo (no oculto, dueño `active`) o un proyecto **visible** de la galería (`public`, no oculto,
+   catálogo (no oculto, dueño `active`) o un proyecto **visible** (no oculto,
    dueño `active`). Si no, 404 `"Archivo inexistente"` / `"Proyecto inexistente"`, igual que un id
-   inexistente (no revela proyectos privados).
+   inexistente (no revela lo oculto).
 4. No se puede denunciar lo propio: `{ stat: false, text: "No podés denunciar algo propio" }`.
 5. Si el usuario ya tiene una denuncia **abierta** (`status = 'open'`) sobre el mismo target,
    responde el mismo éxito con `data.duplicate = true` sin crear otra fila ni contar para el límite.
@@ -430,7 +431,6 @@ Con `require_admin`. "Denuncia admin":
   reporter: { id, name },                  // denunciante (name null si el usuario ya no existe)
   target: { name,                          // original_name del archivo o nombre del proyecto
             hidden: bool,                  // estado actual de files.hidden / projects.hidden
-            visibility,                    // solo proyectos: "private" | "public"
             owner: { id, name, status } }  // dueño (null si ya no existe); status sirve para ver si está bloqueado
           | null                           // el archivo o proyecto denunciado ya se borró
 }

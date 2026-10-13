@@ -9,7 +9,7 @@ Detalle técnico en `docs/ARCHITECTURE.md`, secciones "Autostart y recuperación
 - Un proyecto con sus archivos, Tracks y Tags ya configurados (volumen, Rest, modo, Rev, Drift,
   tempo y compás se guardan en el proyecto y se recuperan al cargar). Se configura desde la app
   (`https://looper.jape.com.ar/`, con sesión), como siempre.
-- El proyecto tiene que ser **público** (visibility `public` en PROJECTS) y no estar oculto por el
+- Todos los proyectos son públicos; el del kiosko no tiene que estar oculto por el
   admin, con el dueño `active`. Si no, el link da "Project not found" y no suena nada.
 - El id del proyecto: es el `<id>` del link público (`/p/<id>`), el mismo que se ve en la galería
   (`/gallery`) al abrir el proyecto.
@@ -99,7 +99,7 @@ frontend locales, ver `AGENTS.md`, "Cómo correr"), se puede usar la app con ses
 - **Servidor caído al cargar** (link público con `?autostart=1`; la página bajó pero la API respondió
   un error 5xx o 429, o no respondió): la vista muestra el error con "Retrying in N s..." y
   reintenta sola a los 5 s, 10 s, 20 s... y después cada 60 s, sin rendirse; cuando el servidor responde, carga y arranca sola. Un "Project not found" (el proyecto
-  pasó a privado, lo ocultó el admin o se borró) **no** se reintenta: hay que arreglar el proyecto
+  lo ocultó el admin o se borró) **no** se reintenta: hay que arreglar el proyecto
   y recargar. Si Chrome ni siquiera pudo bajar la página (sin red al lanzarlo), muestra su página
   de error: ver la opción con demora arriba.
 - **Algún audio no carga**: se muestra un aviso con los archivos que fallaron y el resto suena igual.

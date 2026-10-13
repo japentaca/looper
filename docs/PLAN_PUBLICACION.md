@@ -134,10 +134,12 @@ en el mismo cambio (regla de `AGENTS.md`).
 
 ### Acceso público de solo lectura (política 7)
 
-- Visibilidad por proyecto: `private` (default) | `public`. Link `looper.<dominio>/p/<id>`.
-- **Galería pública** de proyectos públicos (con su creador). El admin puede ocultar un proyecto.
+- **Todos los proyectos son públicos** (no hay privados; aclarado por el dueño al probar, oct 2026). Link
+  `looper.<dominio>/p/<id>`.
+- **Galería pública** de los proyectos con al menos un archivo disponible (con su creador). El admin puede
+  ocultar un proyecto.
 - `GET /api/public/project/:id`: config, pistas, tags y archivos disponibles + nombre público del
-  dueño; sin emails ni ids de usuario. 404 si es privado, oculto o el dueño está bloqueado.
+  dueño; sin emails ni ids de usuario. 404 si está oculto o el dueño está bloqueado.
   Límite de requests por IP.
 - El visitante puede **START/STOP y mixer local** (mute, solo, volúmenes, tempo); nada se guarda.
 - La **instalación (kiosko) usa el link público** con `?autostart=1`: ya no necesita login.
@@ -160,7 +162,7 @@ obsoletas (como `files.tag`), no se borran.
 |---|---|
 | `users` | + `status`, `role`, `bio`, `max_seconds`. `email` y `name` únicos. `props` pasa a `projects.props` (queda obsoleta) |
 | `files` | Catálogo global: `id`, `user_id` (dueño), `original_name`, `size` + `duration` (s), `bpm`, `beats`, `hidden`, `ts`. `track_group`, `tags`, `props` pasan a `project_files` (quedan obsoletas) |
-| `projects` (nueva) | `id`, `user_id`, `name`, `visibility`, `hidden`, `props` (tempo, compás, `tag_range`, delay), `ts` |
+| `projects` (nueva) | `id`, `user_id`, `name`, `visibility` (obsoleta: todos públicos), `hidden`, `props` (tempo, compás, `tag_range`, delay), `ts` |
 | `project_files` (nueva) | `id`, `project_id`, `file_id`, `track_group`, `tags` (JSON), `props` (volumen) |
 | `user_track_groups`, `user_tags` | + `project_id` (se mantienen los nombres de tabla) |
 | `reports` (nueva) | `id`, `target_type` (`file` \| `project`), `target_id`, `reporter_user_id`, `reason`, `status`, `ts` |
@@ -336,7 +338,7 @@ empalma sin clic en Tone.js**.
   `tag_range`) desde `projects.props`; guardados contra los endpoints nuevos.
   *Acepta*: build OK; no quedan llamadas a endpoints eliminados.
 - [x] **3.7 UI de proyectos.** Componente nuevo + `App.vue`. Elegir, crear, renombrar y borrar
-  proyectos; visibilidad privada/pública.
+  proyectos (todos públicos).
   *Acepta*: build OK.
 - [x] **3.8 Motor: no disponibles fuera del sorteo.** `Tracks.vue`, `Files.vue`. La selección
   aleatoria ignora archivos con `available = false`; una pista sin sorteables queda en silencio;
@@ -358,7 +360,7 @@ memoria aparece con un proyecto grande.
 *Decidido*: rutas con `vue-router`; denuncias solo de usuarios logueados.
 
 - [x] **4.1 API pública.** `routes/api.js`. `GET /public/projects` (galería) y
-  `GET /public/project/:id` (404 si es privado, está oculto o el dueño está bloqueado); límite por IP.
+  `GET /public/project/:id` (404 si está oculto o el dueño está bloqueado); límite por IP.
   *Acepta*: ningún email ni id de usuario en las respuestas; casos 404.
 - [x] **4.2 Rutas en el frontend.** Según la decisión previa: `/`, `/p/:id`, galería.
   *Acepta*: build OK; el `try_files` necesario queda anotado para la 6.1.

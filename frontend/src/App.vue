@@ -34,7 +34,6 @@
         <Lcd small :digits="0">
           <template v-if="store.project">
             <span class="project_name" :title="store.project.name">{{ store.project.name }}</span>
-            <span class="project_vis">{{ store.project.visibility == 'public' ? 'PUB' : 'PRV' }}</span>
           </template>
           <span v-else class="project_name">NO PROJECT</span>
         </Lcd>
@@ -51,8 +50,8 @@
 
       <span class="spacer"></span>
       <span v-if="store.isLogged == true" class="silk user">{{ store.u_info.name }}</span>
-      <!-- la galería pública se abre en otra pestaña, para no cortar lo que está sonando -->
-      <LedButton size="small" text="GALLERY" @click="open_gallery()" />
+      <!-- galería pública en un diálogo (abrir un proyecto navega a /p/<id> en esta pestaña) -->
+      <LedButton size="small" text="GALLERY" @click="galleryVisible = true" />
       <LedButton v-if="store.isLogged == false" size="small" text="LOGIN" @click="store.loginVisible = true" />
       <LedButton v-if="is_admin" size="small" text="ADMIN" @click="adminVisible = true" />
       <LedButton v-if="store.isLogged == true" size="small" text="ACCOUNT" @click="accountVisible = true" />
@@ -102,6 +101,7 @@
     <Account v-if="store.isLogged == true" v-model="accountVisible" />
     <Projects v-if="store.isLogged == true" v-model="projectsVisible" />
     <ImportFiles v-if="store.isLogged == true" v-model="importVisible" />
+    <GalleryDialog v-model="galleryVisible" />
     <!-- solo para role = admin: a los demás ni se monta (el backend igual lo exige con require_admin) -->
     <Admin v-if="is_admin" v-model="adminVisible" />
   </div>
@@ -114,6 +114,7 @@ import Login from "./components/Login.vue"
 import Account from "./components/Account.vue"
 import Projects from "./components/Projects.vue"
 import ImportFiles from "./components/ImportFiles.vue"
+import GalleryDialog from "./components/GalleryDialog.vue"
 import Admin from "./components/Admin.vue"
 import Uploader from "./components/Uploader.vue"
 import Tracks from "./components/Tracks.vue"
@@ -179,9 +180,7 @@ const accountVisible = ref(false) // diálogo de cuenta (bio y cambio de clave)
 const projectsVisible = ref(false) // diálogo de proyectos (abrir, crear, renombrar, borrar, visibilidad)
 const importVisible = ref(false) // diálogo de importar del catálogo al proyecto activo
 const adminVisible = ref(false) // diálogo de admin de usuarios
-function open_gallery() {
-  window.open(import.meta.env.BASE_URL + "gallery", "_blank", "noopener")
-}
+const galleryVisible = ref(false) // diálogo de la galería pública
 const is_admin = computed(() => store.isLogged == true && store.u_info.role === "admin")
 onMounted(async () => {
   if (!store.alreadyMounted) {
@@ -316,13 +315,6 @@ onMounted(async () => {
   vertical-align: bottom;
   font-size: 12px;
   letter-spacing: 0.5px;
-}
-
-.project_vis {
-  margin-left: 8px;
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  opacity: 0.75;
 }
 
 .preview {

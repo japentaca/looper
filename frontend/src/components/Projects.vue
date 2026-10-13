@@ -21,12 +21,6 @@
             title="Oculto por el admin: no aparece en la galería pública">hidden</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Visibility" width="130">
-        <template #default="{ row }">
-          <el-switch :model-value="row.visibility == 'public'" :disabled="busy" inline-prompt active-text="Public"
-            inactive-text="Private" @change="v => do_visibility(row, v)" />
-        </template>
-      </el-table-column>
       <el-table-column label="Date" width="96">
         <template #default="{ row }">{{ fmt_date(row.ts) }}</template>
       </el-table-column>
@@ -157,14 +151,6 @@ async function do_rename(row) {
   if (name === row.name) return
   await run(async () => {
     let res = await update_project(row.id, { name })
-    if (!res.stat) return set_msg("error", res.text)
-    apply_summary(res.data)
-  })
-}
-
-async function do_visibility(row, is_public) {
-  await run(async () => {
-    let res = await update_project(row.id, { visibility: is_public ? "public" : "private" })
     if (!res.stat) return set_msg("error", res.text)
     apply_summary(res.data)
   })

@@ -135,7 +135,7 @@ export function admin_set_file_hidden(id, hidden) {
   })
 }
 
-// admin: oculta (true) o desoculta (false) un proyecto → { stat, data: { id, name, visibility, hidden } }
+// admin: oculta (true) o desoculta (false) un proyecto → { stat, data: { id, name, hidden } }
 export function admin_set_project_hidden(id, hidden) {
   return request({
     url: '/api/admin/projects/' + encodeURIComponent(id) + '/hidden',
@@ -152,7 +152,7 @@ export function admin_get_stats() {
   })
 }
 
-// proyectos del usuario: [{ id, name, visibility, hidden, ts }]
+// proyectos del usuario: [{ id, name, hidden, ts }]
 export function get_projects() {
   return request({
     url: '/api/projects',
@@ -160,7 +160,7 @@ export function get_projects() {
   })
 }
 
-// crea un proyecto vacío: { name, visibility?, props? } → { stat, data: proyecto }
+// crea un proyecto vacío: { name, props? } → { stat, data: proyecto }
 export function create_project(data) {
   return request({
     url: '/api/projects',
@@ -169,7 +169,7 @@ export function create_project(data) {
   })
 }
 
-// proyecto completo: { id, name, visibility, hidden, ts, props, track_groups, tags, files }
+// proyecto completo: { id, name, hidden, ts, props, track_groups, tags, files }
 export function get_project(id) {
   return request({
     url: '/api/projects/' + encodeURIComponent(id),
@@ -177,7 +177,7 @@ export function get_project(id) {
   })
 }
 
-// edita el proyecto: { name?, visibility?, props? } (props reemplaza la config completa)
+// edita el proyecto: { name?, props? } (props reemplaza la config completa)
 export function update_project(id, data) {
   return request({
     url: '/api/projects/' + encodeURIComponent(id),

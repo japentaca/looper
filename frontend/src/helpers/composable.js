@@ -8,7 +8,7 @@ export const store = reactive({
   loginVisible: false,
   u_info: {},
   isLogged: false,
-  // proyectos del usuario (lista: id, name, visibility, hidden, ts) y proyecto activo (misma forma).
+  // proyectos del usuario (lista: id, name, hidden, ts) y proyecto activo (misma forma).
   // Pistas, tags, archivos y config (TrackCtrl) son siempre los del proyecto activo
   projects: [],
   project: null,
@@ -258,7 +258,7 @@ export async function load_project(id) {
     store.loading = false
     return false
   }
-  store.project = { id: p.id, name: p.name, visibility: p.visibility, hidden: p.hidden, ts: p.ts }
+  store.project = { id: p.id, name: p.name, hidden: p.hidden, ts: p.ts }
   remember_project(p.id)
   return await install_project(p, same)
 }
@@ -289,7 +289,7 @@ export async function load_public_project(id) {
     store.loading = false
     return { ok: false, status: 0, text: "Loading cancelled" }
   }
-  store.project = { id: p.id, name: p.name, visibility: "public", ts: p.ts }
+  store.project = { id: p.id, name: p.name, ts: p.ts }
   let ok = await install_project(p, false)
   // creator: { name, bio } (lo único del dueño que expone la API pública)
   return { ok, status: 200, text: "", creator: p.creator ?? { name: "", bio: null } }
