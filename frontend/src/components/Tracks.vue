@@ -140,10 +140,10 @@
               :title="'Drift ' + Math.round((trg.props.drift ?? 0) * 100) + '%'"
               @update:model-value="v => set_drift(trg.id, Math.round(v * 100) / 100)" />
           </div>
-          <!-- mute / solo de la pista (guardados en props) -->
+          <!-- mute / solo de la pista (solo en memoria: no se guardan) -->
           <div class="mute_solo">
-            <LedButton size="small" text="M" led="red" :lit="!!trg.props.mute" @click="toggle_mute(trg.id)" />
-            <LedButton size="small" text="S" led="yellow" :lit="!!trg.props.solo" @click="toggle_solo(trg.id)" />
+            <LedButton size="small" text="M" led="red" :lit="!!mixer.mute[trg.id]" @click="toggle_mute(trg.id)" />
+            <LedButton size="small" text="S" led="yellow" :lit="!!mixer.solo[trg.id]" @click="toggle_solo(trg.id)" />
           </div>
         </div>
       </div>
@@ -176,7 +176,7 @@ import Led from "./hw/Led.vue"
 import LedMeter from "./hw/LedMeter.vue"
 import StepLeds from "./hw/StepLeds.vue"
 import {
-  levels, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
+  levels, mixer, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
   set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB, set_delay, DLY_OFF_DB
 } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"

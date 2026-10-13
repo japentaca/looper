@@ -8,7 +8,7 @@ Detalle técnico en `docs/ARCHITECTURE.md`, sección "Autostart y recuperación"
 - Backend y Redis corriendo (ver `AGENTS.md`, "Cómo correr"). Para una instalación conviene servir
   el build de producción del frontend (`npm run build_prd`) o, como mínimo, dejar `npm run dev`
   corriendo en el puerto 31201.
-- Un usuario con sus archivos, Tracks y Tags ya configurados (volumen, mute, solo, Rest, modo, Rev,
+- Un usuario con sus archivos, Tracks y Tags ya configurados (volumen, Rest, modo, Rev,
   Drift se guardan por pista y se recuperan al cargar).
 - El equipo sin suspensión ni hibernación (Windows: Configuración → Sistema → Inicio/apagado y
   suspensión → "Nunca"). Apagar la pantalla no corta el audio.

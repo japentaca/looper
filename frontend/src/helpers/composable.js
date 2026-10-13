@@ -74,10 +74,10 @@ export async function save_trackGroups() {
 // JSON.stringify lo vuelve null igual); drift = modulación lenta 0..1 de filtro y send (ver mixer.js).
 // delay = nivel del send al delay global en dB (null = nada, igual que reverb).
 export function trg_default_props() {
-  return { volume: 0, mute: false, solo: false, rest: 0, mode: "loop", on_tag_change: false, density: 0,
+  return { volume: 0, rest: 0, mode: "loop", on_tag_change: false, density: 0,
     reverb: null, drift: 0, delay: null }
 }
-// guardado diferido de los track groups (para controles que cambian seguido: mute, solo, volumen)
+// guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
 let save_trg_timer = null
 export function save_trackGroups_debounced(ms = 500) {
   clearTimeout(save_trg_timer)
@@ -159,6 +159,9 @@ export const store_get_user_info = async () => {
     for (let i = 0; i < store.u_info.track_groups.length; i++) {
       let t = store.u_info.track_groups[i]
       t.props = { ...trg_default_props(), ...(t.props ?? {}) }
+      // mute y solo ya no se guardan (viven en memoria en mixer.js): se descartan si quedaron de antes
+      delete t.props.mute
+      delete t.props.solo
       store.track_groups.push(t)
     }
 

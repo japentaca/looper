@@ -1,7 +1,7 @@
 // Mixer de las pistas: un canal por track group (Tone.Channel, con volumen, mute y solo) y su vúmetro.
 // Los players de los archivos del grupo se enrutan al canal en vez de ir directo a la salida.
 // Además hay un vúmetro estéreo en la salida master. Los Meter solo analizan: no cambian el audio.
-// El volumen, mute y solo de cada pista viven en trg.props (se guardan con save_trackGroups).
+// El volumen y los efectos de cada pista viven en trg.props (se guardan con save_trackGroups); mute y solo, en memoria (mixer).
 // Efectos por pista: player → Filter (lowpass) → Channel, y un send post-fader del canal a una reverb
 // compartida. Con props.drift > 0 una caminata al azar lenta mueve el filtro y el send (start_drift).
 // Delay global sincronizado al tempo (config en TrackCtrl.delay) con un send post-fader por pista.
@@ -168,12 +168,17 @@ function filter_freq(p, walk) {
   return FILTER_OPEN_HZ * Math.pow(FILTER_MIN_HZ / FILTER_OPEN_HZ, walk.f * (p.drift ?? 0))
 }
 
+// mute / solo por pista: solo en memoria (no se guardan, a propósito: un solo o un mute olvidado
+// dejaría muda la instalación al recargar). Viven acá y no en los tracks (que se rearman en cada START).
+// Varias pistas pueden estar en solo a la vez.
+export const mixer = reactive({ mute: {}, solo: {} })
+
 function get_strip(trg) {
   if (!channels_by_trg[trg]) {
     let p = trg_props(trg)
     // channelCount 2: si no, Tone.Channel pasa el audio a mono
     let channel = new Tone.Channel({
-      channelCount: 2, volume: p.volume ?? 0, mute: !!p.mute, solo: !!p.solo
+      channelCount: 2, volume: p.volume ?? 0, mute: !!mixer.mute[trg], solo: !!mixer.solo[trg]
     }).toDestination()
     // filtro de la pista (los players entran acá). Tone.Filter es Gain → BiquadFilter → Gain nativos,
     // que ya son estéreo (a diferencia del Panner del Channel). Abierto a 20 kHz con Q 0 no colorea.
@@ -213,6 +218,8 @@ function remove_channel(trg) {
   ch.meter.dispose()
   delete channels_by_trg[trg]
   delete levels.trgs[trg]
+  delete mixer.mute[trg]
+  delete mixer.solo[trg]
 }
 
 // un canal por cada track group: se crean al cargar (con lo guardado en props) o al agregar un pad,
@@ -237,17 +244,13 @@ export function route_player(file_id) {
 }
 
 export function toggle_mute(trg) {
-  let p = trg_props(trg)
-  p.mute = !p.mute
-  get_channel(trg).mute = p.mute
-  save_trackGroups_debounced()
+  mixer.mute[trg] = !mixer.mute[trg]
+  get_channel(trg).mute = mixer.mute[trg]
 }
 
 export function toggle_solo(trg) {
-  let p = trg_props(trg)
-  p.solo = !p.solo
-  get_channel(trg).solo = p.solo
-  save_trackGroups_debounced()
+  mixer.solo[trg] = !mixer.solo[trg]
+  get_channel(trg).solo = mixer.solo[trg]
 }
 
 // volumen de la pista en dB (se llama mientras se mueve el fader; el guardado es diferido)
@@ -342,8 +345,8 @@ export function stop_drift() {
 
 // true si la pista no se escucha: está en mute u otra pista está en solo
 export function is_silenced(trg) {
-  if (trg_props(trg).mute) return true
-  return !trg_props(trg).solo && store.track_groups.some(t => t.props?.solo)
+  if (mixer.mute[trg]) return true
+  return !mixer.solo[trg] && Object.values(mixer.solo).some(v => v)
 }
 
 function db_to_level(db) {

@@ -62,7 +62,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto) | `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), mute: bool, solo: bool, rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
 
@@ -247,10 +247,12 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   le quita el solo para no dejar callados a los demás). `start_file` llama a `route_player(id)`, que saca al player de `Destination` (los players se crean
   con `.toDestination()` en `composable.js`) y lo conecta al canal de su grupo. Se hace una sola vez
   por player (WeakMap player → grupo); si el archivo cambió de grupo se pasa al canal nuevo.
-- **Volumen / mute / solo**: viven en `trg.props.volume` (dB), `trg.props.mute` y `trg.props.solo`
-  y se guardan en la base (`save_trackGroups_debounced`). `set_volume`, `toggle_mute` y
-  `toggle_solo` escriben `props` y lo aplican al `Tone.Channel` (que resuelve el solo entre canales:
-  si hay alguno en solo, el resto queda callado; puede haber varios en solo). La tira tiene un
+- **Volumen**: vive en `trg.props.volume` (dB) y se guarda en la base (`save_trackGroups_debounced`).
+- **Mute / solo**: **no se guardan**, a propósito (un solo o un mute olvidado dejaría muda la
+  instalación al recargar). Viven en memoria en `mixer.mute[trg]` / `mixer.solo[trg]` (reactive de
+  `mixer.js`); al cargar se descartan `props.mute` / `props.solo` que hayan quedado guardados de antes.
+  `set_volume`, `toggle_mute` y `toggle_solo` lo aplican al `Tone.Channel` (que resuelve el solo
+  entre canales: si hay alguno en solo, el resto queda callado; puede haber varios en solo). La tira tiene un
   `Fader` chico (−48..+6 dB) y los botones M / S. El estado vive fuera de `TrackCtrl.tracks` porque
   los tracks se rearman en cada START. El volumen del canal se suma al `props.volume` de cada
   archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales.
