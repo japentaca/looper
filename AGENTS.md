@@ -37,7 +37,9 @@ frontend/src/
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
     Uploader.vue     # subida de archivos (el-upload)
-    Login.vue        # diálogo de login
+    Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
+    Account.vue      # diálogo de cuenta propia: bio y cambio de clave
+    Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, StepLeds
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
@@ -85,8 +87,9 @@ npm run dev
 npm run build_prd    # build de producción (usa .env.prd)
 ```
 
-No hay endpoint de registro: los usuarios se crean a mano en la tabla `users` (id uuid, email, name
-y el hash de la clave). Para generar el hash, desde `backend/`:
+`POST /api/register` crea cuentas `pending`; un admin las admite con `PUT /api/admin/users/:id`
+(`{ "action": "admit" }`; ver `docs/API.md`), o desde el diálogo ADMIN de la app. También se pueden crear a mano en la tabla `users` (id uuid, email en
+minúsculas, name único, `status = 'active'`, `role = 'user'` y el hash de la clave). Para generar el hash, desde `backend/`:
 `node -e "console.log(require('bcrypt').hashSync('la_clave', 10))"`.
 Con una base vacía, `db_migrations.js` crea el esquema completo al arrancar.
 
@@ -143,5 +146,7 @@ Imitar el estilo existente al editar:
   proponerlo primero. Si se arregla algo listado en `docs/KNOWN_ISSUES.md`, actualizar ese archivo.
 - Si un cambio afecta endpoints, esquema o el motor de reproducción, actualizar `docs/API.md` /
   `docs/ARCHITECTURE.md` en el mismo cambio. La documentación desactualizada es peor que ninguna.
-- Los endpoints asumen sesión (`req.session.isLogged`, `req.session.u_info.id`). Todo endpoint
-  nuevo debe validar sesión **y** filtrar por `user_id` en las queries.
+- Todo endpoint nuevo lleva `require_session` (o `require_admin`) como middleware de ruta **y**
+  filtra sus queries por `user_id: req.user.id` (lo deja el chequeo de sesión por request, que lee
+  `status` y `role` de la base; no usar `req.session.isLogged` ni `req.session.u_info`). Ver
+  "Cómo agregar un endpoint" en `docs/API.md`.

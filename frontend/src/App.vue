@@ -37,6 +37,8 @@
       <span class="spacer"></span>
       <span v-if="store.isLogged == true" class="silk user">{{ store.u_info.name }}</span>
       <LedButton v-if="store.isLogged == false" size="small" text="LOGIN" @click="store.loginVisible = true" />
+      <LedButton v-if="is_admin" size="small" text="ADMIN" @click="adminVisible = true" />
+      <LedButton v-if="store.isLogged == true" size="small" text="ACCOUNT" @click="accountVisible = true" />
       <LedButton v-if="store.isLogged == true" size="small" text="LOGOUT" @click="doLogout()" />
       <!-- barra de avance de la carga de audios, sobre el borde inferior de la barra superior -->
       <div v-if="loading_audio" class="load_bar">
@@ -80,6 +82,9 @@
     </div>
 
     <Login :visible="store.loginVisible" />
+    <Account v-if="store.isLogged == true" v-model="accountVisible" />
+    <!-- solo para role = admin: a los demás ni se monta (el backend igual lo exige con require_admin) -->
+    <Admin v-if="is_admin" v-model="adminVisible" />
   </div>
 </template>
 <script setup>
@@ -87,6 +92,8 @@ import { ref, computed, onMounted } from "vue"
 import SidebarItem from "./components/SidebarItem.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
+import Account from "./components/Account.vue"
+import Admin from "./components/Admin.vue"
 import Uploader from "./components/Uploader.vue"
 import Tracks from "./components/Tracks.vue"
 import Led from "./components/hw/Led.vue"
@@ -147,6 +154,9 @@ const status_title = computed(() => store.session_lost
 const loading_audio = computed(() => store.isLogged == true && !TrackCtrl.isReady && store.load_progress.total > 0)
 
 const activeCollapsable = ref('2')
+const accountVisible = ref(false) // diálogo de cuenta (bio y cambio de clave)
+const adminVisible = ref(false) // diálogo de admin de usuarios
+const is_admin = computed(() => store.isLogged == true && store.u_info.role === "admin")
 onMounted(async () => {
   if (!store.alreadyMounted) {
     store.alreadyMounted = true

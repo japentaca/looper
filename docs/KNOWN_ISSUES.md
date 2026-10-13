@@ -18,6 +18,12 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 - 🟠 `utils.convert_file` arma un comando de shell interpolando rutas sin comillas: falla con
   espacios en `storage_path` y es frágil ante rutas controladas por terceros. Usar `execFile` con
   array de argumentos.
+- 🟡 `PUT /change_password` no cierra las otras sesiones abiertas del usuario, y el
+  `reset_password` del admin (`PUT /admin/users/:id`) tampoco cierra ninguna (connect-redis no
+  indexa sesiones por usuario). Si la clave se filtró, bloquear al usuario (corta todas sus
+  sesiones en el request siguiente) y después desbloquearlo. Arreglo posible: guardar en `users`
+  un contador o fecha de cambio de clave, copiarlo a la sesión al loguearse y compararlo en el
+  chequeo por request.
 
 ## Backend
 

@@ -3,14 +3,28 @@
 Base: `<VITE_APP_BACKEND>/api`. Autenticación por cookie de sesión (`express-session` en Redis),
 salvo `file/:id`, que es público (los archivos de audio son siempre públicos). Respuesta típica: `{ stat: boolean, text?: string, data?: any }`.
 
+En cada request con sesión, un middleware del router lee `status` y `role` del usuario **de la
+base**: si no existe o no está `active`, destruye la sesión (en Redis) y el request sigue sin
+sesión. Los endpoints con "Sesión: sí" responden entonces **401** `{ stat: false, text: "Sin sesión" }`
+(helper `require_session`); `get_user_info` responde `{ stat: false }`. Así, bloquear a alguien corta
+su sesión en el request siguiente. Los endpoints de admin usan `require_admin` (401 sin sesión,
+403 `{ stat: false, text: "Sin permiso" }` si `role` no es `admin`).
+
 Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` ya devuelve
-`response.data`, así que el front recibe directamente el cuerpo JSON.
+`response.data`, así que el front recibe directamente el cuerpo JSON. Si el status no es 2xx, axios
+rechaza la promesa: `error_text(e)` (en `helpers/api.js`) devuelve el `text` del backend o un
+mensaje de conexión para mostrarlo al usuario. Wrappers de cuenta: `register`, `change_password` y
+`save_profile` (`PUT /profile`). Wrappers de admin: `admin_get_users(status?)` (`GET /admin/users`)
+y `admin_update_user(id, { action, ... })` (`PUT /admin/users/:id`), usados por `Admin.vue`.
 
 | Método | Ruta | Sesión | Body / Query | Respuesta |
 |---|---|---|---|---|
-| POST | `/login` | no | `{ email, password }` | `{ stat: true, data: { u_info, text } }` o `{ stat: false, text }` (también con 10 fallos por IP en 15 min: "Demasiados intentos") |
+| POST | `/login` | no | `{ email, password }` (el email se compara en minúsculas) | `{ stat: true, data: { u_info, text } }` solo si `status = 'active'`; si no, `{ stat: false, text }`: clave correcta con `status = 'pending'` → "Tu cuenta está pendiente de aprobación"; clave inválida, email inexistente o `blocked` → "Usuario o clave inválida" (mismo texto y cuenta como fallo); 10 fallos por IP en 15 min → "Demasiados intentos" |
+| POST | `/register` | no | `{ email, password, name, bio?, accept_license: true }` | `{ stat: true, text }` si se registró **o si el email ya existía** (misma respuesta, no revela registrados; la cuenta existente no se toca). Error `{ stat: false, text }`: email inválido, clave fuera de 8–72, nombre fuera de 3–32 o con caracteres no permitidos, bio de más de 280, licencia no aceptada, "Ese nombre ya está en uso" (sin distinguir mayúsculas), 10 intentos por IP por hora → "Demasiados intentos". Ver detalle abajo |
+| PUT | `/change_password` | sí | `{ current_password, new_password }` | `{ stat: true, text: "Clave cambiada" }`; si no, `{ stat: false, text }`: falta la actual, nueva fuera de 8–72, "La clave actual es incorrecta" (cuenta como fallo), 10 fallos por usuario en 15 min → "Demasiados intentos". Ver detalle abajo |
+| PUT | `/profile` | sí | `{ bio }` (string o `null`) | `{ stat: true }`; `{ stat: false, text }` si la bio pasa de 280 caracteres; 400 si `bio` no es string ni `null` |
 | PUT | `/logout` | — | — | `{ stat: true }` |
-| GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` o `{ stat: false }` |
+| GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` o `{ stat: false }` (200) sin sesión o con la sesión recién cortada |
 | PUT | `/save_trackGroups` | sí | array `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array |
 | PUT | `/save_user_props` | sí | objeto `{ tempo, beats_x_bar, tag_range, delay }` | `{ stat: true }`; 400 si el body no es un objeto o si el JSON pasa de 4096 caracteres |
 | PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }`; 400 si el body no es un array |
@@ -18,6 +32,8 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 | PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
 | GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
 | POST | `/upload` | sí | multipart, uno o más archivos (mp3/wav) | 200 sin cuerpo |
+| GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
+| PUT | `/admin/users/:id` | admin | `{ action, password?, max_seconds? }` | `{ stat: true, data: usuario admin }` (ya actualizado); `{ stat: false, text }` si la acción no corresponde al estado, el usuario es admin, o la clave/cuota no es válida; 400 acción desconocida; 404 usuario inexistente. Ver detalle abajo |
 
 ## Detalles
 
@@ -26,6 +42,7 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 ```js
 {
   email, name, ts, bytes_used, max_bytes_uploaded,
+  status, role, bio, max_seconds, // status: "active" (los otros estados no deberían tener sesión); role: "user" | "admin"; max_seconds: null = default
   props: { tempo, beats_x_bar, delay: { type, division, feedback, level } }, // config global; {} si no hay nada guardado
                                                                              // (el front completa los defaults)
   files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3" }], // props.oneShot viejo puede venir: se ignora
@@ -35,7 +52,47 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 }
 ```
 
-`login` devuelve el mismo `u_info` que `get_user_info`.
+`login` devuelve el mismo `u_info` que `get_user_info`. Los datos del usuario se leen de la base en
+cada llamada (lista blanca de columnas de `users`; nunca `password` ni `id`): la sesión solo guarda
+el id.
+
+### `register`
+
+Registro público. La cuenta se crea con `status = 'pending'` y `role = 'user'` (no se crea sesión:
+hasta que un admin la admita, el login responde "pendiente de aprobación"). Validación:
+
+- `email`: se recorta y pasa a minúsculas; formato `x@y.z`, hasta 254 caracteres.
+- `password`: 8 a 72 caracteres (bcrypt solo usa los primeros 72 bytes); se guarda el hash bcrypt.
+- `name`: nombre público, se recorta; 3 a 32 caracteres, solo letras, números, espacio, `.`, `-` y
+  `_`. Único **sin distinguir mayúsculas** (`Jape` y `jape` chocan; el índice de la base sí las
+  distingue, el chequeo lo hace el endpoint).
+- `bio`: opcional, se recorta, hasta 280 caracteres (vacía → `null`).
+- `accept_license`: tiene que ser `true` (licencia única "libre uso dentro de Looper"). No se guarda:
+  toda cuenta registrada la aceptó.
+
+Orden: validación de formato (no cuenta para el límite) → límite por IP → hash bcrypt (se calcula
+siempre, para que el tiempo de respuesta no delate un email repetido) → nombre repetido (error) →
+email repetido (misma respuesta que el éxito) → insert. Si dos registros simultáneos chocan en los
+índices únicos, se responde igual (nombre → error; email → éxito).
+
+Límite por IP en Redis: `looper_register:<ip>` cuenta los intentos con datos válidos (éxitos
+incluidos); con más de 10 en una hora desde el primero responde "Demasiados intentos, probá de
+nuevo más tarde".
+
+### `change_password`
+
+Cambio de clave del propio usuario. Pide la clave actual (se compara con bcrypt) y la nueva, con la
+misma regla que el registro (8 a 72 caracteres; se guarda el hash bcrypt). No se exige que la nueva
+sea distinta de la actual. Los fallos con la actual se cuentan **por usuario** en Redis
+(`looper_pwchange_fails:<user_id>`; por usuario y no por IP para no bloquear el login de otros en la
+misma red): con 10 fallos se rechaza 15 min desde el primero; un cambio correcto borra el contador.
+La sesión actual sigue abierta; las otras sesiones del usuario **no** se cierran (ver
+`KNOWN_ISSUES.md`).
+
+### `profile`
+
+Edita el perfil público del propio usuario. Por ahora solo `bio`: se recorta, hasta 280 caracteres,
+vacía o `null` → `null`. El nombre público no se cambia. `get_user_info` devuelve la bio nueva.
 
 ### `save_trackGroups` / `save_tags`
 
@@ -63,12 +120,35 @@ Solo actualiza `track_group`, `tags` (array de ids de tags, guardado como JSON) 
 (serializado a JSON). El resto de los campos del objeto se ignoran. Filtra por `user_id`: si el
 archivo no existe o es de otro usuario responde 403 `{ stat: false, text: "Archivo inexistente" }`.
 
+### `admin/users` (admin de usuarios)
+
+Ambos con `require_admin` (401 sin sesión, 403 si `role` no es `admin`). El "usuario admin" que
+devuelven tiene solo `{ id, email, name, bio, status, role, max_seconds, bytes_used, ts }`: nunca el
+hash de la clave ni `props`.
+
+Acciones de `PUT /admin/users/:id` (`action`):
+
+| `action` | Requiere | Efecto |
+|---|---|---|
+| `admit` | `status = 'pending'` | → `active` (admite la solicitud) |
+| `reject` | `status = 'pending'` | → `blocked` (email y nombre quedan reservados) |
+| `block` | `status = 'active'` | → `blocked`; sus sesiones abiertas se cortan en el request siguiente |
+| `unblock` | `status = 'blocked'` | → `active` (también sirve para admitir una solicitud rechazada) |
+| `reset_password` | `password` (8 a 72, como el registro) | guarda el hash bcrypt de la clave que define el admin (se la pasa al usuario por otro canal) y borra `looper_pwchange_fails:<id>`. **No** cierra las sesiones abiertas del usuario (ver `KNOWN_ISSUES.md`) |
+| `set_max_seconds` | `max_seconds`: entero 0..86400 o `null` | cuota de audio en segundos; `null` = default de `.env` (se aplica desde la fase 2) |
+
+Si el estado no es el requerido responde `{ stat: false, text: 'No se puede aplicar "<action>" a un
+usuario <status>' }` sin cambiar nada (el update está condicionado al estado de partida). Las
+acciones de estado no se aplican a usuarios con `role = 'admin'` (`{ stat: false, text: "No se puede
+cambiar el estado de un admin" }`), así el admin no se bloquea a sí mismo; el reset de clave y la
+cuota sí. El rol no se cambia desde la API.
+
 ## Cómo agregar un endpoint
 
-1. En `routes/api.js`: validar `req.session.isLogged` y responder
-   `res.status(403).send({ stat: false, text: "Sin sesión" })` (nunca solo `res.status(403)`, que
-   deja la request colgada), filtrar toda query por `user_id: req.session.u_info.id` y envolver en
-   `try/catch` respondiendo 500 (Express 4 no captura rechazos de funciones `async`). Ver
-   `delete_file` como ejemplo.
+1. En `routes/api.js`: poner `require_session` (o `require_admin`) como middleware de la ruta
+   (`router.put("/x", require_session, async (req, res) => ...)`), filtrar toda query por
+   `user_id: req.user.id` (lo deja el chequeo de sesión; no usar `req.session.u_info`) y envolver en
+   `try/catch` respondiendo 500 (Express 4 no captura rechazos de funciones `async`). Nunca responder
+   solo `res.status(...)` sin `send`, que deja la request colgada. Ver `delete_file` como ejemplo.
 2. Agregar el wrapper en `frontend/src/helpers/api.js`.
 3. Documentarlo en esta tabla.

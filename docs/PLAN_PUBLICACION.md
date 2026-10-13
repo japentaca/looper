@@ -250,34 +250,34 @@ verificación base aplica siempre.
 
 *Pruebas manuales*: entrar desde el navegador con la clave nueva; los loops cargan y suenan.
 
-### Fase 1 — Usuarios
+### Fase 1 — Usuarios ✅
 
-- [ ] **1.1 Esquema de usuarios.** `db_migrations.js`. Columnas `status`, `role`, `bio`,
+- [x] **1.1 Esquema de usuarios.** `db_migrations.js`. Columnas `status`, `role`, `bio`,
   `max_seconds`; índices únicos en `email` y `name`. Usuarios existentes → `active`;
   `jntaca@gmail.com` → `admin`. Emails existentes a minúsculas.
   *Acepta*: en la copia, el usuario actual queda `active`/`admin`; migrar dos veces no cambia nada.
-- [ ] **1.2 Chequeo de sesión por request.** `routes/api.js`. Middleware que, con sesión, lee
+- [x] **1.2 Chequeo de sesión por request.** `routes/api.js`. Middleware que, con sesión, lee
   `status` y `role` de la base: si no es `active`, destruye la sesión y responde 401. Helper
   `require_admin`. Los endpoints existentes lo usan en vez de mirar solo `isLogged`.
   *Acepta*: poner `status = 'blocked'` en la copia corta una sesión abierta en el request siguiente.
-- [ ] **1.3 Login con estados.** `routes/api.js`. Email en minúsculas; después de validar la clave:
+- [x] **1.3 Login con estados.** `routes/api.js`. Email en minúsculas; después de validar la clave:
   `pending` → "pendiente de aprobación", `blocked` → error genérico (igual que clave inválida).
   *Acepta*: los tres casos responden lo especificado y solo `active` crea sesión.
-- [ ] **1.4 Registro.** `routes/api.js`. `POST /register` con email, clave (mín. 8), nombre
+- [x] **1.4 Registro.** `routes/api.js`. `POST /register` con email, clave (mín. 8), nombre
   (3–32, único), bio (≤280) y aceptación de la licencia → `pending`. Nombre repetido: error;
   email repetido: misma respuesta que el éxito. Límite por IP en Redis (como el login).
   *Acepta*: el alta queda `pending`; nombre repetido avisa; email repetido no se distingue.
-- [ ] **1.5 Cambio de clave.** `routes/api.js`. `PUT /change_password` pide la actual.
+- [x] **1.5 Cambio de clave.** `routes/api.js`. `PUT /change_password` pide la actual.
   *Acepta*: con la actual correcta cambia; con la incorrecta no.
-- [ ] **1.6 Admin de usuarios (API).** `routes/api.js`. `GET /admin/users?status=`,
+- [x] **1.6 Admin de usuarios (API).** `routes/api.js`. `GET /admin/users?status=`,
   `PUT /admin/users/:id` con acciones admitir, rechazar (→ `blocked`), bloquear, desbloquear,
   reset de clave (la define el admin) y `max_seconds`. Todo con `require_admin`.
   *Acepta*: un usuario no admin no accede; cada acción cambia lo esperado.
-- [ ] **1.7 UI de cuenta.** `Login.vue` (+ componentes nuevos si hace falta), `helpers/api.js`.
+- [x] **1.7 UI de cuenta.** `Login.vue` (+ componentes nuevos si hace falta), `helpers/api.js`.
   Diálogo de registro (con el texto de la licencia), cambio de clave, edición de bio. Sin rutas
   nuevas: diálogos dentro de la app.
   *Acepta*: build OK; un wrapper en `helpers/api.js` por endpoint nuevo.
-- [ ] **1.8 UI de admin mínima.** Componente nuevo, visible solo para `role = admin`, como
+- [x] **1.8 UI de admin mínima.** Componente nuevo, visible solo para `role = admin`, como
   diálogo: pendientes con admitir/rechazar; usuarios con bloquear/desbloquear/reset/cuota.
   *Acepta*: build OK; no aparece para usuarios comunes.
 

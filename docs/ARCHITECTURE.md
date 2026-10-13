@@ -35,24 +35,69 @@ Todos los endpoints están en `backend/routes/api.js` (ver `docs/API.md`). El mi
 
 ### Autenticación
 
-1. `POST /api/login` compara la clave con bcrypt contra `users.password`. Los fallos se cuentan
-   por IP en Redis (`looper_login_fails:<ip>`): con 10 fallos se bloquea 15 min desde el primero.
-   Un login correcto borra el contador.
-2. Si es válida: `req.session.regenerate()` (id de sesión nuevo), `req.session.isLogged = true`,
-   `req.session.u_info` = fila del usuario sin password.
-3. Las llamadas axios usan la cookie de sesión (`withCredentials`). Cookie `looper_sid`: `httpOnly`,
+1. `POST /api/login` pasa el email a minúsculas (sin espacios alrededor), lo busca en `users` y
+   compara la clave con bcrypt contra `users.password`. Recién con la clave validada mira `status`:
+   `pending` responde `{ stat: false, text: "Tu cuenta está pendiente de aprobación" }` sin crear
+   sesión; `blocked` (o cualquier estado que no sea `active`) responde y cuenta exactamente como una
+   clave inválida ("Usuario o clave inválida"), para no revelar que la cuenta existe. Los fallos se
+   cuentan por IP en Redis (`looper_login_fails:<ip>`): con 10 fallos se bloquea 15 min desde el
+   primero. Un login correcto (o `pending` con la clave correcta) borra el contador.
+2. Solo con `status = 'active'`: `req.session.regenerate()` (id de sesión nuevo), `req.session.isLogged = true`,
+   `req.session.u_info = { id }` (solo el id; los datos se leen de la base en cada `get_user_info`).
+   Sesiones viejas pueden tener la fila entera: solo se usa el id.
+3. **Chequeo por request** (middleware al principio del router): con sesión, lee `status` y `role`
+   de `users`. Si el usuario no existe o no está `active`, `req.session.regenerate()` borra la sesión
+   de Redis y el request sigue sin sesión (los endpoints con `require_session` responden 401,
+   `get_user_info` responde `{ stat: false }`); con sesión válida deja `req.user = { id, role }`.
+   `require_admin` pide además `role = 'admin'` (403 si no). Una consulta indexada por request.
+4. Las llamadas axios usan la cookie de sesión (`withCredentials`). Cookie `looper_sid`: `httpOnly`,
    `sameSite: lax`, `secure: "auto"` (solo se marca Secure si el request llegó por HTTPS; detrás de
    nginx lo dice `X-Forwarded-Proto`, con `trust proxy` = loopback), 30 días renovables con cada
    request (`rolling`, `resave: false`). El secreto es `session_secret` de `.env`. `logout` destruye la
    sesión y borra la cookie.
-4. El audio lo descarga Tone.js por URL, sin cookie: `GET /api/file/:id` es público (los archivos
+5. El audio lo descarga Tone.js por URL, sin cookie: `GET /api/file/:id` es público (los archivos
    son siempre públicos). Valida que `id` sea un uuid (evita path traversal), busca el dueño en
    `files` (404 si no está) y sirve `storage_path/<user_id>/<id>.mp3` con caché `immutable` de un año.
    Cada respuesta suma los bytes que salieron por el socket (headers y descargas cortadas incluidos)
    a la tabla `traffic`, para controlar el tope de tráfico del VPS. Si en producción el proxy cachea
    o sirve los mp3 directo, ese tráfico no se cuenta acá.
 
-No hay registro ni cambio de clave: los usuarios se insertan a mano.
+**Registro:** `POST /api/register` crea la cuenta con `status = 'pending'` (ver `docs/API.md`):
+nombre repetido (sin distinguir mayúsculas) avisa; email repetido responde lo mismo que el éxito.
+Límite de 10 intentos por IP por hora en Redis (`looper_register:<ip>`). Solo un usuario `active`
+obtiene sesión, y el chequeo por request corta las sesiones de los que dejan de estarlo.
+
+**Admin de usuarios:** `GET /api/admin/users?status=` lista usuarios (sin hash de clave) y
+`PUT /api/admin/users/:id` aplica una acción: `admit` (`pending` → `active`), `reject`
+(`pending` → `blocked`), `block` (`active` → `blocked`), `unblock` (`blocked` → `active`),
+`reset_password` (clave que define el admin) y `set_max_seconds` (cuota). Ambos con `require_admin`.
+Los cambios de estado no se aplican a usuarios `admin`. Ver `docs/API.md`.
+
+**Cuenta propia:** `PUT /api/change_password` cambia la clave pidiendo la actual (validada con
+bcrypt; la nueva, 8 a 72 caracteres como en el registro). Los fallos con la actual se cuentan por
+usuario en Redis (`looper_pwchange_fails:<user_id>`, 10 cada 15 min). La sesión actual sigue
+abierta y **las otras sesiones del usuario no se cierran** (no hay índice de sesiones por usuario;
+ver `KNOWN_ISSUES.md`). `PUT /api/profile` edita la bio (hasta 280). La recuperación de una clave
+olvidada la hace el admin con `reset_password` (y le pasa la clave temporal por otro canal).
+
+**UI de cuenta** (sin rutas: diálogos dentro de la app). `Login.vue` tiene dos modos: login y
+"Create account" (registro con email, nombre público, clave repetida, bio opcional y el texto de la
+licencia "libre uso dentro de Looper", con checkbox obligatorio). Los mensajes del backend se
+muestran en un `el-alert` dentro del diálogo: "pendiente de aprobación" como aviso, la solicitud de
+registro recibida como éxito (vuelve al modo login con el email cargado) y el resto como error;
+los requests rechazados (500, sin conexión) muestran el texto con `error_text()` de `helpers/api.js`.
+`Account.vue` (botón ACCOUNT de la barra superior, solo con sesión) edita la bio y cambia la clave
+(pide la actual y la nueva dos veces; la coincidencia se chequea en el front). Las validaciones de
+longitud y formato las hace el backend; el front solo limita los campos (`maxlength`).
+
+**UI de admin:** `Admin.vue`, un diálogo que se abre con el botón ADMIN de la barra superior. `App.vue`
+muestra el botón y monta el componente solo si `store.u_info.role === 'admin'`; para los demás no
+existe en el DOM (y el backend igual exige `require_admin`). Al abrirse trae todos los usuarios
+(`GET /admin/users`) y los separa en dos pestañas: *Pending* (admitir / rechazar) y *Users* (activos
+y bloqueados: bloquear / desbloquear, reset de clave y cuota). Rechazar y bloquear piden
+confirmación; el reset pide la clave nueva (la define el admin) y la cuota se carga en minutos (se
+guarda en segundos, vacío = default). Con los usuarios `admin` solo ofrece reset y cuota. Cada acción
+reemplaza la fila con el usuario que devuelve el backend; los errores se muestran en un `el-alert`.
 
 ### Subida de archivos
 
@@ -69,7 +114,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 
 | Tabla | Columnas | Notas |
 |---|---|---|
-| `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto) | `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
+| `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = default de `.env`, se usa desde la fase 2). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` la migración dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin`; también pasa a minúsculas los emails que no lo estén (en cada arranque). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |

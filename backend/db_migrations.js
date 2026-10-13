@@ -11,6 +11,7 @@ export default async function do_migrations() {
   await create_column_number("users", "bytes_used")
   await create_column_number("users", "max_bytes_uploaded")
   await create_column_string("users", "props", 4096) // JSON: config global (tempo, beats_x_bar, delay)
+  await migrate_users()
 
   await create_table("files")
   await create_column_string("files", "user_id", 36)
@@ -43,6 +44,49 @@ export default async function do_migrations() {
   await create_table("traffic")
   await create_column_number("traffic", "bytes")
   await create_column_number("traffic", "requests")
+}
+
+// usuarios (fase 1 de publicación): estado, rol, bio y cuota; email y name únicos.
+// Los usuarios que ya existían quedan `active` y el dueño original `admin`: eso se hace solo
+// al crear cada columna, así que volver a migrar no pisa cambios posteriores.
+const ADMIN_EMAIL = "jntaca@gmail.com"
+
+async function migrate_users() {
+  if (!await global.knex.schema.hasColumn("users", "status")) {
+    await create_column_string("users", "status", 16) // pending | active | blocked
+    await global.knex("users").update({ status: "active" })
+  }
+  if (!await global.knex.schema.hasColumn("users", "role")) {
+    await create_column_string("users", "role", 16) // user | admin
+    await global.knex("users").update({ role: "user" })
+    await global.knex("users").whereRaw("lower(email) = ?", [ADMIN_EMAIL]).update({ role: "admin" })
+  }
+  await create_column_string("users", "bio", 512) // texto breve (~280), público
+  await create_column_number("users", "max_seconds") // cuota de audio en segundos; null = default de .env
+
+  // el email es el login y se guarda en minúsculas
+  let n = await global.knex("users").whereRaw("email <> lower(email)").update({ email: global.knex.raw("lower(email)") })
+  if (n) console.log(`Paso a minúsculas ${n} email(s) en tabla users`)
+
+  await create_unique_index("users", "email")
+  await create_unique_index("users", "name")
+}
+
+// índice único `<tabla>_<columna>_unique`; si hay valores repetidos falla y corta el arranque
+// (hay que resolverlos a mano: no se elige cuál borrar). En SQLite los NULL no chocan entre sí.
+async function create_unique_index(tabla, columna) {
+  let index_name = `${tabla}_${columna}_unique`
+  let existe = await global.knex("sqlite_master").where({ type: "index", name: index_name }).first()
+  if (existe) return
+  let repetidos = await global.knex(tabla).select(columna).count({ n: "*" })
+    .whereNotNull(columna).groupBy(columna).havingRaw("count(*) > 1")
+  if (repetidos.length) {
+    throw new Error(`No se puede crear ${index_name}: hay ${repetidos.length} valor(es) repetido(s) en ${tabla}.${columna}`)
+  }
+  console.log(`Creo índice único ${index_name}`)
+  await global.knex.schema.alterTable(tabla, function (table) {
+    table.unique([columna], { indexName: index_name })
+  })
 }
 
 // un archivo puede tener varios tags: `files.tags` es un array JSON de ids de user_tags.
