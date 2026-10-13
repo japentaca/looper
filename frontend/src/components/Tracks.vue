@@ -53,7 +53,7 @@
             <Fader v-model="tag_range_min" :min="5" :max="9" :marks="tag_range_marks" :length="104" label="Min" />
             <Fader v-model="tag_range_max" :min="5" :max="9" :marks="tag_range_marks" :length="104" label="Max" />
           </div>
-          <span class="silk plate_value">{{ Math.pow(2, TAG_change_range[0]) }}–{{ Math.pow(2, TAG_change_range[1]) }}
+          <span class="silk plate_value">{{ Math.pow(2, TrackCtrl.tag_range[0]) }}–{{ Math.pow(2, TrackCtrl.tag_range[1]) }}
             beats</span>
         </div>
       </div>
@@ -209,17 +209,22 @@ function reset() {
 
 
 
-let TAG_change_range = ref([6, 7])
-
-// faders del rango (exponente n de 2^n beats): mover uno empuja al otro para que siempre min <= max
+// faders del rango (exponente n de 2^n beats, en TrackCtrl.tag_range, guardado en users.props):
+// mover uno empuja al otro para que siempre min <= max
 const tag_range_marks = [5, 6, 7, 8, 9].map(n => ({ value: n, label: Math.pow(2, n) }))
 const tag_range_min = computed({
-  get: () => TAG_change_range.value[0],
-  set: (v) => { TAG_change_range.value = [v, Math.max(v, TAG_change_range.value[1])] }
+  get: () => TrackCtrl.tag_range[0],
+  set: (v) => {
+    TrackCtrl.tag_range = [v, Math.max(v, TrackCtrl.tag_range[1])]
+    save_user_props_debounced()
+  }
 })
 const tag_range_max = computed({
-  get: () => TAG_change_range.value[1],
-  set: (v) => { TAG_change_range.value = [Math.min(v, TAG_change_range.value[0]), v] }
+  get: () => TrackCtrl.tag_range[1],
+  set: (v) => {
+    TrackCtrl.tag_range = [Math.min(v, TrackCtrl.tag_range[0]), v]
+    save_user_props_debounced()
+  }
 })
 
 let files_per_TRG = {}
@@ -529,8 +534,8 @@ function selectTag() {
   }
   current_TAG.old_tag = { ...current_TAG.tag }
   current_TAG.tag = available_tags[index] ?? null
-  let base = parseInt((Math.random() * ((TAG_change_range.value[1] + 1) - (TAG_change_range.value[0]))) + (TAG_change_range.value[0]))
-  //console.log(TAG_change_range.value[0], TAG_change_range.value[1], base)
+  let base = parseInt((Math.random() * ((TrackCtrl.tag_range[1] + 1) - (TrackCtrl.tag_range[0]))) + (TrackCtrl.tag_range[0]))
+  //console.log(TrackCtrl.tag_range[0], TrackCtrl.tag_range[1], base)
   current_TAG.duration = Math.pow(2, base)
   //console.log("current_TAG.duration", current_TAG.dura1tion)
   current_TAG.remaining_beats = current_TAG.duration + 1

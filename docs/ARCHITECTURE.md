@@ -60,7 +60,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 
 | Tabla | Columnas | Notas |
 |---|---|---|
-| `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto) | `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
+| `users` | `id` PK, `password` (hash bcrypt), `email`, `name`, `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto) | `max_bytes_uploaded` no se usa. `props` = config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer). Se guarda con `PUT /save_user_props` |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto) | sin PK; `props = { volume: dB (-50..0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
@@ -134,7 +134,7 @@ Flujo:
    registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
    sin borrarlo y el próximo START lo reutiliza desde el tiempo 0. Se borra en `onBeforeUnmount`.
    Lo único que se crea por START es el `Tone.Loop` del drift (`start_drift`), que STOP elimina.
-3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX
+3. `selectTag()`: Tag al azar; duración = `2^n` con `n` al azar dentro del rango de los faders MIN/MAX (`TrackCtrl.tag_range`, guardado en `users.props`)
    (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
@@ -308,7 +308,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   Send por pista: `props.delay` en dB (`null` = nada), un `Tone.Gain` colgado de la salida del canal
   (post-fader, post-mute y post-solo, igual que la reverb). Knob "Dly" en la tira: −40..0 dB, el mínimo = `null`.
   Controles globales en el panel Transport: LCD con tipo y división, botones TYPE y TIME (ciclan) y
-  knobs Feedback y Level. Cambios de tempo, compás y delay se guardan con `save_user_props_debounced()` (500 ms).
+  knobs Feedback y Level. Cambios de tempo, compás, rango de cambio de Tag y delay se guardan con `save_user_props_debounced()` (500 ms).
 - **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
   (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
   pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.

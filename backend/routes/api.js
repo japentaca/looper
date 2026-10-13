@@ -123,7 +123,7 @@ async function replace_user_rows(table, req, res) {
 
 // config global del usuario (users.props): solo se guardan estas claves (lista blanca), el resto
 // se ignora. Reemplaza lo guardado (el front manda siempre la config completa).
-const USER_PROPS_KEYS = ["tempo", "beats_x_bar", "delay"]
+const USER_PROPS_KEYS = ["tempo", "beats_x_bar", "tag_range", "delay"]
 const USER_PROPS_MAX_LENGTH = 4096 // tamaño de la columna
 router.put("/save_user_props", async (req, res) => {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })

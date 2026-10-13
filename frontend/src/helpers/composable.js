@@ -31,7 +31,8 @@ export let track_groups_by_id = {}
 
 import {
   TrackCtrl, calculateBars, delay_default, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX,
-  DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, BEATS_X_BAR_DEFAULT
+  DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, BEATS_X_BAR_DEFAULT, TAG_RANGE_MIN, TAG_RANGE_MAX,
+  TAG_RANGE_DEFAULT
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
 
@@ -86,8 +87,8 @@ export function save_trackGroups_debounced(ms = 500) {
     save_trackGroups()
   }, ms)
 }
-// --- config global del usuario (users.props): tempo, compás y delay ---
-// guardado diferido: se llama al cambiar tempo, compás o el delay (no al cargar)
+// --- config global del usuario (users.props): tempo, compás, rango de cambio de Tag y delay ---
+// guardado diferido: se llama al cambiar tempo, compás, el rango de Tag o el delay (no al cargar)
 let save_user_props_timer = null
 export function save_user_props_debounced(ms = 500) {
   clearTimeout(save_user_props_timer)
@@ -95,13 +96,14 @@ export function save_user_props_debounced(ms = 500) {
     save_user_props_timer = null
     try {
       let res = await api.save_user_props({
-        tempo: TrackCtrl.tempo, beats_x_bar: TrackCtrl.beats_x_bar, delay: { ...TrackCtrl.delay }
+        tempo: TrackCtrl.tempo, beats_x_bar: TrackCtrl.beats_x_bar, tag_range: [...TrackCtrl.tag_range],
+        delay: { ...TrackCtrl.delay }
       })
       if (res.stat) return
     } catch (e) {
       console.log("Error guardando la config", e)
     }
-    ElMessage({ type: 'error', message: "No se pudo guardar la configuración (tempo / delay)" })
+    ElMessage({ type: 'error', message: "No se pudo guardar la configuración (tempo / tag / delay)" })
   }, ms)
 }
 function clamp(v, min, max, def) {
@@ -115,6 +117,11 @@ function apply_user_props(props) {
   let p = props ?? {}
   TrackCtrl.tempo = Math.round(clamp(p.tempo, 10, 160, TEMPO_DEFAULT)) // mismo rango que el knob Tempo
   TrackCtrl.beats_x_bar = ["3", "4"].includes(String(p.beats_x_bar)) ? String(p.beats_x_bar) : BEATS_X_BAR_DEFAULT
+  // rango de cambio de Tag: exponentes enteros dentro de los faders, con min <= max
+  let r = Array.isArray(p.tag_range) ? p.tag_range : TAG_RANGE_DEFAULT
+  let r_min = Math.round(clamp(r[0], TAG_RANGE_MIN, TAG_RANGE_MAX, TAG_RANGE_DEFAULT[0]))
+  let r_max = Math.round(clamp(r[1], TAG_RANGE_MIN, TAG_RANGE_MAX, TAG_RANGE_DEFAULT[1]))
+  TrackCtrl.tag_range = [Math.min(r_min, r_max), Math.max(r_min, r_max)]
   let def = delay_default()
   let d = p.delay && typeof p.delay == "object" ? p.delay : {}
   Object.assign(TrackCtrl.delay, {

@@ -15,12 +15,17 @@ export function delay_default() {
 }
 export const TEMPO_DEFAULT = 138
 export const BEATS_X_BAR_DEFAULT = "4"
+// rango del cambio de Tag: exponentes [min, max] de 2^n beats (faders Min/Max, de TAG_RANGE_MIN a TAG_RANGE_MAX)
+export const TAG_RANGE_MIN = 5
+export const TAG_RANGE_MAX = 9
+export const TAG_RANGE_DEFAULT = [6, 7]
 
-// tempo, compás y delay son la config global del usuario: se guardan en users.props
-// (save_user_props_debounced en composable.js) y se aplican al cargar el usuario
+// tempo, compás, rango de cambio de Tag y delay son la config global del usuario: se guardan en
+// users.props (save_user_props_debounced en composable.js) y se aplican al cargar el usuario
 export const TrackCtrl = reactive({
   tempo: TEMPO_DEFAULT,
   beats_x_bar: BEATS_X_BAR_DEFAULT,
+  tag_range: [...TAG_RANGE_DEFAULT],
   delay: delay_default(),
   isPlaying: false,
   isReady: false,

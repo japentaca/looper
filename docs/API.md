@@ -12,7 +12,7 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 | PUT | `/logout` | — | — | `{ stat: true }` |
 | GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` o `{ stat: false }` |
 | PUT | `/save_trackGroups` | sí | array `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array |
-| PUT | `/save_user_props` | sí | objeto `{ tempo, beats_x_bar, delay }` | `{ stat: true }`; 400 si el body no es un objeto o si el JSON pasa de 4096 caracteres |
+| PUT | `/save_user_props` | sí | objeto `{ tempo, beats_x_bar, tag_range, delay }` | `{ stat: true }`; 400 si el body no es un objeto o si el JSON pasa de 4096 caracteres |
 | PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }`; 400 si el body no es un array |
 | PUT | `/save_fileData` | sí | `{ file: { id, track_group, tags, props } }` | `{ stat: true }` |
 | PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
@@ -51,7 +51,8 @@ track group se guarda como JSON (`JSON.stringify`) y `get_user_info` lo devuelve
 ### `save_user_props`
 
 Guarda la config global del usuario en `users.props` (JSON), reemplazando lo anterior. De lo recibido
-solo se guardan las claves `tempo` (BPM), `beats_x_bar` (`"3"` | `"4"`) y `delay`
+solo se guardan las claves `tempo` (BPM), `beats_x_bar` (`"3"` | `"4"`), `tag_range`
+(`[min, max]`, exponentes 5..9 de 2^n beats del cambio de Tag) y `delay`
 (`{ type: "pingpong" | "stereo" | "dotted" | "tape", division: "16n" | "8t" | "8n" | "8n." | "4n" | "4n." | "2n", feedback: 0..0.9, level: dB }`);
 el resto se ignora. El backend no valida los valores: el front los acota al cargar
 (`apply_user_props` en `composable.js`). `get_user_info` lo devuelve parseado en `u_info.props`, leído
