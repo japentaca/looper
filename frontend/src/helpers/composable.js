@@ -22,6 +22,9 @@ export const store = reactive({
   // true si el backend dijo que no hay sesión (401/403) con el usuario ya cargado. La reproducción
   // sigue (los audios están en memoria) pero no se guardan cambios; App.vue lo muestra en el LED.
   session_lost: false,
+  // modo lectura (/p/:id, proyecto público): se puede tocar START/STOP y el mixer, pero nada se
+  // guarda. Todos los guardados de este archivo lo chequean y no mandan ningún request
+  read_only: false,
 })
 export let files_by_id = reactive([])
 
@@ -66,19 +69,24 @@ function start_session_check() {
 }
 
 // --- guardados: todos van contra el proyecto activo (store.project) ---
+// En modo lectura (store.read_only) ninguno manda nada: los cambios quedan solo en memoria.
+// can_save() es el único chequeo; cada guardado (y save_collection) lo llama.
+function can_save() {
+  return !!store.project && !store.read_only
+}
 // guarda la colección completa de tags / pistas del proyecto (el backend la reemplaza y limpia en
 // los archivos del proyecto las referencias a tags / pistas que ya no están)
 export async function save_tags() {
-  if (!store.project) return
+  if (!can_save()) return
   await save_collection(data => api.save_project_tags(store.project.id, data), store.tags, "los tags")
 }
 export async function save_trackGroups() {
-  if (!store.project) return
+  if (!can_save()) return
   await save_collection(data => api.save_project_track_groups(store.project.id, data), store.track_groups, "los track groups")
 }
 // pista, tags y volumen de un archivo dentro del proyecto activo (project_files)
 export async function save_file(file) {
-  if (!store.project) return
+  if (!can_save()) return
   let data = { id: file.id, track_group: file.track_group ?? null, tags: file.tags ?? [], props: {} }
   let volume = Number(file.props?.volume)
   if (Number.isFinite(volume)) data.props.volume = volume
@@ -98,6 +106,7 @@ export function trg_default_props() {
 // guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
 let save_trg_timer = null
 export function save_trackGroups_debounced(ms = 500) {
+  if (store.read_only) return
   clearTimeout(save_trg_timer)
   save_trg_timer = setTimeout(() => {
     save_trg_timer = null
@@ -108,6 +117,7 @@ export function save_trackGroups_debounced(ms = 500) {
 // guardado diferido: se llama al cambiar tempo, compás, el rango de Tag o el delay (no al cargar)
 let save_project_props_timer = null
 export function save_project_props_debounced(ms = 500) {
+  if (store.read_only) return
   clearTimeout(save_project_props_timer)
   save_project_props_timer = setTimeout(() => {
     save_project_props_timer = null
@@ -115,7 +125,7 @@ export function save_project_props_debounced(ms = 500) {
   }, ms)
 }
 async function save_project_props() {
-  if (!store.project) return
+  if (!can_save()) return
   let props = {
     tempo: TrackCtrl.tempo, beats_x_bar: TrackCtrl.beats_x_bar, tag_range: [...TrackCtrl.tag_range],
     delay: { ...TrackCtrl.delay }
@@ -168,6 +178,7 @@ function apply_project_props(props) {
 }
 
 async function save_collection(api_fn, data, label) {
+  if (!can_save()) return // red de seguridad: en modo lectura nunca sale un request de escritura
   try {
     let res = await api_fn(data)
     if (res.stat) return
@@ -181,7 +192,7 @@ async function save_collection(api_fn, data, label) {
 
 // último proyecto abierto en este navegador (localStorage puede no estar disponible: se ignora)
 const LAST_PROJECT_KEY = "looper_project_id"
-function remember_project(id) {
+export function remember_project(id) {
   try { localStorage.setItem(LAST_PROJECT_KEY, id) } catch { /* sin localStorage */ }
 }
 function remembered_project() {
@@ -224,6 +235,7 @@ export const store_get_user_info = async () => {
 // carga el proyecto `id` como activo: config, pistas, tags y archivos (un Tone.Player solo para los
 // archivos del proyecto; los de otro proyecto se liberan). Devuelve true si se cargó
 export async function load_project(id) {
+  store.read_only = false
   let same = store.project?.id === id
   if (!same) await flush_pending_saves()
   let pres
@@ -248,6 +260,50 @@ export async function load_project(id) {
   }
   store.project = { id: p.id, name: p.name, visibility: p.visibility, hidden: p.hidden, ts: p.ts }
   remember_project(p.id)
+  return await install_project(p, same)
+}
+
+// --- modo lectura (/p/:id) ---
+// carga un proyecto público (GET /public/project/:id, sin sesión) en el store, en modo lectura:
+// mismo motor y mismos players que un proyecto propio, pero ningún guardado manda requests (ver
+// can_save). Los audios salen de GET /file/:id (público). Antes de llamarla con el transporte en
+// marcha, hacer STOP (stop_transport). Devuelve { ok, status, text, creator }: status es el HTTP del error
+// (404 = no existe o no es público, 429 = límite por IP), para que la vista elija el mensaje.
+export async function load_public_project(id) {
+  store.read_only = true
+  // START deshabilitado hasta que terminen de cargar los audios (y el autostart espera a eso)
+  TrackCtrl.isReady = false
+  // las tiras no deben mostrar el estado de la corrida anterior (otro proyecto, o antes de ir a la galería)
+  TrackCtrl.tracks.splice(0)
+  let p
+  try {
+    let res = await api.get_public_project(id)
+    p = res.data
+  } catch (e) {
+    console.log("Error cargando el proyecto público", e)
+    return { ok: false, status: e?.response?.status ?? 0, text: api.error_text(e) }
+  }
+  if (!p) return { ok: false, status: 0, text: "No se pudo cargar el proyecto" }
+  if (!(await confirm_project_memory(p))) {
+    unload_project()
+    store.loading = false
+    return { ok: false, status: 0, text: "Loading cancelled" }
+  }
+  store.project = { id: p.id, name: p.name, visibility: "public", ts: p.ts }
+  let ok = await install_project(p, false)
+  // creator: { name, bio } (lo único del dueño que expone la API pública)
+  return { ok, status: 200, text: "", creator: p.creator ?? { name: "", bio: null } }
+}
+// sale del modo lectura liberando los players (al dejar la vista pública por la galería)
+export function unload_public_project() {
+  stop_transport()
+  TrackCtrl.current_TAG.tag = null
+  unload_project()
+}
+
+// instala en el store un proyecto ya leído del backend (propio o público): config, pistas, tags y
+// players. same = recarga del proyecto que ya estaba abierto
+async function install_project(p, same) {
   // config del proyecto (tempo, compás, Tag, delay). En una recarga del mismo proyecto con el
   // transporte en marcha o con un guardado pendiente no se aplica: lo que está en pantalla es más
   // nuevo que lo de la base.
@@ -439,7 +495,7 @@ export async function switch_project(id) {
 // proyecto activo (sigue en el catálogo). Si el backend lo acepta lo saca de store.files y libera su
 // player (la clave queda en audio_players, como antes). Devuelve true si se hizo
 export async function delete_project_file(file) {
-  if (!store.project) return false
+  if (!can_save()) return false
   let res
   try {
     res = file.own ? await api.delete_file(file.id)

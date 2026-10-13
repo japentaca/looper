@@ -30,6 +30,15 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 - 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
   descontado en `DELETE /files/:id`), pero es solo informativo: la cuota es en segundos de audio
   (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa.
+- 🟡 El límite de los endpoints públicos (`looper_public:<ip>`, 120 requests por minuto, tarea 4.1)
+  es por IP: visitantes detrás de la misma IP (una red con NAT) lo comparten. Si Redis no responde,
+  los endpoints públicos responden 500 (no se abren sin límite). Depende de que `req.ip` sea la IP
+  real del visitante (nginx con `real_ip` de Cloudflare, `trust proxy` = loopback).
+- 🟡 Denuncias (`POST /report`, tarea 4.4): las filas de `reports` no se borran cuando se borra el
+  archivo (`DELETE /files/:id`) o el proyecto (`DELETE /projects/:id`) denunciado: quedan apuntando a
+  un id inexistente (la fase 5 tiene que tolerarlo al listarlas). Si dos envíos simultáneos del mismo
+  usuario sobre lo mismo llegan juntos, se guarda una sola fila pero los dos cuentan para el límite
+  diario de Redis.
 
 ## Frontend — motor de reproducción (`Tracks.vue`)
 
@@ -77,9 +86,20 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
 - ✅ Resuelto (oct 2026): la cookie de sesión no tenía `maxAge` y se perdía al cerrar Chrome. Ahora
   dura 30 días y se renueva con cada request (`rolling`); el chequeo cada 10 min la mantiene viva.
 - 🟡 Pendiente de medir: memoria de la pestaña en 8–12 h (prueba larga de `docs/INSTALACION.md`).
+- 🟡 Instalación con el link público (`/p/<id>?autostart=1`, tarea 4.5): lo que se edita en la app
+  no llega al kiosko hasta que se recarga la página, y si el proyecto pasa a privado, lo oculta el
+  admin o se borra, el kiosko sigue sonando con lo que ya cargó (en la próxima recarga da "Project
+  not found", que no se reintenta). El reintento automático de la carga solo cubre fallas de la API
+  (sin respuesta, 5xx, 429) con la página ya bajada: si Chrome no puede bajar la página (sin red al
+  lanzarlo) queda en su página de error, por eso `INSTALACION.md` recomienda lanzarlo con demora.
 
 ## Frontend — general
 
+- 🟡 Modo lectura (`/p/:id`, tarea 4.3): si el `:id` cambia mientras el proyecto anterior todavía
+  se está cargando (dos navegaciones seguidas dentro de la vista), las dos cargas escriben el store
+  en paralelo; la vista descarta el resultado viejo (`load_n`), pero los players y pistas del store
+  pueden quedar mezclados hasta la próxima carga. Recargar la página lo arregla. En el uso normal
+  (galería → proyecto) no pasa.
 - 🟡 `load_project(id)` por sí sola no detiene el transporte: para cambiar de proyecto usar
   `switch_project(id)` (hace STOP), como `Projects.vue`.
 - 🟡 Importar del catálogo (`ImportFiles.vue`) recarga el proyecto entero con `load_project` (igual

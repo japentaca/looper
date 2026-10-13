@@ -1,7 +1,8 @@
 # API (backend/routes/api.js)
 
 Base: `<VITE_APP_BACKEND>/api`. Autenticación por cookie de sesión (`express-session` en Redis),
-salvo `file/:id`, que es público (los archivos de audio son siempre públicos). Respuesta típica: `{ stat: boolean, text?: string, data?: any }`.
+salvo `file/:id` (los archivos de audio son siempre públicos) y `public/...` (proyectos públicos, sin
+sesión). Respuesta típica: `{ stat: boolean, text?: string, data?: any }`.
 
 En cada request con sesión, un middleware del router lee `status` y `role` del usuario **de la
 base**: si no existe o no está `active`, destruye la sesión (en Redis) y el request sigue sin
@@ -26,6 +27,10 @@ visibilidad y borrar): `get_projects`,
 `upload_file` acepta `project_id`. Catálogo (tarea 3.5): `get_catalog(params)` (`GET /catalog`);
 lo usa el diálogo de importar (`ImportFiles.vue`, tarea 3.10), que importa con
 `save_project_files(id, { add })`.
+Wrappers públicos (tarea 4.1, sin sesión): `get_public_projects(params)` (`GET /public/projects`) y
+`get_public_project(id)` (`GET /public/project/:id`).
+Denuncias (tarea 4.4, con sesión): `report({ target_type, target_id, reason })` (`POST /report`), que
+usa el diálogo `ReportDialog.vue` desde el catálogo (`ImportFiles.vue`), la galería y `/p/:id`.
 Los wrappers de los endpoints eliminados (`save_trackGroups`, `save_tags`, `save_user_props`,
 `save_fileData`) se quitaron en la tarea 3.6.
 
@@ -53,6 +58,9 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | DELETE | `/files/:id` | sí | — | `{ stat: true, data: { removed_from_projects } }`; borra el archivo **en cascada** de todos los proyectos (propios y ajenos), la fila, el mp3 y descuenta `users.bytes_used`; 404 si no es del usuario o no existe |
 | GET | `/catalog` | sí | query opcional: `bpm`, `bpm_tol`, `beats`, `creator`, `q`, `page`, `per_page` | `{ stat: true, data: { items: [archivo del catálogo con creador y usos], total, page, per_page } }` (solo archivos disponibles); 400 `{ stat: false, text }` si un parámetro es inválido. Ver detalle abajo |
 | GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
+| GET | `/public/projects` | no | query opcional: `page`, `per_page` | `{ stat: true, data: { items: [proyecto de la galería], total, page, per_page } }` (proyectos `public`, no ocultos, con dueño `active`); 400 si un parámetro es inválido; 429 por el límite por IP. Ver `public` abajo |
+| GET | `/public/project/:id` | no | — | `{ stat: true, data: proyecto público }` (config, pistas, tags, archivos **disponibles** y creador); 404 `{ stat: false, text: "Proyecto inexistente" }` si no existe, es privado, está oculto o su dueño no está `active` (sin distinguir); 429 por el límite por IP. Ver `public` abajo |
+| POST | `/report` | sí | `{ target_type: "file" \| "project", target_id, reason }` | `{ stat: true, text, data: { duplicate } }` (crea una fila en `reports` con `status = 'open'`, o `duplicate: true` si ya había una abierta del mismo usuario sobre lo mismo); `{ stat: false, text }` si el motivo está vacío o pasa de 500 caracteres, o el target es propio; 400 `target_type`/`target_id` inválidos; 404 si el archivo o proyecto no existe o no está a la vista; 429 por el límite diario. Ver `report` abajo |
 | POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `bpm`, `beats` y `project_id` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, bpm/beats inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
 | GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
 | PUT | `/admin/users/:id` | admin | `{ action, password?, max_seconds? }` | `{ stat: true, data: usuario admin }` (ya actualizado); `{ stat: false, text }` si la acción no corresponde al estado, el usuario es admin, o la clave/cuota no es válida; 400 acción desconocida; 404 usuario inexistente. Ver detalle abajo |
@@ -263,6 +271,78 @@ desempata por `id`, así el paginado es estable). Respuesta:
 
 Nunca trae el email, el id ni el estado del dueño, ni `size`. Una página más allá del final
 responde `items: []` con el `total` real.
+
+### `public` (acceso público de solo lectura)
+
+Sin sesión (si viene una cookie, se ignora para estos datos). Un proyecto es **visible** si
+`visibility = 'public'`, `hidden = 0` (no lo ocultó el admin) y su dueño tiene `status = 'active'`.
+Nunca traen el email, el id ni el estado del dueño: del creador solo `{ name, bio }` (nombre
+público y bio, `bio` null si no tiene).
+
+**Límite por IP** (ambos endpoints, contador compartido): `looper_public:<ip>` en Redis cuenta los
+requests; con más de 120 en un minuto desde el primero responde 429 `{ stat: false, text: "Demasiados
+pedidos, probá de nuevo en un minuto" }`. Si Redis no responde, 500. `GET /file/:id` (el audio) no
+pasa por este límite. La IP es `req.ip` (en producción, la real del visitante vía nginx/Cloudflare).
+
+`GET /public/projects` (galería): query `page` (entero ≥ 1, default 1) y `per_page` (entero 1..100,
+default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los más nuevos primero
+(`ts` descendente, sin `ts` al final, desempata por `id`). Una página más allá del final responde
+`items: []` con el `total` real.
+
+```js
+{
+  items: [{ id, name, ts,
+            tempo,                     // projects.props.tempo (null si no hay)
+            files,                     // cantidad de archivos disponibles del proyecto
+            creator: { name, bio } }],
+  total, page, per_page
+}
+```
+
+`GET /public/project/:id`: lo necesario para reproducirlo (el visitante no guarda nada):
+
+```js
+{
+  id, name, ts,
+  props: { tempo, beats_x_bar, tag_range, delay }, // como en GET /projects/:id
+  creator: { name, bio },
+  track_groups: [{ id, name, color, props }],      // como en GET /projects/:id
+  tags: [{ id, name, color }],
+  files: [{ id, original_name, size, duration, bpm, beats, ts, name: "<id>.mp3", available: true,
+            track_group, tags, props }]            // forma de GET /projects/:id, sin `own`
+}
+```
+
+Solo vienen los archivos **disponibles** (no ocultos, dueño `active`): los no disponibles no se
+mandan (en `GET /projects/:id` el dueño los ve con `available = false`). No trae `visibility` ni
+`hidden`. Un id de más de 36 caracteres responde 404 sin consultar la base.
+
+El frontend lo usa en `/p/:id` (modo lectura, tarea 4.3) con `load_public_project(id)` de
+`composable.js`: carga el proyecto en el mismo store y motor que la app, y en ese modo no se manda
+ningún request de escritura (ver `ARCHITECTURE.md`, "Modo lectura").
+
+### `report` (denuncias)
+
+Solo usuarios logueados (sin sesión, 401 como todo `require_session`). Se valida en este orden:
+
+1. `target_type` tiene que ser `file` o `project` (si no, 400) y `target_id` un string no vacío (si
+   no, 400; con más de 36 caracteres, 404 sin consultar la base).
+2. `reason`: string recortado de 1 a 500 caracteres (si no, `{ stat: false, text }` con 200).
+3. El target tiene que **existir y estar a la vista** del usuario: un archivo **disponible** del
+   catálogo (no oculto, dueño `active`) o un proyecto **visible** de la galería (`public`, no oculto,
+   dueño `active`). Si no, 404 `"Archivo inexistente"` / `"Proyecto inexistente"`, igual que un id
+   inexistente (no revela proyectos privados).
+4. No se puede denunciar lo propio: `{ stat: false, text: "No podés denunciar algo propio" }`.
+5. Si el usuario ya tiene una denuncia **abierta** (`status = 'open'`) sobre el mismo target,
+   responde el mismo éxito con `data.duplicate = true` sin crear otra fila ni contar para el límite.
+6. Límite por usuario: `looper_report:<user_id>` en Redis cuenta las denuncias nuevas; con más de
+   20 en 24 h desde la primera responde 429 `{ stat: false, text: "Llegaste al límite de denuncias
+   por hoy" }`. Si Redis no responde, 500.
+7. Inserta `{ id, target_type, target_id, reporter_user_id, reason, status: 'open', ts }` en una
+   transacción que vuelve a chequear el duplicado (dos envíos simultáneos dejan una sola fila).
+
+Respuesta: `{ stat: true, text: "Denuncia enviada: la va a revisar un admin", data: { duplicate } }`.
+Las denuncias las lista y resuelve el admin en la fase 5 (`GET/PUT /admin/reports`).
 
 ### `upload`
 

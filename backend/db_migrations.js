@@ -80,6 +80,18 @@ export default async function do_migrations() {
   await create_table("traffic")
   await create_column_number("traffic", "bytes")
   await create_column_number("traffic", "requests")
+
+  // denuncias (tarea 4.4): las hace un usuario logueado sobre un archivo o un proyecto; las revisa el
+  // admin (fase 5). Sin claves foráneas: si el archivo o proyecto se borra, la denuncia queda
+  await create_table("reports")
+  await create_column_string("reports", "target_type", 16) // file | project
+  await create_column_string("reports", "target_id", 36) // id de files o de projects
+  await create_column_string("reports", "reporter_user_id", 36)
+  await create_column_string("reports", "reason", 1024) // texto del denunciante (hasta 500 caracteres)
+  await create_column_string("reports", "status", 16, "open") // open (los demás estados los define la fase 5)
+  await create_column_string("reports", "ts", 21)
+  await create_index("reports", "target_id")
+  await create_index("reports", "reporter_user_id")
 }
 
 // usuarios (fase 1 de publicación): estado, rol, bio y cuota; email y name únicos.

@@ -16,6 +16,45 @@ Navegador (Vue + Tone.js)                     Backend (Express, :31200)         
   CORS se configura con `cors_origin` en `.env` (por defecto `http://localhost:31201`), con `credentials: true`.
 - En producción el frontend apunta a `https://jape.com.ar/looper` (`frontend/.env.prd`); el backend
   se sirve detrás de un proxy en ese path. La configuración del servidor de producción no está en el repo.
+  (Con la publicación, `.env.prd` pasa a `https://looper.jape.com.ar` en la tarea 6.3; ver "Rutas del
+  frontend".)
+
+### Rutas del frontend (tarea 4.2)
+
+`vue-router` 4 con historial HTML5 (`createWebHistory`, URLs sin `#`). `main.js` monta `Root.vue`,
+que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
+
+| Ruta | Vista | Sesión |
+|---|---|---|
+| `/` | `App.vue` (la app de siempre: proyectos, edición, motor) | la de siempre (login) |
+| `/p/:id` | `views/PublicProject.vue`: proyecto público en **modo lectura** (tarea 4.3, ver "Modo lectura" en Frontend): START/STOP, tempo y mixer local, nada se guarda (404 → "Project not found") | no (con sesión, igual es modo lectura) |
+| `/gallery` | `views/Gallery.vue`: `GET /api/public/projects` paginado, cada tarjeta enlaza a `/p/:id` | no |
+| cualquier otra | redirige a `/` | |
+
+- `?autostart=1` se conserva: `Tracks.vue` y `composable.js` lo leen de `window.location.search`,
+  que el router no toca (`/?autostart=1` sigue funcionando igual).
+- Entre `/` y las vistas públicas se navega con `<a href>` (recarga completa), para que el store y el
+  motor de la app no se mezclen con los de una vista pública. El botón GALLERY de la app abre la
+  galería en otra pestaña (no corta lo que suena). Entre galería y proyecto público, `router-link`.
+- `App.vue` se importa de forma estática (la app carga como antes); las vistas públicas se cargan
+  con `import()` (chunks aparte).
+- `base` de Vite queda por defecto (`/`): el build se sirve en la raíz de `looper.jape.com.ar` y los
+  assets salen como `/assets/...`. En dev, Vite ya devuelve `index.html` para cualquier ruta.
+- **Producción (tarea 6.1):** nginx tiene que devolver `index.html` para las rutas del frontend, si
+  no `/p/<id>` o `/gallery` dan 404 al recargar o al abrir un link directo:
+
+  ```nginx
+  location / {
+    root /ruta/a/looper/frontend/dist;
+    try_files $uri $uri/ /index.html;
+  }
+  location /api/ { proxy_pass http://127.0.0.1:<service_port>; ... }
+  ```
+
+  `/api` va en su propio `location` (nginx elige el prefijo más largo, el orden no importa), así que
+  un 404 de la API nunca cae en `index.html`.
+- `vue-router` está fijado en `~4.5.1`: desde la 4.6 pide Vue 3.5 y el proyecto está en Vue 3.4
+  (actualizar Vue es otra tarea).
 
 ## Backend
 
@@ -76,6 +115,23 @@ obtiene sesión, y el chequeo por request corta las sesiones de los que dejan de
 `reset_password` (clave que define el admin) y `set_max_seconds` (cuota). Ambos con `require_admin`.
 Los cambios de estado no se aplican a usuarios `admin`. Ver `docs/API.md`.
 
+**Acceso público (tarea 4.1):** `GET /api/public/projects` (galería paginada) y
+`GET /api/public/project/:id` (config, pistas, tags y archivos disponibles para reproducir) no piden
+sesión. Un proyecto es visible si es `public`, no está oculto (`projects.hidden`) y su dueño está
+`active`; si no, 404 como un id inexistente. Del dueño solo salen el nombre público y la bio (nunca
+email ni id). Ambos pasan por un límite de requests por IP en Redis (`looper_public:<ip>`, 120 por
+minuto → 429). El audio sigue saliendo de `GET /api/file/:id`, sin ese límite. Ver `docs/API.md`.
+
+**Denuncias (tarea 4.4):** `POST /api/report` pide sesión (`require_session`; sin sesión, 401). Se
+denuncia un archivo disponible del catálogo o un proyecto visible de la galería, ajeno; lo que no
+existe o no está a la vista responde 404 (no revela proyectos privados). Una denuncia abierta del
+mismo usuario sobre lo mismo no se duplica (responde éxito con `duplicate: true`). Límite por
+usuario en Redis (`looper_report:<user_id>`, 20 denuncias nuevas cada 24 h desde la primera → 429).
+Cada una queda en la tabla `reports` con `status = 'open'`; la revisión es del admin (fase 5). En el
+frontend, `components/ReportDialog.vue` (motivo de hasta 500 caracteres) se abre desde el catálogo
+(`ImportFiles.vue`, en archivos ajenos), la galería y `/p/:id`; en estas dos solo si hay sesión
+(`GET /get_user_info`) y el proyecto no es del visitante.
+
 **Cuenta propia:** `PUT /api/change_password` cambia la clave pidiendo la actual (validada con
 bcrypt; la nueva, 8 a 72 caracteres como en el registro). Los fallos con la actual se cuentan por
 usuario en Redis (`looper_pwchange_fails:<user_id>`, 10 cada 15 min). La sesión actual sigue
@@ -83,7 +139,7 @@ abierta y **las otras sesiones del usuario no se cierran** (no hay índice de se
 ver `KNOWN_ISSUES.md`). `PUT /api/profile` edita la bio (hasta 280). La recuperación de una clave
 olvidada la hace el admin con `reset_password` (y le pasa la clave temporal por otro canal).
 
-**UI de cuenta** (sin rutas: diálogos dentro de la app). `Login.vue` tiene dos modos: login y
+**UI de cuenta** (diálogos dentro de la app, sin rutas propias). `Login.vue` tiene dos modos: login y
 "Create account" (registro con email, nombre público, clave repetida, bio opcional y el texto de la
 licencia "libre uso dentro de Looper", con checkbox obligatorio). Los mensajes del backend se
 muestran en un `el-alert` dentro del diálogo: "pendiente de aprobación" como aviso, la solicitud de
@@ -201,6 +257,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 | `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility`, `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files` (no los archivos). `migrate_projects` creó uno por usuario existente (nombre `My project`). `visibility` = `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
 | `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (`migrate_projects` cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume }`. Reemplazan a `files.track_group/tags/props` |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
+| `reports` | `id` PK, `target_type`, `target_id` (índice), `reporter_user_id` (índice), `reason`, `status`, `ts` | Denuncias (tarea 4.4, `POST /report`). `target_type` = `file` \| `project`; `target_id` = id de `files` o de `projects`; `reporter_user_id` = quien denuncia; `reason` = texto (1 a 500 caracteres); `status` = `open` (`NOT NULL DEFAULT 'open'`; los estados de cierre los define la fase 5); `ts` = fecha (ISO sin ms). Sin claves foráneas: borrar el archivo o el proyecto no borra sus denuncias |
 | `traffic` | `id` PK (`"YYYY-MM-DD"`, día UTC), `bytes`, `requests` | audio servido por `GET /file/:id`. Total del mes: `select sum(bytes) from traffic where id like '2026-10-%'` |
 
 `db_migrations.js` crea todo el esquema de forma idempotente (base nueva o existente), con
@@ -261,10 +318,45 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
 - `store.track_groups`: al cargar se completa `props` con los defaults (`trg_default_props()` en
   `composable.js`) más lo guardado. Las pistas nuevas (`addTrackGroup` en `App.vue`) nacen con los
   defaults. Los cambios de mixer se guardan con `save_trackGroups_debounced()` (500 ms).
+- `store.read_only`: modo lectura (ver "Modo lectura"); con `true` ningún guardado manda requests.
 - `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
 `files_by_id`, `track_groups_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`).
+
+### Modo lectura (`/p/:id`, tarea 4.3)
+
+`views/PublicProject.vue` usa **el mismo store y el mismo motor** (`Tracks.vue`, `mixer.js`) que la
+app, con `store.read_only = true`:
+
+- `load_public_project(id)` (`composable.js`) pone `read_only`, pide `GET /api/public/project/:id`
+  (sin sesión), pasa por el aviso de memoria y llama a `install_project(p)`, la misma instalación que
+  usa `load_project` (config en `TrackCtrl`, pistas, tags, un `Tone.Player` por archivo con
+  `/api/file/<id>`, que es público). No toca `localStorage` ni el chequeo de sesión. Devuelve
+  `{ ok, status, text, creator }` (404 → "Project not found", 429 → "Too many requests").
+  `load_project` (la app) vuelve a poner `read_only = false`.
+- **Ningún request de escritura**: todos los guardados del store pasan por `can_save()` (`store.project`
+  y no `read_only`): `save_tags`, `save_trackGroups`, `save_file`, `save_project_props` y
+  `delete_project_file`, más `save_collection` como red de seguridad. Los diferidos
+  (`save_trackGroups_debounced`, `save_project_props_debounced`) ni arman el timer, así que
+  `flush_pending_saves` no tiene nada que mandar. Los cambios de tempo y del mixer (que llaman a esos
+  guardados desde `Tracks.vue` y `mixer.js`) quedan solo en memoria y se pierden al recargar.
+- En `Tracks.vue`, con `read_only` se ven START/STOP, RESET, el knob Tempo, y por pista el fader de
+  volumen y M/S; el botón LOOP/SHOT queda deshabilitado; compás, delay, rango de Tag, Rest,
+  Dens/TAG y Rev/Dly/Drift no se muestran. La vista no monta pads, Files, Uploader, Projects,
+  Import, Account ni Admin.
+- Si hay sesión, la vista pide `GET /api/get_user_info` (solo lectura) y, si el proyecto está en la
+  lista del visitante, muestra "OPEN IN EDITOR": un `<a href="/">` que antes guarda el id en
+  `localStorage` (`looper_project_id`), así la app abre ese proyecto.
+- Al cambiar el `:id` se hace STOP antes de cargar el otro. Al salir de la vista (router-link a la
+  galería) `unload_public_project()` hace STOP, olvida el Tag y libera los players
+  (`unload_project`); el `beforeUnmount` de la vista corre antes de desmontar `Tracks.vue`.
+- `?autostart=1` funciona igual que en la app: `Tracks.vue` se monta recién con el proyecto cargado
+  (`isReady` ya en `true`) y su watcher `immediate` hace START; el aviso de memoria no se muestra y la
+  vista no tiene diálogos de login. Es el link de la instalación (`/p/<id>?autostart=1`, ver
+  `docs/INSTALACION.md`, tarea 4.5). Solo con `?autostart=1`, si la carga falla por algo pasajero
+  (sin respuesta, 5xx o 429) la vista reintenta sola con backoff (5 s, 10 s, 20 s... tope 60 s, sin
+  límite); un 404 no se reintenta.
 
 ### Carga inicial
 
@@ -414,8 +506,9 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 
 - **Autostart:** con `?autostart=1` en la URL, `Tracks.vue` hace START solo cuando
   `TrackCtrl.isReady` pasa a `true` (terminó la carga de audios). Es una sola vez por carga de
-  página: una recarga posterior (subida, re-login) no rearranca. Sin sesión no hay carga, así que
-  el autostart espera al login.
+  página: una recarga posterior (subida, re-login) no rearranca. En la app (`/`), sin sesión no hay
+  carga, así que el autostart espera al login; en el link público (`/p/:id`) no hace falta sesión
+  (ver "Modo lectura").
 - **`request_start()`** (botón START y autostart): si `Tone.context.state != "running"` llama a
   `Tone.start()` y espera hasta 500 ms a que el contexto corra (sin gesto la promesa puede quedar
   pendiente para siempre, por eso la carrera con un `setTimeout`: no es programación de audio). Si

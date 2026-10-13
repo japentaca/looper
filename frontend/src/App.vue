@@ -51,6 +51,8 @@
 
       <span class="spacer"></span>
       <span v-if="store.isLogged == true" class="silk user">{{ store.u_info.name }}</span>
+      <!-- la galería pública se abre en otra pestaña, para no cortar lo que está sonando -->
+      <LedButton size="small" text="GALLERY" @click="open_gallery()" />
       <LedButton v-if="store.isLogged == false" size="small" text="LOGIN" @click="store.loginVisible = true" />
       <LedButton v-if="is_admin" size="small" text="ADMIN" @click="adminVisible = true" />
       <LedButton v-if="store.isLogged == true" size="small" text="ACCOUNT" @click="accountVisible = true" />
@@ -177,6 +179,9 @@ const accountVisible = ref(false) // diálogo de cuenta (bio y cambio de clave)
 const projectsVisible = ref(false) // diálogo de proyectos (abrir, crear, renombrar, borrar, visibilidad)
 const importVisible = ref(false) // diálogo de importar del catálogo al proyecto activo
 const adminVisible = ref(false) // diálogo de admin de usuarios
+function open_gallery() {
+  window.open(import.meta.env.BASE_URL + "gallery", "_blank", "noopener")
+}
 const is_admin = computed(() => store.isLogged == true && store.u_info.role === "admin")
 onMounted(async () => {
   if (!store.alreadyMounted) {

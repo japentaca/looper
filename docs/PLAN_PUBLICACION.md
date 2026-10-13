@@ -353,22 +353,22 @@ empalma sin clic en Tone.js**.
 quitar; borrar un archivo propio y ver la cascada; ocultarlo y que deje de sortearse; el aviso de
 memoria aparece con un proyecto grande.
 
-### Fase 4 — Público
+### Fase 4 — Público ✅
 
 *Decidido*: rutas con `vue-router`; denuncias solo de usuarios logueados.
 
-- [ ] **4.1 API pública.** `routes/api.js`. `GET /public/projects` (galería) y
+- [x] **4.1 API pública.** `routes/api.js`. `GET /public/projects` (galería) y
   `GET /public/project/:id` (404 si es privado, está oculto o el dueño está bloqueado); límite por IP.
   *Acepta*: ningún email ni id de usuario en las respuestas; casos 404.
-- [ ] **4.2 Rutas en el frontend.** Según la decisión previa: `/`, `/p/:id`, galería.
+- [x] **4.2 Rutas en el frontend.** Según la decisión previa: `/`, `/p/:id`, galería.
   *Acepta*: build OK; el `try_files` necesario queda anotado para la 6.1.
-- [ ] **4.3 Modo lectura.** Componentes afectados. En `/p/:id`: START/STOP y mixer local (mute,
+- [x] **4.3 Modo lectura.** Componentes afectados. En `/p/:id`: START/STOP y mixer local (mute,
   solo, volúmenes, tempo) sin guardar nada; edición, subida y guardado ocultos.
   *Acepta*: build OK; el modo lectura no hace ningún request de escritura.
-- [ ] **4.4 Denuncias.** `db_migrations.js` (`reports`), `routes/api.js` (`POST /report`), botón en
+- [x] **4.4 Denuncias.** `db_migrations.js` (`reports`), `routes/api.js` (`POST /report`), botón en
   catálogo y galería.
   *Acepta*: se registra una denuncia con el alcance decidido.
-- [ ] **4.5 Kiosko.** `docs/INSTALACION.md`: la instalación usa `/p/<id>?autostart=1` sin login.
+- [x] **4.5 Kiosko.** `docs/INSTALACION.md`: la instalación usa `/p/<id>?autostart=1` sin login.
   *Acepta*: documento actualizado.
 
 *Pruebas manuales*: abrir un proyecto público sin sesión, tocar el mixer y recargar (no se guardó);

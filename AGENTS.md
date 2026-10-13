@@ -19,7 +19,7 @@ con LLMs.
 | Parte | Tecnología |
 |---|---|
 | Backend | Node.js (ESM), Express 4, knex + better-sqlite3, express-session + Redis (ioredis, connect-redis), bcrypt, express-fileupload, ffmpeg/ffprobe (paquetes `ffmpeg-static`/`ffprobe-static`) |
-| Frontend | Vue 3 (`<script setup>`), Vite 5, Element Plus, Tone.js 14 (motor de audio), axios, @vueuse/core |
+| Frontend | Vue 3 (`<script setup>`), Vite 5, vue-router 4 (historial HTML5), Element Plus, Tone.js 14 (motor de audio), axios, @vueuse/core |
 | Datos | SQLite (archivo en `storage/db.sqlite`), audios en `storage/audio/<user_id>/<file_id>.mp3` |
 
 ## Estructura
@@ -31,6 +31,9 @@ backend/
   db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn)
   utils.js           # probe (ffprobe: ¿es audio?, duración) y convert (ffmpeg → mp3 V0), extensión de archivo
 frontend/src/
+  main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
+  router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue)
+  views/             # vistas públicas sin sesión: Gallery.vue (galería), PublicProject.vue (proyecto público en modo lectura: store.read_only, nada se guarda)
   App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
@@ -41,6 +44,8 @@ frontend/src/
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave
     Projects.vue     # diálogo de proyectos: abrir, crear, renombrar, borrar, visibilidad
     ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria)
+    ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
+    PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, StepLeds
   helpers/
@@ -59,8 +64,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
 - `docs/ARCHITECTURE.md` — flujo de datos, autenticación, modelo de datos (esquema SQLite real),
   algoritmo del motor de reproducción.
 - `docs/API.md` — referencia de endpoints.
-- `docs/INSTALACION.md` — correrlo como instalación: Chrome en kiosko, `?autostart=1`,
-  recuperación y prueba larga.
+- `docs/INSTALACION.md` — correrlo como instalación: Chrome en kiosko con el link público
+  `/p/<id>?autostart=1` (sin login), recuperación y prueba larga.
 - `docs/PLAN_PUBLICACION.md` — plan acordado para publicar en un VPS multiusuario (decisiones,
   esquema, endpoints y fases). Leer antes de trabajar en usuarios, proyectos, subidas o despliegue.
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes

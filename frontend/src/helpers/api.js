@@ -189,6 +189,35 @@ export function get_catalog(params = {}) {
   })
 }
 
+// galería pública (sin sesión): proyectos públicos paginados. params opcionales: { page, per_page }
+//  → { stat, data: { items: [{ id, name, ts, tempo, files, creator: { name, bio } }], total, page, per_page } }
+export function get_public_projects(params = {}) {
+  return request({
+    url: '/api/public/projects',
+    method: 'get',
+    params
+  })
+}
+
+// proyecto público (sin sesión): { id, name, ts, props, track_groups, tags, files, creator: { name, bio } }.
+// 404 si es privado, está oculto, su dueño está bloqueado o no existe
+export function get_public_project(id) {
+  return request({
+    url: '/api/public/project/' + encodeURIComponent(id),
+    method: 'get'
+  })
+}
+
+// denuncia (con sesión): { target_type: "file" | "project", target_id, reason } → { stat, text, data: { duplicate } }.
+// 401 sin sesión, 404 si el archivo/proyecto no existe o no está a la vista, 429 por el límite diario
+export function report(data) {
+  return request({
+    url: '/api/report',
+    method: 'post',
+    data
+  })
+}
+
 // texto de error de un request rechazado (status no 2xx o sin respuesta), para mostrarlo al usuario
 export function error_text(e) {
   return e?.response?.data?.text || (e?.response ? "Error del servidor" : "No hay conexión con el servidor")

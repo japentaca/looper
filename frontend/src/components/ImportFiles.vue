@@ -67,6 +67,14 @@
       <el-table-column label="Date" width="92">
         <template #default="{ row }">{{ fmt_date(row.ts) }}</template>
       </el-table-column>
+      <el-table-column label="" width="40">
+        <template #default="{ row }">
+          <el-icon v-if="!row.own" :size="16" class="icons report" title="Report this file"
+            @click="open_report(row)">
+            <Warning />
+          </el-icon>
+        </template>
+      </el-table-column>
     </el-table>
 
     <div class="pager">
@@ -97,6 +105,7 @@
         IMPORT{{ selected.size ? ` (${selected.size})` : "" }}
       </el-button>
     </template>
+    <ReportDialog v-model="report_visible" :target="report_target" />
   </el-dialog>
 </template>
 
@@ -110,6 +119,7 @@ import {
 import { TrackCtrl } from "../helpers/TrackCtrl"
 import { get_catalog, save_project_files, error_text } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
+import ReportDialog from "./ReportDialog.vue"
 
 const visible = defineModel({ type: Boolean, default: false })
 
@@ -269,6 +279,14 @@ async function do_import() {
   }
 }
 
+// denuncia de un archivo ajeno del catálogo (el diálogo de importar solo se abre con sesión)
+const report_visible = ref(false)
+const report_target = ref(null)
+function open_report(row) {
+  report_target.value = { type: "file", id: row.id, name: row.original_name }
+  report_visible.value = true
+}
+
 function fmt_seconds(s) {
   let n = Number(s)
   return Number.isFinite(n) && n > 0 ? n.toFixed(1) + " s" : "–"
@@ -307,6 +325,10 @@ function fmt_date(ts) {
 
 .icons:hover {
   color: var(--accent);
+}
+
+.icons.report:hover {
+  color: var(--danger);
 }
 
 .is_loading svg {

@@ -17,14 +17,16 @@
         <Lcd :value="bar_position" :digits="4" caption="Bar . beat" />
       </div>
 
-      <div class="group">
+      <!-- modo lectura (/p/:id): solo START/STOP, RESET, tempo y el mixer (volumen, mute, solo); el resto
+        de la config del proyecto no se muestra (no se guardaría nada igual, ver can_save en composable.js) -->
+      <div v-if="!store.read_only" class="group">
         <ToggleSwitch v-model="TrackCtrl.beats_x_bar" label="Time sig"
           :options="[{ value: '3', label: '3/4' }, { value: '4', label: '4/4' }]" @change="onSignatureChange" />
       </div>
 
       <!-- delay global sincronizado al tempo (TrackCtrl.delay, guardado en projects.props). Cada pista le
         manda señal con su knob "Dly" -->
-      <div class="group delay">
+      <div v-if="!store.read_only" class="group delay">
         <div class="delay_sel">
           <span class="silk">Delay</span>
           <Lcd small :digits="0">
@@ -45,7 +47,7 @@
           @update:model-value="v => set_delay_cfg('level', v)" />
       </div>
 
-      <div class="group">
+      <div v-if="!store.read_only" class="group">
         <!-- placa de aluminio con los dos faders del rango de cambio de TAG -->
         <div class="hw_plate tag_range">
           <span class="silk plate_title">Tag change</span>
@@ -94,7 +96,8 @@
           <span class="silk strip_name">{{ trg.name }}</span>
           <!-- modo de la pista: loop (sortea loops encadenados) u one-shot (disparos sueltos), en props.mode -->
           <LedButton size="small" :text="is_oneshot(trg) ? 'SHOT' : 'LOOP'" led="yellow" :lit="is_oneshot(trg)"
-            :title="is_oneshot(trg) ? 'One-shot: pasar a loop' : 'Loop: pasar a one-shot'" @click="toggle_mode(trg)" />
+            :title="is_oneshot(trg) ? 'One-shot: pasar a loop' : 'Loop: pasar a one-shot'" :disabled="store.read_only"
+            @click="toggle_mode(trg)" />
           <!-- LED de actividad one-shot: destella (amarillo) en cada disparo -->
           <Led v-if="is_oneshot(trg)" color="yellow" :pulse="track && TrackCtrl.isPlaying ? track.shot_n : null" />
           <!-- LED de actividad loop: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
@@ -114,7 +117,7 @@
           <span class="file_name">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
           <!-- one-shot: densidad (probabilidad de disparo por compás, props.density) y disparo al empezar
             cada Tag (props.on_tag_change) -->
-          <div v-if="is_oneshot(trg)" class="oneshot_ctrls">
+          <div v-if="is_oneshot(trg) && !store.read_only" class="oneshot_ctrls">
             <Knob :model-value="trg.props.density ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Dens"
               :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% por compás'"
               @update:model-value="v => set_density(trg, v)" />
@@ -122,14 +125,14 @@
               title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
           </div>
           <!-- probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) -->
-          <Knob v-else :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Rest"
-            :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'" @update:model-value="v => set_rest(trg, v)" />
-          <!-- volumen de la pista (dB, guardado en props.volume) -->
+          <Knob v-else-if="!is_oneshot(trg) && !store.read_only" :model-value="trg.props.rest ?? 0" :min="0" :max="1"
+            :step="0.05" :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'" @update:model-value="v => set_rest(trg, v)" />
+          <!-- volumen de la pista (dB, guardado en props.volume; en modo lectura solo en memoria) -->
           <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
             label="Vol" :title="trg.props.volume + ' dB'" @update:model-value="v => set_volume(trg.id, v)" />
           <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada), send al delay global
             (props.delay, ídem) y modulación lenta del filtro y del send de reverb (props.drift, 0..1) -->
-          <div class="fx_ctrls">
+          <div v-if="!store.read_only" class="fx_ctrls">
             <Knob :model-value="trg.props.reverb ?? REV_OFF_DB" :min="REV_OFF_DB" :max="0" :step="1" :size="36"
               label="Rev" :title="trg.props.reverb == null ? 'Reverb: off' : 'Reverb send ' + trg.props.reverb + ' dB'"
               @update:model-value="v => set_reverb(trg.id, v)" />

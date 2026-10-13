@@ -906,6 +906,171 @@ router.get('/catalog', require_session, async (req, res) => {
   }
 })
 
+// ---------- público (sin sesión) ----------
+// Galería de proyectos públicos y lectura de un proyecto público, para visitantes sin cuenta (y la
+// instalación en kiosko). Un proyecto es visible si es `public`, no lo ocultó el admin y su dueño
+// está `active`; si no, 404 igual que un id inexistente (sin distinguir). Solo se exponen el nombre
+// público y la bio del dueño: nunca su email ni su id.
+// Límite de requests por IP en Redis (`looper_public:<ip>`): PUBLIC_MAX por ventana de
+// PUBLIC_WINDOW_S desde el primero; después, 429.
+const PUBLIC_MAX = 120
+const PUBLIC_WINDOW_S = 60
+const PUBLIC_PER_PAGE = 24
+const PUBLIC_PER_PAGE_MAX = 100
+const PROJECT_ID_MAX = 36
+
+async function public_rate_limit(req, res, next) {
+  let key = "looper_public:" + req.ip
+  try {
+    let n = await global.redisClient.incr(key)
+    if (n == 1) await global.redisClient.expire(key, PUBLIC_WINDOW_S)
+    if (n > PUBLIC_MAX) return res.status(429).send({ stat: false, text: "Demasiados pedidos, probá de nuevo en un minuto" })
+    next()
+  } catch (e) {
+    console.log("Error public_rate_limit", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+}
+
+// proyectos visibles al público (con el dueño unido como `u`)
+function public_projects_query(db) {
+  return db("projects as p").join("users as u", "u.id", "p.user_id")
+    .where("p.visibility", "public").andWhere("p.hidden", 0).andWhere("u.status", "active")
+}
+
+// galería: proyectos públicos, los más nuevos primero. Query opcional: page (desde 1) y per_page
+router.get('/public/projects', public_rate_limit, async (req, res) => {
+  let q = req.query || {}
+  let page = 1, per_page = PUBLIC_PER_PAGE
+  for (let k of ["page", "per_page"]) {
+    if (q[k] !== undefined && typeof q[k] != "string") return res.status(400).send({ stat: false, text: `Parámetro inválido: ${k}` })
+  }
+  if (q.page && q.page.trim()) {
+    page = Number(q.page)
+    if (!Number.isInteger(page) || page < 1) return res.status(400).send({ stat: false, text: "Página inválida" })
+  }
+  if (q.per_page && q.per_page.trim()) {
+    per_page = Number(q.per_page)
+    if (!Number.isInteger(per_page) || per_page < 1 || per_page > PUBLIC_PER_PAGE_MAX) {
+      return res.status(400).send({ stat: false, text: `per_page tiene que ser un entero entre 1 y ${PUBLIC_PER_PAGE_MAX}` })
+    }
+  }
+  try {
+    let { total } = await public_projects_query(global.knex).count({ total: "*" }).first()
+    let rows = await public_projects_query(global.knex)
+      .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio",
+        // archivos disponibles del proyecto (los que suenan)
+        global.knex.raw(`(select count(*) from project_files pf join files f on f.id = pf.file_id
+          join users fu on fu.id = f.user_id
+          where pf.project_id = p.id and f.hidden = 0 and fu.status = 'active') as files`)])
+      .orderByRaw("p.ts is null, p.ts desc, p.id")
+      .limit(per_page).offset((page - 1) * per_page)
+    let items = rows.map(r => ({
+      id: r.id, name: r.name, ts: r.ts, tempo: parse_props(r.props).tempo ?? null, files: Number(r.files) || 0,
+      creator: { name: r.creator_name, bio: r.creator_bio ?? null },
+    }))
+    return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: page, per_page: per_page } })
+  } catch (e) {
+    console.log("Error GET public/projects", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// proyecto público para reproducir: config, pistas, tags y solo los archivos disponibles (los no
+// disponibles no se mandan: no se sortean ni se cargan), más el nombre público y la bio del dueño
+router.get('/public/project/:id', public_rate_limit, async (req, res) => {
+  let id = String(req.params.id)
+  if (id.length > PROJECT_ID_MAX) return res.status(404).send(PROJECT_NOT_FOUND)
+  try {
+    let p = await public_projects_query(global.knex)
+      .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio"])
+      .where("p.id", id).first()
+    if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
+    let data = {
+      id: p.id, name: p.name, ts: p.ts, props: parse_props(p.props),
+      creator: { name: p.creator_name, bio: p.creator_bio ?? null },
+    }
+    let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
+    data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
+    data.tags = await global.knex("user_tags").select("id", "name", "color").where({ project_id: p.id })
+    // forma de los archivos de GET /projects/:id, sin `own` (no hay usuario)
+    let files = await list_project_files(global.knex, p.id, null)
+    data.files = files.filter(f => f.available)
+    for (let f of data.files) delete f.own
+    return res.send({ stat: true, data: data })
+  } catch (e) {
+    console.log("Error GET public/project/:id", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
+// Denuncias (tarea 4.4): solo usuarios logueados. Se puede denunciar lo que el usuario puede ver de
+// otros: un archivo disponible del catálogo o un proyecto de la galería pública; lo propio no. Si ya
+// tiene una denuncia abierta sobre lo mismo, responde éxito sin duplicarla (y sin contar para el
+// límite). Límite por usuario en Redis (`looper_report:<user_id>`): REPORT_MAX denuncias nuevas por
+// ventana de REPORT_WINDOW_S desde la primera; después, 429. Las revisa el admin (fase 5).
+const REPORT_MAX = 20
+const REPORT_WINDOW_S = 24 * 60 * 60
+const REPORT_REASON_MAX = 500
+const REPORT_TARGET_TYPES = ["file", "project"]
+const REPORT_OK_TEXT = "Denuncia enviada: la va a revisar un admin"
+
+router.post('/report', require_session, async (req, res) => {
+  let user_id = req.user.id
+  let body = req.body || {}
+  if (!REPORT_TARGET_TYPES.includes(body.target_type)) {
+    return res.status(400).send({ stat: false, text: "target_type tiene que ser file o project" })
+  }
+  let target_type = body.target_type
+  if (typeof body.target_id !== "string" || !body.target_id) {
+    return res.status(400).send({ stat: false, text: "Falta target_id" })
+  }
+  let target_id = body.target_id
+  let not_found = target_type == "file" ? FILE_NOT_FOUND : PROJECT_NOT_FOUND
+  if (target_id.length > ROW_ID_MAX) return res.status(404).send(not_found)
+  let reason = typeof body.reason === "string" ? body.reason.trim() : ""
+  if (!reason || [...reason].length > REPORT_REASON_MAX) {
+    return res.send({ stat: false, text: `El motivo es obligatorio (hasta ${REPORT_REASON_MAX} caracteres)` })
+  }
+  try {
+    // el target tiene que existir y estar a la vista; si no, 404 igual que un id inexistente
+    let owner_id
+    if (target_type == "file") {
+      let [f] = await get_catalog_files(global.knex, [target_id])
+      if (!f || !file_available(f)) return res.status(404).send(not_found)
+      owner_id = f.user_id
+    } else {
+      let p = await public_projects_query(global.knex).select("p.user_id").where("p.id", target_id).first()
+      if (!p) return res.status(404).send(not_found)
+      owner_id = p.user_id
+    }
+    if (owner_id === user_id) return res.send({ stat: false, text: "No podés denunciar algo propio" })
+
+    let open_report = db => db("reports").select("id")
+      .where({ target_type: target_type, target_id: target_id, reporter_user_id: user_id, status: "open" }).first()
+    if (await open_report(global.knex)) return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: true } })
+
+    let key = "looper_report:" + user_id
+    let n = await global.redisClient.incr(key)
+    if (n == 1) await global.redisClient.expire(key, REPORT_WINDOW_S)
+    if (n > REPORT_MAX) return res.status(429).send({ stat: false, text: "Llegaste al límite de denuncias por hoy" })
+
+    // se vuelve a chequear dentro de la transacción (dos envíos simultáneos no duplican)
+    let duplicate = await global.knex.transaction(async trx => {
+      if (await open_report(trx)) return true
+      await trx("reports").insert({
+        id: uuid(), target_type: target_type, target_id: target_id, reporter_user_id: user_id,
+        reason: reason, status: "open", ts: new Date().toISOString().slice(0, 19),
+      })
+      return false
+    })
+    return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: duplicate } })
+  } catch (e) {
+    console.log("Error POST report", e)
+    return res.status(500).send({ stat: false, text: "Error interno" })
+  }
+})
+
 router.get('/get_user_info', async (req, res) => {
   // sin sesión (o con una que el chequeo por request acaba de cortar) responde 200 { stat: false }
   if (!req.user) return res.send({ stat: false })
