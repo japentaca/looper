@@ -21,8 +21,8 @@ import { store, store_get_user_info } from "../helpers/composable"
 import { login } from "../helpers/api"
 import { ElMessage } from 'element-plus'
 const form = reactive({
-  email: "jntaca@gmail.com",
-  password: "jape"
+  email: "",
+  password: ""
 })
 
 async function doLogin() {

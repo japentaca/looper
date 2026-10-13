@@ -1,14 +1,14 @@
 # API (backend/routes/api.js)
 
 Base: `<VITE_APP_BACKEND>/api`. Autenticación por cookie de sesión (`express-session` en Redis),
-salvo `get_file`, que usa `token` en query. Respuesta típica: `{ stat: boolean, text?: string, data?: any }`.
+salvo `file/:id`, que es público (los archivos de audio son siempre públicos). Respuesta típica: `{ stat: boolean, text?: string, data?: any }`.
 
 Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` ya devuelve
 `response.data`, así que el front recibe directamente el cuerpo JSON.
 
 | Método | Ruta | Sesión | Body / Query | Respuesta |
 |---|---|---|---|---|
-| POST | `/login` | no | `{ email, password }` | `{ stat: true, data: { u_info, text } }` o `{ stat: false, text }` |
+| POST | `/login` | no | `{ email, password }` | `{ stat: true, data: { u_info, text } }` o `{ stat: false, text }` (también con 10 fallos por IP en 15 min: "Demasiados intentos") |
 | PUT | `/logout` | — | — | `{ stat: true }` |
 | GET | `/get_user_info` | sí | — | `{ stat: true, u_info }` o `{ stat: false }` |
 | PUT | `/save_trackGroups` | sí | array `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array |
@@ -16,7 +16,7 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
 | PUT | `/save_tags` | sí | array `[{ id, name, color }]` | `{ stat: true }`; 400 si el body no es un array |
 | PUT | `/save_fileData` | sí | `{ file: { id, track_group, tags, props } }` | `{ stat: true }` |
 | PUT | `/delete_file` | sí | `{ id }` (se envía el objeto archivo entero) | `{ stat: true }`; borra el mp3 y la fila, y descuenta el tamaño de `users.bytes_used` |
-| GET | `/get_file` | token | `?file=<file_id>&token=<u_info.token>` | archivo mp3 |
+| GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
 | POST | `/upload` | sí | multipart, uno o más archivos (mp3/wav) | 200 sin cuerpo |
 
 ## Detalles
@@ -28,7 +28,6 @@ Los wrappers del frontend están en `frontend/src/helpers/api.js`; `request.js` 
   email, name, ts, bytes_used, max_bytes_uploaded,
   props: { tempo, beats_x_bar, delay: { type, division, feedback, level } }, // config global; {} si no hay nada guardado
                                                                              // (el front completa los defaults)
-  token,                       // para get_file
   files: [{ id, original_name, track_group, tags: [tag_id, ...], size, props: { volume }, name: "<id>.mp3" }], // props.oneShot viejo puede venir: se ignora
   track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, reverb, drift, delay } }], // props: {} si no hay nada guardado
                                                                                 // (el front completa los defaults)

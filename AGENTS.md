@@ -57,6 +57,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
 - `docs/API.md` — referencia de endpoints.
 - `docs/INSTALACION.md` — correrlo como instalación: Chrome en kiosko, `?autostart=1`,
   recuperación y prueba larga.
+- `docs/PLAN_PUBLICACION.md` — plan acordado para publicar en un VPS multiusuario (decisiones,
+  esquema, endpoints y fases). Leer antes de trabajar en usuarios, proyectos, subidas o despliegue.
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes
   o Tracks.vue**; muchos comportamientos raros ya están explicados ahí.
 

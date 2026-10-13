@@ -60,15 +60,16 @@ Comando (una sola línea):
 
 ### La sesión de Looper
 
-La cookie de sesión no tiene vencimiento propio (dura lo que el navegador) y en Redis vence a las
-24 h sin requests (TTL por defecto de connect-redis). Mientras la página está abierta, Looper
-consulta la sesión cada 10 min, lo que la mantiene viva. Pero **al cerrar Chrome la cookie se
-pierde** salvo que en ese perfil se configure "Al iniciar: Continuar donde lo dejaste"
-(`chrome://settings/onStartup`). Hacer una vez:
+La cookie de sesión dura 30 días y se renueva con cada request (en Redis vence igual). Mientras la
+página está abierta, Looper consulta la sesión cada 10 min, así que no vence mientras la
+instalación funcione, y sobrevive a cerrar y abrir Chrome. Hacer una vez:
 
 1. Lanzar el acceso directo, salir del kiosko (Alt+F4) o abrir el perfil sin `--kiosk`.
-2. En ese perfil configurar "Continuar donde lo dejaste" y entrar con LOGIN.
+2. Entrar con LOGIN.
 3. Cerrar y volver a abrir con el acceso directo: tiene que cargar sin pedir login y arrancar solo.
+
+(Cuando exista el acceso público de solo lectura, la instalación usará el link público del proyecto
+y no necesitará login; ver `docs/PLAN_PUBLICACION.md`.)
 
 Si igual aparece sin sesión (LED apagado, "Off"), hay que hacer LOGIN; después de cargar arranca solo
 (el autostart espera a que termine la carga).

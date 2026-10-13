@@ -38,6 +38,11 @@ export default async function do_migrations() {
   await create_column_string("sets", "name", 64)
   await create_column_string("sets", "tracks", 65535)
   await create_column_string("sets", "tags", 65535)
+
+  // bytes servidos de audio por día (id = "YYYY-MM-DD" UTC), para controlar el tope de tráfico del VPS
+  await create_table("traffic")
+  await create_column_number("traffic", "bytes")
+  await create_column_number("traffic", "requests")
 }
 
 // un archivo puede tener varios tags: `files.tags` es un array JSON de ids de user_tags.

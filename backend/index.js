@@ -4,6 +4,10 @@ import * as dotenv from 'dotenv'
 let config = dotenv.config()
 //console.log("config", config)
 global.config = config.parsed
+if (!global.config.session_secret) {
+  console.log("Falta session_secret en .env")
+  process.exit(1)
+}
 import Knex from 'knex'
 global.knex = Knex({
   client: 'better-sqlite3',
@@ -16,6 +20,8 @@ import express from 'express'
 const app_server = express()
 import Redis from 'ioredis'
 app_server.use(express.json())
+// detrás de nginx (en la misma máquina): req.ip y req.secure salen de X-Forwarded-For / X-Forwarded-Proto
+app_server.set("trust proxy", "loopback")
 import Session from "express-session"
 import RedisStore from 'connect-redis'
 
@@ -35,9 +41,17 @@ redisClient.on("connect", function () {
 })
 app_server.use(Session({
   store: new RedisStore({ client: redisClient, prefix: "looper_s:" }),
-  secret: 'session_secret',
+  name: "looper_sid",
+  secret: global.config.session_secret,
   saveUninitialized: false,
-  resave: true,
+  resave: false,
+  rolling: true, // cada request renueva los 30 días (el chequeo de sesión del front la mantiene viva)
+  cookie: {
+    httpOnly: true,
+    secure: "auto", // solo por HTTPS cuando el request llegó por HTTPS (en dev se usa http)
+    sameSite: "lax", // no viaja en POST desde otros sitios (CSRF, sobre todo en /upload)
+    maxAge: 30 * 24 * 60 * 60 * 1000
+  }
 }))
 import cors from 'cors'
 let cors_origin = (global.config.cors_origin || "http://localhost:31201").split(",")

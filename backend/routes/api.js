@@ -26,38 +26,44 @@ router.use(fileUpload({
   //tempFileDir: global.config.storage_path
 }))
 
+// intentos de login fallidos por IP: a partir de LOGIN_MAX_FAILS se bloquea por LOGIN_BLOCK_S
+const LOGIN_MAX_FAILS = 10
+const LOGIN_BLOCK_S = 15 * 60
+
 router.post('/login', async function (req, res) {
   //res.send(200, 'piden login')
   //console.log("piden login", req.body)
   var email = req.body.email
   var password = req.body.password
+  let fails_key = "looper_login_fails:" + req.ip
   try {
     if (!email || !password) {
       res.status(200).send({ stat: false, text: "Por favor ingrese email o clave" })
       return
     }
-
+    let fails = Number(await global.redisClient.get(fails_key)) || 0
+    if (fails >= LOGIN_MAX_FAILS) {
+      res.status(200).send({ stat: false, text: "Demasiados intentos, probá de nuevo en 15 minutos" })
+      return
+    }
 
     var db_res = await global.knex("users").select().where({ email: email })
-    if (db_res[0] === undefined) {
+    var isValid = db_res[0] !== undefined && await bcrypt.compare(password, db_res[0].password)
+    if (!isValid) {
+      // el bloqueo dura LOGIN_BLOCK_S desde el primer fallo
+      if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, LOGIN_BLOCK_S)
       res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
       return
     } else {
-      var pwd = db_res[0].password
-      var isValid = await bcrypt.compare(password, pwd)
-      if (!isValid) {
-        console.log("no es valido")
-        res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
-        return
-      }
+      await global.redisClient.del(fails_key)
       let u_info = db_res[0]
       delete u_info.password
 
+      // sesión nueva al loguearse (evita fijar un id de sesión de antemano)
+      await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()))
       req.session.isLogged = true
-      u_info.token = uuid()
       req.session.u_info = { ...u_info }
-      global.redisClient.hset("TOKEN:", u_info.token, req.session.id)
-      req.session.save()
+      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()))
       let ui = await return_user_info(req)
       var res_data = {
         stat: true,
@@ -150,6 +156,7 @@ router.put('/logout', async (req, res) => {
   if (req.session.isLogged) {
     req.session.destroy()
   }
+  res.clearCookie("looper_sid")
   //console.log("req.session", req.session)
   return res.send({ stat: true })
 
@@ -216,29 +223,46 @@ router.get('/get_user_info', async (req, res) => {
 
 })
 
-router.get('/get_file', async (req, res) => {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// los archivos son públicos: se sirven por id, sin sesión
+router.get('/file/:id', async (req, res) => {
+  let id = req.params.id
+  // validar el formato antes de armar la ruta evita el path traversal
+  if (!UUID_RE.test(id)) return res.status(404).end()
   try {
-
-    await req.sessionStore.all(async (error, sessions) => {
-      //console.log(req.query, "error", error, "sess", sessions)
-
-      let sess = sessions.find((sess) => { return sess.token = req.query.token })
-      //console.log("sess", sess)
-      return res.sendFile(global.config.storage_path + sess.u_info.id + "/" + req.query.file + ".mp3")
+    let file = await global.knex("files").select("user_id").where({ id: id }).first()
+    if (!file) return res.status(404).end()
+    count_traffic(req, res)
+    // el mp3 de un id nunca cambia: el navegador lo puede cachear para siempre
+    res.sendFile(id + ".mp3", { root: global.config.storage_path + file.user_id, maxAge: "1y", immutable: true }, (err) => {
+      if (err && !res.headersSent) res.status(404).end()
     })
-
-
-
   } catch (error) {
-    console.log("error", error)
-    //console.log(error)
+    console.log("Error file", error)
     return res.status(500).end()
-
   }
-
-
 })
+
+// suma a la tabla `traffic` (una fila por día UTC) los bytes que salieron por el socket para
+// esta respuesta, incluidos headers y descargas cortadas a la mitad
+function count_traffic(req, res) {
+  let socket = req.socket
+  let start = socket.bytesWritten
+  res.once("close", async () => {
+    let bytes = socket.bytesWritten - start
+    if (bytes <= 0) return
+    let day = new Date().toISOString().slice(0, 10)
+    try {
+      await global.knex("traffic")
+        .insert({ id: day, bytes: bytes, requests: 1 })
+        .onConflict("id")
+        .merge({ bytes: global.knex.raw("bytes + ?", [bytes]), requests: global.knex.raw("requests + 1") })
+    } catch (e) {
+      console.log("Error traffic", e)
+    }
+  })
+}
 
 router.post('/upload', async (req, res) => {
   if (!req.session.isLogged) return res.status(403).send({ stat: false, text: "Sin sesión" })
@@ -312,6 +336,7 @@ async function return_user_info(req) {
   //console.log("erererer", u_info)
   delete u_info.id
   delete u_info.password
+  delete u_info.token // sesiones viejas: el token ya no se usa
   // props se lee de la base (la copia de la sesión es la del login y puede estar desactualizada)
   let user = await global.knex("users").select("props").where({ id: req.session.u_info.id }).first()
   u_info.props = parse_props(user?.props)

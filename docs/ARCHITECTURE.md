@@ -7,7 +7,7 @@ Navegador (Vue + Tone.js)                     Backend (Express, :31200)         
 ┌──────────────────────────┐   axios (cookie)  ┌─────────────────────────┐
 │ App.vue / componentes    │ ────────────────► │ /api/* (routes/api.js)  │ ──► SQLite (knex)
 │ store (composable.js)    │                   │ express-session         │ ──► Redis (sesiones)
-│ Tone.Player × archivo    │ ◄──────────────── │ /api/get_file?token=... │ ──► storage/audio/*.mp3
+│ Tone.Player × archivo    │ ◄──────────────── │ /api/file/:id (público) │ ──► storage/audio/*.mp3
 │ Tone.Transport (Tracks)  │   mp3 por GET     │ /api/upload → ffmpeg    │ ──► ffmpeg (wav→mp3)
 └──────────────────────────┘                   └─────────────────────────┘
 ```
@@ -35,13 +35,22 @@ Todos los endpoints están en `backend/routes/api.js` (ver `docs/API.md`). El mi
 
 ### Autenticación
 
-1. `POST /api/login` compara la clave con bcrypt contra `users.password`.
-2. Si es válida: `req.session.isLogged = true`, `req.session.u_info` = fila del usuario sin
-   password + un `token` (uuid v4) nuevo. Además se guarda `HSET "TOKEN:" <token> <session_id>`
-   en Redis (hoy nadie lo lee).
-3. Las llamadas axios usan la cookie de sesión (`withCredentials`).
-4. El audio lo descarga Tone.js por URL, sin cookie, por eso se pasa `token` en query a
-   `GET /api/get_file`. La validación de ese token está rota (ver `KNOWN_ISSUES.md`).
+1. `POST /api/login` compara la clave con bcrypt contra `users.password`. Los fallos se cuentan
+   por IP en Redis (`looper_login_fails:<ip>`): con 10 fallos se bloquea 15 min desde el primero.
+   Un login correcto borra el contador.
+2. Si es válida: `req.session.regenerate()` (id de sesión nuevo), `req.session.isLogged = true`,
+   `req.session.u_info` = fila del usuario sin password.
+3. Las llamadas axios usan la cookie de sesión (`withCredentials`). Cookie `looper_sid`: `httpOnly`,
+   `sameSite: lax`, `secure: "auto"` (solo se marca Secure si el request llegó por HTTPS; detrás de
+   nginx lo dice `X-Forwarded-Proto`, con `trust proxy` = loopback), 30 días renovables con cada
+   request (`rolling`, `resave: false`). El secreto es `session_secret` de `.env`. `logout` destruye la
+   sesión y borra la cookie.
+4. El audio lo descarga Tone.js por URL, sin cookie: `GET /api/file/:id` es público (los archivos
+   son siempre públicos). Valida que `id` sea un uuid (evita path traversal), busca el dueño en
+   `files` (404 si no está) y sirve `storage_path/<user_id>/<id>.mp3` con caché `immutable` de un año.
+   Cada respuesta suma los bytes que salieron por el socket (headers y descargas cortadas incluidos)
+   a la tabla `traffic`, para controlar el tope de tráfico del VPS. Si en producción el proxy cachea
+   o sirve los mp3 directo, ese tráfico no se cuenta acá.
 
 No hay registro ni cambio de clave: los usuarios se insertan a mano.
 
@@ -65,6 +74,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` | Cada track group es una **pista** (la UI lo rotula "Track"). `props = { volume: dB (default 0), rest: 0..1 (default 0), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop); `on_tag_change` y `density` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color` | |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | tabla prevista, sin uso |
+| `traffic` | `id` PK (`"YYYY-MM-DD"`, día UTC), `bytes`, `requests` | audio servido por `GET /file/:id`. Total del mes: `select sum(bytes) from traffic where id like '2026-10-%'` |
 
 `db_migrations.js` crea todo el esquema de forma idempotente (base nueva o existente). En la base
 actual `files` no tiene PK porque se creó a mano. No hay claves foráneas; la integridad se maneja desde el frontend (al borrar
@@ -106,7 +116,7 @@ Los campos extra que el cliente agrega a los objetos se ignoran.
    aplica (lo que está en pantalla es más nuevo que lo de la base).
 2. Arma índices y resuelve `track_group_obj` / `tag_objs` de cada archivo (descarta ids de tags
    que ya no existen).
-3. Crea un `Tone.Player` por archivo con URL `get_file?file=<id>&token=<token>` y espera a que
+3. Crea un `Tone.Player` por archivo con URL `/api/file/<id>` y espera a que
    todos carguen (`Promise.allSettled`).
    Cada player que termina (bien o con error) suma a `store.load_progress.done`; `App.vue` lo
    muestra como barra de avance (cantidad de archivos, no bytes) y contador junto al LED de estado.

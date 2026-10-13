@@ -8,17 +8,13 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 ## Seguridad
 
-- 🔴 **`GET /get_file` no valida el token.** `sessions.find(sess => sess.token = req.query.token)`
-  asigna en lugar de comparar, así que siempre toma la primera sesión de Redis y sirve archivos de
-  ese usuario a cualquiera. Además el token vive en `sess.u_info.token`, no en `sess.token`, y
-  `sessionStore.all` carga todas las sesiones en cada request. Lo correcto sería resolver
-  `HGET "TOKEN:" <token>` → session id (ya se guarda en el login) o firmar URLs.
-- 🔴 **Path traversal en `get_file`.** `req.query.file` se concatena a la ruta sin sanitizar
-  (`../` permite salir del directorio del usuario, siempre con extensión `.mp3`).
-- 🔴 **Credenciales por defecto en `Login.vue`**: el formulario viene precargado con un email y
-  clave reales (y la clave está en el historial de git). Quitar los valores y cambiar la clave.
-  El input de password tampoco usa `type="password"`.
-- 🟠 Secreto de sesión fijo (`secret: 'session_secret'` en `index.js`): moverlo a `.env`.
+- ✅ Resuelto (oct 2026): `get_file` no validaba el token y permitía path traversal. Se reemplazó
+  por `GET /file/:id`, público (los archivos son siempre públicos), que valida el uuid y busca el
+  dueño en la base. El hash `TOKEN:` que quedó en Redis ya no se usa (se puede borrar).
+- ✅ Resuelto (oct 2026): `Login.vue` venía con email y clave reales precargados. Se vació el
+  formulario y se cambió la clave (la vieja sigue en el historial público de git, pero ya no sirve).
+- ✅ Resuelto (oct 2026): el secreto de sesión estaba fijo en `index.js`; ahora es `session_secret`
+  en `.env` (obligatorio: sin él el backend no arranca).
 - 🟠 `utils.convert_file` arma un comando de shell interpolando rutas sin comillas: falla con
   espacios en `storage_path` y es frágil ante rutas controladas por terceros. Usar `execFile` con
   array de argumentos.
@@ -70,16 +66,14 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
 - 🟡 Una recarga de `store_get_user_info` con el transporte corriendo deja a los tracks apuntando a
   los objetos de archivo viejos y `stop_file` actúa sobre el player nuevo: el loop que sonaba sigue
   hasta terminar su buffer. Es previo a la fase 6; en una instalación no se sube nada.
-- 🟡 La sesión de Looper es una cookie de sesión del navegador (sin `maxAge`): se pierde al cerrar
-  Chrome salvo que el perfil "continúe donde lo dejó" (ver `docs/INSTALACION.md`). En Redis vence a
-  las 24 h sin requests; el chequeo de sesión cada 10 min la mantiene viva.
+- ✅ Resuelto (oct 2026): la cookie de sesión no tenía `maxAge` y se perdía al cerrar Chrome. Ahora
+  dura 30 días y se renueva con cada request (`rolling`); el chequeo cada 10 min la mantiene viva.
 - 🟡 Pendiente de medir: memoria de la pestaña en 8–12 h (prueba larga de `docs/INSTALACION.md`).
 
 ## Frontend — general
 
-- 🟠 Si `GET /get_file` no encuentra una sesión, el handler lanza dentro del callback de
-  `sessionStore.all` y la request queda colgada: el audio no dispara `onerror` y la app no queda
-  lista. Se resuelve junto con el arreglo de seguridad de `get_file`.
+- ✅ Resuelto (oct 2026): la request de audio que quedaba colgada si `get_file` no encontraba
+  sesión (ahora `GET /file/:id` responde 404).
 
 ## Entorno
 
