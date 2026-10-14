@@ -1,9 +1,13 @@
 <template>
   <!-- pad de goma tipo MPC: se ilumina con su color mientras su Track Group suena o su Tag está activo -->
-  <!-- doble clic en cualquier parte del pad (salvo color y borrar) para renombrar -->
-  <div :draggable="!editing" class="pad" :class="{ lit }" title="Doble clic para renombrar" @dragstart="startDrag($event)"
-    @dblclick="onPadDblclick">
-    <el-color-picker size="small" @change="onColorChange" v-model="item.color" />
+  <!-- Track Group: doble clic en cualquier parte del pad (salvo color y borrar) para renombrar.
+    Tag: el lápiz (o doble clic) abre TagDialog (nombre, color y peso) -->
+  <div :draggable="!editing" class="pad" :class="{ lit }" :title="cfg.dialog ? 'Doble clic para editar' : 'Doble clic para renombrar'"
+    @dragstart="startDrag($event)" @dblclick="onPadDblclick">
+    <el-icon v-if="cfg.dialog" :size="13" class="edit_icon" title="Edit" @click="dialog_visible = true">
+      <Edit />
+    </el-icon>
+    <el-color-picker v-else size="small" @change="onColorChange" v-model="item.color" />
     <el-icon :size="13" class="icons" title="Delete" @click="deleteItem">
       <Delete />
     </el-icon>
@@ -13,6 +17,7 @@
       <el-input v-on:keyup.escape="escapePressed()" ref="nameInput" @blur="onBlur" v-model="item.name" size="small"
         placeholder="Name" />
     </span>
+    <TagDialog v-if="cfg.dialog" v-model="dialog_visible" :tag_id="item.id" />
   </div>
 </template>
 <script setup>
@@ -22,6 +27,7 @@ import { ref, computed } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { store, rebuildIndexes, save_tags, save_trackGroups, set_file_tags } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
+import TagDialog from "./TagDialog.vue"
 
 const KINDS = {
   track_group: {
@@ -40,7 +46,7 @@ const KINDS = {
     is_lit: (id) => store.files.some(f => f.track_group == id && f.isPlaying)
   },
   tag: {
-    list: () => store.tags, save: save_tags, label: "tag",
+    list: () => store.tags, save: save_tags, label: "tag", dialog: true, // se edita con TagDialog
     uses: (file, id) => file.tags.includes(id),
     unassign: (file, id) => {
       if (!file.tags.includes(id)) return false
@@ -55,6 +61,7 @@ const props = defineProps(["kind", "index"])
 const cfg = KINDS[props.kind]
 const item = computed(() => cfg.list()[props.index])
 const editing = ref(false)
+const dialog_visible = ref(false)
 const lit = computed(() => TrackCtrl.isPlaying && cfg.is_lit(item.value.id))
 let prevName = ""
 
@@ -69,8 +76,9 @@ function setEditing(valor) {
   }
 }
 function onPadDblclick(e) {
-  if (editing.value || e.target.closest(".el-color-picker, .icons")) return
-  setEditing(true)
+  if (editing.value || e.target.closest(".el-color-picker, .icons, .edit_icon")) return
+  if (cfg.dialog) dialog_visible.value = true
+  else setEditing(true)
 }
 function escapePressed() {
   item.value.name = prevName
@@ -182,6 +190,20 @@ async function deleteItem() {
   position: absolute;
   top: 4px;
   left: 4px;
+}
+
+.edit_icon {
+  position: absolute;
+  top: 8px;
+  left: 7px;
+  cursor: pointer;
+  color: var(--hw_silk);
+  opacity: 0.6;
+}
+
+.pad .edit_icon:hover {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .icons {

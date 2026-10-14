@@ -190,9 +190,11 @@
 <script setup>
 
 import * as Tone from "tone"
+import { ElMessage } from "element-plus"
 import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import {
-  store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_project_props_debounced
+  store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_project_props_debounced,
+  pick_weighted
 } from "../helpers/composable"
 import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
@@ -363,8 +365,14 @@ function playable(id, trg) {
   if (!f) return false
   return f.kind == "shot" ? is_oneshot(trg) : f.in_tempo !== false
 }
+// candidatos al sorteo de una pista: los de su Track Group compatibles con el Tag, reproducibles y con
+// peso > 0. Se sortean con pick_weighted según el peso del archivo en el proyecto (props.weight)
 function draw_candidates(track) {
-  return (available_files_per_TRG[track.track_group.id] ?? []).filter(id => playable(id, track.track_group))
+  return (available_files_per_TRG[track.track_group.id] ?? [])
+    .filter(id => playable(id, track.track_group) && file_weight(id) > 0)
+}
+function file_weight(id) {
+  return files_by_id[id]?.props?.weight ?? 0
 }
 
 // --- delay global (TrackCtrl.delay; mixer.js lo aplica con watchers) ---
@@ -492,6 +500,9 @@ function start() {
   for (const key of Object.keys(temp_tag)) {
     available_tags.push(tags_by_id[key])
   }
+  if (available_tags.length && available_tags.every(t => !(t?.weight > 0))) {
+    ElMessage({ type: "warning", message: "All tags have weight 0: only files without tags will play." })
+  }
 
   available_trgs = []
   // un track por cada track group, tenga o no archivos (sin archivos queda en silencio)
@@ -616,12 +627,13 @@ onBeforeUnmount(() => {
 let tag_starting = false
 function selectTag() {
   //console.log("llamaron a selectTag")
-  let index = parseInt(Math.random() * available_tags.length)
   if (current_TAG.tag == null) {
     current_TAG.tag = { id: "nada", name: "vacio" }
   }
   current_TAG.old_tag = { ...current_TAG.tag }
-  current_TAG.tag = available_tags[index] ?? null
+  // sorteo ponderado por el peso del Tag (puede repetirse el actual); si todos pesan 0 no hay Tag y
+  // suenan solo los archivos sin tags
+  current_TAG.tag = pick_weighted(available_tags, t => t?.weight ?? 0)
   let base = parseInt((Math.random() * ((TrackCtrl.tag_range[1] + 1) - (TrackCtrl.tag_range[0]))) + (TrackCtrl.tag_range[0]))
   //console.log(TrackCtrl.tag_range[0], TrackCtrl.tag_range[1], base)
   current_TAG.duration = Math.pow(2, base)
@@ -699,8 +711,7 @@ function set_next_step(time, n, downbeat) {
       //if (track.curr_file) {
       // audio_players[track.curr_file.id].stop(time)
       //}
-      let buffer_index = parseInt(Math.random() * (candidates.length))
-      let f = candidates[buffer_index]
+      let f = pick_weighted(candidates, file_weight)
       //console.log("vvv", f, files_by_id[f])
 
       // descanso: con probabilidad props.rest la pista calla durante lo que dura el loop sorteado
@@ -746,7 +757,7 @@ function oneshot_step(track, time, n, tag_start, downbeat) {
   if (!fire) return
   let files = draw_candidates(track)
   if (!files.length) return
-  let f = files[parseInt(Math.random() * files.length)]
+  let f = pick_weighted(files, file_weight)
   // si ese mismo player ya está sonando (un disparo anterior), se saltea: no se reinicia
   if (audio_players[f]?.state == "started") return
   // suena entero: no se le agenda stop

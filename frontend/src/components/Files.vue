@@ -131,7 +131,7 @@
   </div>
 
 
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="540px"
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="640px"
     align-center draggable>
     <div class="edit_body">
       <div class="edit_left">
@@ -205,6 +205,13 @@
         <Lcd small :digits="3" :value="curr_edit_file.props.volume > VOL_OFF_DB ? curr_edit_file.props.volume : '---'"
           unit="dB" />
       </div>
+      <!-- peso del archivo en el sorteo de su pista (0 = no sale nunca; ver pick_weighted en composable.js) -->
+      <div class="hw_plate weight" :title="weight_title(curr_edit_file)">
+        <span class="silk">Weight</span>
+        <Knob v-model="curr_edit_file.props.weight" :min="0" :max="WEIGHT_MAX" :size="56"
+          @change="onChange(curr_edit_file)" />
+        <Lcd small :digits="2" :value="curr_edit_file.props.weight" />
+      </div>
     </div>
 
     <template #footer>
@@ -227,8 +234,11 @@
 <script setup>
 
 import { ref, watch, computed } from "vue"
-import { store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file } from "../helpers/composable"
+import {
+  store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file, WEIGHT_MAX
+} from "../helpers/composable"
 import Fader from "./hw/Fader.vue"
+import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
@@ -321,6 +331,12 @@ async function toggleTag(file, id) {
   toggle_file_tag(file, id)
   await save_file(file)
 }
+function weight_title(file) {
+  let w = file.props.weight
+  return w == 0 ? "Weight 0: never drawn"
+    : `Chance of being drawn, relative to the other files of its track (0 = never, ${WEIGHT_MAX} = max)`
+}
+
 async function onChange(file) {
   console.log("change,file", file)
   await save_file(file)
@@ -707,6 +723,10 @@ const iconSize = ref(18)
 .edit_left {
   flex: 1;
   min-width: 0;
+}
+
+.weight {
+  align-self: flex-start;
 }
 
 

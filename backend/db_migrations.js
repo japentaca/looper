@@ -49,6 +49,8 @@ export default async function do_migrations() {
   await create_column_string("user_tags", "name", 256)
   await create_column_string("user_tags", "color", 32)
   await create_column_string("user_tags", "project_id", 36)
+  // peso en el sorteo del próximo Tag (0 = no sale nunca, 32 = máximo); los existentes quedan en 16
+  await create_column_integer("user_tags", "weight", 16)
   await create_index("user_tags", "project_id")
 
   // proyectos (fase 3 de publicación): un solo dueño; pistas, tags y archivos son por proyecto
@@ -67,7 +69,7 @@ export default async function do_migrations() {
   await create_column_string("project_files", "file_id", 36)
   await create_column_string("project_files", "track_group", 36) // id de user_track_groups del mismo proyecto
   await create_column_string("project_files", "tags", 4096) // JSON: array de ids de user_tags del mismo proyecto
-  await create_column_string("project_files", "props", 4096) // JSON: { volume }
+  await create_column_string("project_files", "props", 4096) // JSON: { volume, weight } (weight sin dato = 16)
   await create_index("project_files", "project_id")
   await create_index("project_files", "file_id")
   await migrate_projects()
@@ -336,6 +338,15 @@ async function create_column_flag(tabla, columna) {
     console.log(`Creo columna ${columna}  en tabla ${tabla}`)
     await global.knex.schema.alterTable(tabla, function (table) {
       table.integer(columna).notNullable().defaultTo(0)
+    })
+  }
+}
+// entero NOT NULL con default: las filas existentes y los insert que no la mencionan quedan en él
+async function create_column_integer(tabla, columna, default_value) {
+  if (!await global.knex.schema.hasColumn(tabla, columna)) {
+    console.log(`Creo columna ${columna}  en tabla ${tabla}`)
+    await global.knex.schema.alterTable(tabla, function (table) {
+      table.integer(columna).notNullable().defaultTo(default_value)
     })
   }
 }

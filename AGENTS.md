@@ -40,6 +40,7 @@ frontend/src/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
+    TagDialog.vue    # diálogo de edición de un Tag (nombre, color, peso en el sorteo); lo abre el lápiz del pad
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave

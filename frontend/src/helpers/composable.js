@@ -3,6 +3,33 @@ import * as api from './api'
 import * as Tone from 'tone'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
+// --- pesos del sorteo ---
+// Cada Tag y cada archivo del proyecto tiene un peso entero 0..WEIGHT_MAX: su chance de salir es su
+// peso sobre la suma de los pesos de los candidatos (0 = no sale nunca; todos iguales = sorteo
+// uniforme). Sin dato vale WEIGHT_DEFAULT (el medio, para poder subir o bajar).
+export const WEIGHT_MAX = 32
+export const WEIGHT_DEFAULT = 16
+export function parse_weight(v) {
+  let n = Number(v)
+  return Number.isInteger(n) && n >= 0 && n <= WEIGHT_MAX ? n : WEIGHT_DEFAULT
+}
+// elige un elemento de `items` con chance proporcional a weight_of(item); null si la suma es 0
+export function pick_weighted(items, weight_of) {
+  let total = 0
+  for (let it of items) total += weight_of(it)
+  if (total <= 0) return null
+  let r = Math.random() * total
+  for (let it of items) {
+    r -= weight_of(it)
+    if (r < 0) return it
+  }
+  // redondeo de punto flotante: el último con peso
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (weight_of(items[i]) > 0) return items[i]
+  }
+  return null
+}
+
 export const store = reactive({
   files: [],
   loginVisible: false,
@@ -90,6 +117,7 @@ export async function save_file(file) {
   let data = { id: file.id, track_group: file.track_group ?? null, tags: file.tags ?? [], props: {} }
   let volume = Number(file.props?.volume)
   if (Number.isFinite(volume)) data.props.volume = volume
+  data.props.weight = parse_weight(file.props?.weight)
   await save_collection(() => api.save_project_files(store.project.id, { update: [data] }), null, "los datos del archivo")
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
@@ -323,7 +351,7 @@ async function install_project(p, same) {
   }
 
   store.tags.splice(0)
-  for (let t of p.tags ?? []) store.tags.push(t)
+  for (let t of p.tags ?? []) store.tags.push({ ...t, weight: parse_weight(t.weight) })
   rebuildIndexes()
   let prom_arr = []
   store.files = [...(p.files ?? [])]
@@ -362,6 +390,7 @@ async function install_project(p, same) {
     }
     // -6 dB por defecto solo si falta o es inválido (antes `!volume` también pisaba un 0 dB guardado)
     if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
+    f.props.weight = parse_weight(f.props.weight)
     let url = api.file_url(f.id)
     //console.log(url)
     f.isLoaded = false

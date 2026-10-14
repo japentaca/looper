@@ -587,7 +587,12 @@ const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.durat
 const FILE_NAME_MAX = 128
 const FILE_ID_MAX = 36
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
-const PROJECT_FILE_PROPS_KEYS = ["volume"]
+const PROJECT_FILE_PROPS_KEYS = ["volume", "weight"]
+// peso en el sorteo (de un archivo en el proyecto o de un Tag): entero 0..WEIGHT_MAX; 0 = no sale nunca
+const WEIGHT_MAX = 32
+function valid_weight(v) {
+  return Number.isInteger(v) && v >= 0 && v <= WEIGHT_MAX
+}
 const FILE_NOT_FOUND = { stat: false, text: "Archivo inexistente" }
 
 function file_available(r) {
@@ -642,7 +647,7 @@ router.get("/projects/:id", require_session, async (req, res) => {
 
     let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
     data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
-    data.tags = await global.knex("user_tags").select("id", "name", "color").where({ project_id: p.id })
+    data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
 
     // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
     data.files = await list_project_files(global.knex, p.id, user_id)
@@ -711,7 +716,7 @@ router.put("/projects/:id/tags", require_session, async (req, res) => {
 // Las columnas JSON se serializan con JSON.stringify.
 const PROJECT_ROWS_COLUMNS = {
   user_track_groups: { columns: ["id", "name", "color", "props"], json: ["props"] },
-  user_tags: { columns: ["id", "name", "color"], json: [] },
+  user_tags: { columns: ["id", "name", "color", "weight"], json: [] },
 }
 const ROW_ID_MAX = 36
 
@@ -732,6 +737,9 @@ async function replace_project_rows(table, req, res) {
       return res.status(400).send({ stat: false, text: "Datos inválidos: cada elemento necesita un id" })
     }
     if (ids.has(r.id)) return res.status(400).send({ stat: false, text: "Id repetido: " + r.id })
+    if (columns.includes("weight") && r.weight !== undefined && !valid_weight(r.weight)) {
+      return res.status(400).send({ stat: false, text: `Peso inválido (entero de 0 a ${WEIGHT_MAX}): ` + r.id })
+    }
     ids.add(r.id)
   }
   let user_id = req.user.id
@@ -807,6 +815,7 @@ function parse_project_file_fields(o, file_id) {
       if (o.props[k] !== undefined) props[k] = o.props[k]
     }
     if (props.volume !== undefined && !Number.isFinite(props.volume)) throw new RowsError("Volumen inválido para " + file_id)
+    if (props.weight !== undefined && !valid_weight(props.weight)) throw new RowsError("Peso inválido para " + file_id)
     out.props = props
   }
   return out
@@ -1205,7 +1214,7 @@ router.get('/public/project/:id', public_rate_limit, async (req, res) => {
     }
     let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
     data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
-    data.tags = await global.knex("user_tags").select("id", "name", "color").where({ project_id: p.id })
+    data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
     // forma de los archivos de GET /projects/:id, sin `own` (no hay usuario)
     let files = await list_project_files(global.knex, p.id, null)
     data.files = files.filter(f => f.available)

@@ -57,7 +57,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | PUT | `/projects/:id` | sí | `{ name?, props? }` (solo lo que venga) | `{ stat: true, data: proyecto }` (forma de la lista, ya actualizado); mismas validaciones que `POST`; 404 si no es del usuario |
 | DELETE | `/projects/:id` | sí | — | `{ stat: true }`; borra el proyecto, sus pistas, tags y filas de `project_files` (los archivos del catálogo quedan); 404 si no es del usuario |
 | PUT | `/projects/:id/track_groups` | sí | array **completo** `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array, falta un `id` o hay un id repetido o usado en otro proyecto; 404 si no es del usuario |
-| PUT | `/projects/:id/tags` | sí | array **completo** `[{ id, name, color }]` | ídem `track_groups` |
+| PUT | `/projects/:id/tags` | sí | array **completo** `[{ id, name, color, weight? }]` | ídem `track_groups`; además 400 si `weight` no es un entero 0..32 (sin `weight` queda en 16) |
 | PUT | `/projects/:id/files` | sí | `{ add?, update?, remove? }` (ver detalle abajo) | `{ stat: true, data: [archivo del proyecto] }` (todos los del proyecto, ya actualizados); 400 `{ stat: false, text }` si algo es inválido (no se aplica nada); 404 si el proyecto no es del usuario |
 | PUT | `/files/:id` | sí | `{ original_name?, kind?, beats?, bpm?, music_key? }` | `{ stat: true, data: archivo }` (forma del catálogo); `{ stat: false, text }` si un valor es inválido; 404 si el archivo no es del usuario o no existe |
 | DELETE | `/files/:id` | sí | — | `{ stat: true, data: { removed_from_projects } }`; borra el archivo **en cascada** de todos los proyectos (propios y ajenos), la fila, el mp3 y descuenta `users.bytes_used`; 404 si no es del usuario o no existe |
@@ -153,9 +153,9 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
 {
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
   track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, bars, reverb, drift, delay } }], // props: {} si no hay nada
-  tags: [{ id, name, color }],
+  tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, // del catálogo (files)
-            track_group, tags: [tag_id, ...], props: { volume }, // del proyecto (project_files)
+            track_group, tags: [tag_id, ...], props: { volume, weight? }, // del proyecto (project_files); weight 0..32, sin dato = 16
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
 ```
@@ -229,7 +229,9 @@ son opcionales):
 - `track_group`: id de una pista **del mismo proyecto** o `null`/`""` (sin pista). `tags`: array de
   ids de tags **del mismo proyecto** (los repetidos se descartan). Si no, "La pista/El tag no es del
   proyecto".
-- `props`: objeto con lista blanca `{ volume }` (dB, número; el resto de las claves se ignora).
+- `props`: objeto con lista blanca `{ volume, weight }` (`volume` en dB, número; `weight` = peso en el
+  sorteo de su pista, entero 0..32, 0 = no sale nunca; el resto de las claves se ignora). "Peso
+  inválido" si `weight` no es un entero 0..32.
 
 Responde todos los archivos del proyecto ya actualizados, con la forma de `files` de
 `GET /projects/:id` (con `own` y `available`). Validar la forma del body no necesita el proyecto:
@@ -327,7 +329,7 @@ default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los 
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // como en GET /projects/:id
   creator: { name, bio },
   track_groups: [{ id, name, color, props }],      // como en GET /projects/:id
-  tags: [{ id, name, color }],
+  tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, name: "<id>.mp3", available: true,
             track_group, tags, props }]            // forma de GET /projects/:id, sin `own`
 }

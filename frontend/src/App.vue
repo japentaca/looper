@@ -130,7 +130,7 @@ import LedMeter from "./components/hw/LedMeter.vue"
 import { levels } from "./helpers/mixer"
 import { TrackCtrl } from "./helpers/TrackCtrl"
 
-import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups, trg_default_props } from "./helpers/composable"
+import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups, trg_default_props, WEIGHT_DEFAULT } from "./helpers/composable"
 
 import * as uuid from "uuid"
 
@@ -147,7 +147,7 @@ async function addTrackGroup() {
 }
 async function addTag() {
   let id = uuid.v4()
-  let tag = { name: "TG ", color: randomColor(), id: id }
+  let tag = { name: "TG ", color: randomColor(), id: id, weight: WEIGHT_DEFAULT }
   store.tags.push(tag)
 
   rebuildIndexes()
