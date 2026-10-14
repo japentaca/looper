@@ -512,7 +512,9 @@ app, con `store.read_only = true`:
    guarda como PCM float32 estéreo: `duration` × 44 100 × 2 × 4 bytes, ~21 MB por minuto; un archivo
    sin `duration` se estima por `size` a 128 kbps). Si supera ¼ de `navigator.deviceMemory` (solo
    Chromium; sin esa API se supone 4 GB, o sea 1 GB de límite) se pregunta con un `ElMessageBox`
-   "Load anyway?". Si se cancela, `load_project` devuelve `false` y queda abierto el proyecto anterior
+   "Load anyway?". La misma estimación se muestra antes de abrir: columna "Memory" del diálogo
+   PROJECTS y tarjetas de la galería (con `audio_seconds` de la lista, en amarillo si supera el
+   límite). Si se cancela, `load_project` devuelve `false` y queda abierto el proyecto anterior
    (con `switch_project` ya detenido); si no había uno usable (primera carga, o se borró el activo) la
    app queda sin proyecto (`store.project = null`, `unload_project()`, que libera todos los players y
    deja `TrackCtrl.isReady = true` porque no hay audios pendientes) y el LCD de la barra muestra

@@ -419,6 +419,11 @@ const FALLBACK_BYTES_X_SECOND = 128000 / 8
 // en modo instalación (?autostart=1) no hay nadie para contestar: se carga sin preguntar
 const AUTOSTART = new URLSearchParams(window.location.search).get("autostart") == "1"
 
+// memoria estimada (bytes) de `seconds` segundos de audio decodificado (las listas de proyectos
+// traen `audio_seconds`, calculado en el backend con el mismo criterio que estimate_files_memory)
+export function estimate_seconds_memory(seconds) {
+  return (Number(seconds) || 0) * PCM_BYTES_X_SECOND
+}
 // memoria estimada (bytes) de los audios decodificados de una lista de archivos
 export function estimate_files_memory(files) {
   let seconds = 0
@@ -427,7 +432,13 @@ export function estimate_files_memory(files) {
     if (Number.isFinite(d) && d > 0) seconds += d
     else if (Number(f.size) > 0) seconds += Number(f.size) / FALLBACK_BYTES_X_SECOND
   }
-  return seconds * PCM_BYTES_X_SECOND
+  return estimate_seconds_memory(seconds)
+}
+// texto corto de una memoria estimada: "~120 MB", "<1 MB"
+export function fmt_memory(bytes) {
+  if (!bytes) return "0 MB"
+  let n = mb(bytes)
+  return n < 1 ? "<1 MB" : `~${n} MB`
 }
 // límite (bytes) a partir del cual se avisa
 export function memory_warning_limit() {

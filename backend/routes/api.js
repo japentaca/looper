@@ -479,17 +479,43 @@ const PROJECT_NOT_FOUND = { stat: false, text: "Proyecto inexistente" }
 const PROJECT_PROPS_KEYS = ["tempo", "tempo_tol", "beats_x_bar", "tag_range", "delay"]
 const PROPS_MAX_LENGTH = 4096 // tamaño de las columnas props
 
-// columnas de la lista de proyectos (sin props: eso viene con GET /projects/:id)
-const PROJECT_LIST_COLUMNS = ["id", "name", "hidden", "ts"]
+// Segundos de audio de un proyecto, para que el frontend estime la memoria que ocupa cargarlo
+// (estimate_seconds_memory en composable.js). Los archivos sin duración medida (no debería pasar
+// después de migrate_file_durations) se estiman por el tamaño del mp3 a 128 kbps, como el frontend.
+const FALLBACK_BYTES_X_SECOND = 128000 / 8
+const AUDIO_SECONDS_SQL = `coalesce(sum(coalesce(f.duration, f.size / ${FALLBACK_BYTES_X_SECOND}.0)), 0)`
+function file_audio_seconds(f) {
+  let d = Number(f.duration)
+  if (Number.isFinite(d) && d > 0) return d
+  return (Number(f.size) || 0) / FALLBACK_BYTES_X_SECOND
+}
+
+// columnas de la lista de proyectos (sin props: eso viene con GET /projects/:id), con la cantidad
+// de archivos y sus segundos de audio (todos los del proyecto: el editor los carga todos)
+const PROJECT_FILES_SQL = "from project_files pf join files f on f.id = pf.file_id where pf.project_id = p.id"
+function project_list_columns(db) {
+  return ["p.id", "p.name", "p.hidden", "p.ts",
+    db.raw(`(select count(*) ${PROJECT_FILES_SQL}) as files_count`),
+    db.raw(`(select ${AUDIO_SECONDS_SQL} ${PROJECT_FILES_SQL}) as audio_seconds`)]
+}
 
 // proyectos del usuario, del más viejo al más nuevo
 async function list_projects(user_id) {
-  let rows = await global.knex("projects").select(PROJECT_LIST_COLUMNS)
-    .where({ user_id: user_id }).orderBy([{ column: "ts" }, { column: "name" }])
+  let rows = await global.knex("projects as p").select(project_list_columns(global.knex))
+    .where({ "p.user_id": user_id }).orderBy([{ column: "p.ts" }, { column: "p.name" }])
   return rows.map(project_summary)
 }
+// un proyecto del usuario en la forma de la lista (undefined si no es suyo)
+async function get_project_summary(id, user_id) {
+  let r = await global.knex("projects as p").select(project_list_columns(global.knex))
+    .where({ "p.id": String(id), "p.user_id": user_id }).first()
+  return r && project_summary(r)
+}
 function project_summary(r) {
-  return { id: r.id, name: r.name, hidden: !!r.hidden, ts: r.ts }
+  return {
+    id: r.id, name: r.name, hidden: !!r.hidden, ts: r.ts,
+    files_count: Number(r.files_count) || 0, audio_seconds: Number(r.audio_seconds) || 0,
+  }
 }
 
 // el proyecto `id` si es del usuario; si no, undefined (→ 404)
@@ -620,6 +646,8 @@ router.get("/projects/:id", require_session, async (req, res) => {
 
     // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
     data.files = await list_project_files(global.knex, p.id, user_id)
+    data.files_count = data.files.length
+    data.audio_seconds = data.files.reduce((t, f) => t + file_audio_seconds(f), 0)
     return res.send({ stat: true, data: data })
   } catch (e) {
     console.log("Error GET projects/:id", e)
@@ -644,7 +672,7 @@ router.put("/projects/:id", require_session, async (req, res) => {
     let p = await own_project(global.knex, req.params.id, req.user.id)
     if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
     if (Object.keys(upd).length) await global.knex("projects").update(upd).where({ id: p.id, user_id: req.user.id })
-    return res.send({ stat: true, data: project_summary({ ...p, ...upd }) })
+    return res.send({ stat: true, data: await get_project_summary(p.id, req.user.id) })
   } catch (e) {
     console.log("Error PUT projects/:id", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
@@ -1119,6 +1147,8 @@ function public_projects_query(db) {
 const PROJECT_AVAILABLE_FILES_SQL = `select count(*) from project_files pf join files f on f.id = pf.file_id
   join users fu on fu.id = f.user_id
   where pf.project_id = p.id and f.hidden = 0 and fu.status = 'active'`
+// segundos de audio de esos archivos (los que carga el reproductor público)
+const PROJECT_AVAILABLE_SECONDS_SQL = PROJECT_AVAILABLE_FILES_SQL.replace("count(*)", AUDIO_SECONDS_SQL)
 
 // galería: proyectos públicos con al menos un archivo disponible (los vacíos no se listan, aunque
 // su link /p/<id> funcione), los más nuevos primero. Query opcional: page (desde 1) y per_page
@@ -1143,11 +1173,13 @@ router.get('/public/projects', public_rate_limit, async (req, res) => {
     let { total } = await gallery_query(global.knex).count({ total: "*" }).first()
     let rows = await gallery_query(global.knex)
       .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio",
-        global.knex.raw(`(${PROJECT_AVAILABLE_FILES_SQL}) as files`)])
+        global.knex.raw(`(${PROJECT_AVAILABLE_FILES_SQL}) as files`),
+        global.knex.raw(`(${PROJECT_AVAILABLE_SECONDS_SQL}) as audio_seconds`)])
       .orderByRaw("p.ts is null, p.ts desc, p.id")
       .limit(per_page).offset((page - 1) * per_page)
     let items = rows.map(r => ({
       id: r.id, name: r.name, ts: r.ts, tempo: parse_props(r.props).tempo ?? null, files: Number(r.files) || 0,
+      audio_seconds: Number(r.audio_seconds) || 0,
       creator: { name: r.creator_name, bio: r.creator_bio ?? null },
     }))
     return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: page, per_page: per_page } })

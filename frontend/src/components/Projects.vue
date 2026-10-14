@@ -1,6 +1,6 @@
 <template>
   <!-- proyectos del usuario: abrir, crear, renombrar, borrar y visibilidad (se abre desde la barra superior) -->
-  <el-dialog v-model="visible" title="Projects" width="680px" align-center @open="on_open">
+  <el-dialog v-model="visible" title="Projects" width="760px" align-center @open="on_open">
     <div class="create">
       <el-input v-model="new_name" maxlength="64" placeholder="New project name" :disabled="busy"
         @keyup.enter="do_create" />
@@ -19,6 +19,12 @@
           <span class="name">{{ row.name }}</span>
           <el-tag v-if="row.hidden" size="small" type="danger" class="hidden_tag"
             title="Oculto por el admin: no aparece en la galería pública">hidden</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="Memory" width="90" align="right">
+        <template #default="{ row }">
+          <span :class="{ mem_warn: memory(row) > memory_limit }" :title="memory_title(row)">
+            {{ fmt_memory(memory(row)) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="Date" width="96">
@@ -53,7 +59,8 @@ import { reactive, ref } from "vue"
 import { ElMessageBox } from "element-plus"
 import Led from "./hw/Led.vue"
 import {
-  store, refresh_projects, switch_project, flush_pending_saves, store_get_user_info
+  store, refresh_projects, switch_project, flush_pending_saves, store_get_user_info,
+  estimate_seconds_memory, memory_warning_limit, fmt_memory
 } from "../helpers/composable"
 import { TrackCtrl, stop_transport } from "../helpers/TrackCtrl"
 import { create_project, update_project, delete_project, error_text } from "../helpers/api"
@@ -75,6 +82,18 @@ function row_class({ row }) {
 }
 function fmt_date(ts) {
   return ts ? String(ts).slice(0, 10) : ""
+}
+
+// memoria estimada al abrir el proyecto (audio decodificado de todos sus archivos); en amarillo si
+// supera el límite del aviso "Large project"
+const memory_limit = memory_warning_limit()
+function memory(row) {
+  return estimate_seconds_memory(row.audio_seconds)
+}
+function memory_title(row) {
+  let n = row.files_count ?? 0
+  return `Estimated memory to load ${n} ${n == 1 ? "file" : "files"}`
+    + (memory(row) > memory_limit ? " (more than recommended for this device)" : "")
 }
 
 async function on_open() {
@@ -197,6 +216,10 @@ async function do_delete(row) {
 
 .name {
   font-weight: 600;
+}
+
+.mem_warn {
+  color: var(--hw_yellow);
 }
 
 .hidden_tag {

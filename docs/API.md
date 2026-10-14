@@ -85,7 +85,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
   status, role, bio, max_seconds, // status: "active" (los otros estados no deberían tener sesión); role: "user" | "admin"; max_seconds: null = default
   quota: { max_seconds, used_seconds }, // cuota efectiva (max_seconds o default_max_seconds de .env) y suma de files.duration;
                                         // la usa Uploader.vue para "te quedan m:ss"
-  projects: [{ id, name, hidden, ts }] // proyectos del usuario (forma de la lista de GET /projects)
+  projects: [{ id, name, hidden, ts, files_count, audio_seconds }] // proyectos del usuario (forma de la lista de GET /projects)
 }
 ```
 
@@ -138,8 +138,14 @@ vacía o `null` → `null`. El nombre público no se cambia. `get_user_info` dev
 Proyecto en la **forma de la lista** (`GET /projects`, `u_info.projects`, respuesta de `POST` y `PUT`):
 
 ```js
-{ id, name, hidden: bool, ts } // hidden: oculto por el admin (PUT /admin/projects/:id/hidden; el dueño lo sigue viendo)
+{ id, name, hidden: bool, ts, // hidden: oculto por el admin (PUT /admin/projects/:id/hidden; el dueño lo sigue viendo)
+  files_count,   // cantidad de archivos del proyecto (todos, también los no disponibles: el editor los carga)
+  audio_seconds } // suma de sus duraciones; un archivo sin `duration` cuenta size / 16000 (mp3 a 128 kbps)
 ```
+
+`audio_seconds` sirve para estimar la memoria que ocupa abrir el proyecto (el frontend la muestra en
+el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 bytes, ver
+`estimate_seconds_memory` en `composable.js`).
 
 **Proyecto completo** (`GET /projects/:id`): lo de arriba más
 
@@ -307,6 +313,7 @@ default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los 
   items: [{ id, name, ts,
             tempo,                     // projects.props.tempo (null si no hay)
             files,                     // cantidad de archivos disponibles del proyecto
+            audio_seconds,             // suma de sus duraciones (para estimar la memoria al abrirlo)
             creator: { name, bio } }],
   total, page, per_page
 }
