@@ -332,7 +332,7 @@ convertido. **El nombre en disco siempre es `<file_id>.mp3`**; el nombre origina
 `files.original_name`.
 
 En el front, `Uploader.vue` usa `el-upload` solo para elegir archivos (drag o diálogo, con la lista
-de extensiones aceptadas): arma su propia lista con tipo (loop/shot) y beats por archivo (sugeridos con `suggest_timing` según la duración y el tempo del proyecto; muestra el BPM que resulta), hace los
+de extensiones aceptadas): arma su propia lista con tipo (loop/shot) y beats por archivo (sugeridos con `suggest_timing` según la duración y el tempo del proyecto y, si parece un loop, reemplazados por la detección en el audio de `detect_beats`, ver "Tempo"; muestra el BPM que resulta), hace los
 chequeos baratos (extensión, 80 MB, nombre repetido; la duración la estima el navegador solo para
 avisar) y **envía de a un archivo, en serie**, con `api.upload_file` (sin timeout, con progreso). Los
 rechazos muestran el `text` del backend junto al archivo, que queda en la lista. Arriba muestra la
@@ -561,6 +561,21 @@ Conceptos:
   desde el próximo sorteo. El `playbackRate` se fija en cada `start_file` y, al soltar el knob
   Tempo, se aplica a todos los players (`apply_rates`) junto con el bpm del transporte: lo que
   suena sigue en fase. El knob Tempo es libre (10..160): lo que queda fuera de tolerancia calla.
+- **Sugerencia de beats al subir** (`suggest_timing` en `TrackCtrl.js`, `detect_beats` en
+  `helpers/bpm_detect.js`, usadas por `Uploader.vue`). Con la duración del `<audio>`, `suggest_timing`
+  propone shot (menos de 1 s) o loop con la cantidad de beats "redonda" (`NICE_BEATS`) más cercana al
+  tempo del proyecto (el backend aplica la misma regla, `suggest_beats`, si llegan sin beats). Si es
+  loop, el archivo se decodifica en el navegador (`OfflineAudioContext`, de a uno por vez, cediendo el
+  hilo cada 200 ventanas) y `detect_beats` estima los beats: envolvente de onsets circular (mono,
+  ventanas de 1024 muestras cada 512, FFT propia, flujo espectral de log-magnitud en tres bandas
+  —graves, medios, agudos con la mitad de peso— normalizadas por sus picos); para cada N entero con
+  BPM entre 50 y 250, un peine circular de fase 0 (el loop empieza en un beat y dura N beats) mide la
+  energía media en los N pulsos menos la línea de base, castigando a N si a mitad de camino entre
+  pulsos suena casi igual (el pulso real sería 2N); el puntaje se pondera por un prior (BPM entre 70
+  y 180, cercanía al tempo del proyecto, cantidades redondas). Devuelve `{ beats, bpm, confidence }`
+  o `null` si los pulsos no sobresalen (confianza < 0,5). Solo reemplaza la sugerencia si el usuario
+  no tocó tipo ni beats; la fila marca "auto" (con la confianza en el `title`) mientras los beats
+  sigan siendo los detectados. Limitaciones en `KNOWN_ISSUES.md`.
 
 Flujo:
 1. `start()`: agrupa los archivos sorteables por track group (`files_per_TRG`, con un array, quizás vacío, para

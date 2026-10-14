@@ -49,7 +49,10 @@
         <el-input-number v-if="item.kind == 'loop'" v-model="item.beats" class="num" size="small" :min="1"
           :max="1024" :precision="0" :step="1" :controls="false" placeholder="—"
           :disabled="busy || item.status == 'done'" />
-        <small v-if="item.kind == 'loop' && item_bpm(item)" class="meta">{{ item_bpm(item) }} BPM</small>
+        <small v-if="item.kind == 'loop' && item_bpm(item)" class="meta">
+          {{ item_bpm(item) }} BPM<span v-if="is_detected(item)" class="auto"
+            :title="`Detectado en el audio (confianza ${Math.round(item.detected.confidence * 100)} %)`"> · auto</span>
+        </small>
       </span>
       <span class="state">
         <template v-if="item.status == 'uploading'">{{ item.progress < 100 ? item.progress + '%' : 'MP3…' }}</template>
@@ -59,7 +62,7 @@
     </div>
     <div class="hint">
       Loop: se ajusta al tempo del proyecto; poné cuántos beats dura (el BPM sale de ahí). Viene una
-      sugerencia según la duración. Shot: sample suelto, suena a su velocidad original (solo en pistas one-shot).
+      sugerencia según la duración o, si se detecta el pulso en el audio, marcada "auto". Shot: sample suelto, suena a su velocidad original (solo en pistas one-shot).
     </div>
   </div>
 
@@ -73,6 +76,7 @@ import { UploadFilled } from '@element-plus/icons-vue'
 import { store, store_get_user_info } from '../helpers/composable'
 import { upload_file, error_text } from '../helpers/api'
 import { TrackCtrl, suggest_timing } from '../helpers/TrackCtrl'
+import { detect_beats } from '../helpers/bpm_detect'
 import { ElMessage } from 'element-plus'
 
 // mismos valores que el backend (routes/api.js): UPLOAD_MAX_MB, formatos y duración máxima
@@ -83,7 +87,9 @@ const ACCEPT = EXTENSIONS.map(e => "." + e).join(",")
 const FORMATS_TEXT = "mp3 / wav / ogg / flac / m4a / aiff"
 
 const uploader = ref(null)
-// archivos elegidos: { uid, raw, name, size, duration, kind, beats, status, progress, error }
+// archivos elegidos: { uid, raw, name, size, duration, kind, beats, beats_auto, detected, status, progress, error }
+// beats_auto = los beats que sugirió la app (si beats sigue igual, el usuario no los tocó);
+// detected = { beats, bpm, confidence } de detect_beats
 // status: "ready" | "uploading" | "done" | "error"
 const items = ref([])
 const busy = ref(false)
@@ -122,7 +128,7 @@ function onFileChosen(upload_file_item) {
 
   items.value.push({
     uid: upload_file_item.uid, raw: raw, name: name, size: raw.size, duration: null,
-    kind: "loop", beats: null, status: "ready", progress: 0, error: ""
+    kind: "loop", beats: null, beats_auto: null, detected: null, status: "ready", progress: 0, error: ""
   })
   // la reactividad pasa por el elemento del array (no por el objeto suelto)
   read_duration(items.value[items.value.length - 1])
@@ -142,13 +148,38 @@ function read_duration(item) {
   audio.onloadedmetadata = () => {
     if (Number.isFinite(audio.duration)) {
       item.duration = audio.duration
-      // sugerencia de tipo y beats con el tempo del proyecto (si el usuario todavía no cargó beats)
-      if (item.beats == null) Object.assign(item, suggest_timing(item.duration, TrackCtrl.tempo))
+      // sugerencia de tipo y beats con el tempo del proyecto (si el usuario todavía no cargó beats);
+      // si parece un loop, después se intenta detectar los beats en el audio
+      if (item.beats == null) {
+        Object.assign(item, suggest_timing(item.duration, TrackCtrl.tempo))
+        item.beats_auto = item.beats
+        if (item.kind == "loop" && item.duration <= MAX_SECONDS_FILE + 0.1) queue_detect(item)
+      }
     }
     done()
   }
   audio.onerror = done
   audio.src = url
+}
+
+// detección de beats en el audio (helpers/bpm_detect.js), de a un archivo por vez para no cargar el
+// navegador. Solo reemplaza la sugerencia por duración si el usuario no tocó tipo ni beats
+let detect_chain = Promise.resolve()
+function queue_detect(item) {
+  detect_chain = detect_chain.then(() => detect_item(item)).catch(e => console.warn("detect_beats", e))
+}
+async function detect_item(item) {
+  if (!items.value.includes(item) || item.status != "ready") return
+  // OfflineAudioContext decodifica sin necesitar un gesto del usuario (no toca el contexto de Tone)
+  let buffer = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(await item.raw.arrayBuffer())
+  let res = await detect_beats(buffer, { duration: item.duration, tempo: TrackCtrl.tempo })
+  if (!res || item.status != "ready" || item.kind != "loop" || item.beats !== item.beats_auto) return
+  item.beats = res.beats
+  item.beats_auto = res.beats
+  item.detected = res
+}
+function is_detected(item) {
+  return item.detected != null && item.beats === item.detected.beats
 }
 
 // bpm que da el loop con sus beats (el backend lo recalcula con la duración exacta de ffprobe)
@@ -254,6 +285,11 @@ async function doUpload() {
 
 .meta {
   color: var(--muted);
+}
+
+.auto {
+  color: var(--accent);
+  cursor: help;
 }
 
 .warn {

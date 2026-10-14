@@ -138,6 +138,16 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   3.8), pero se siguen descargando y decodificando (tienen su `Tone.Player`, ocupan memoria) y se
   pueden escuchar con el preview de `Files.vue`. `available` se lee al cargar el proyecto: un archivo
   ocultado con el transporte en marcha sigue sorteándose hasta recargar el proyecto y hacer START.
+- 🟡 Detección de beats al subir (`helpers/bpm_detect.js`, oct 2026): es una sugerencia y puede
+  errar. Ambigüedad de octava: un loop con bombo en 1 y 3 y caja en 2 y 4 puede salir a la mitad o al
+  doble (87 / 174, 90 / 180); ante la duda gana la cantidad más cercana al tempo del proyecto (para
+  reproducir importa poco: `file_timing` prueba ×2 y ×½, aunque ×½ solo con beats pares). Supone
+  que el loop empieza en un beat y dura beats enteros: un archivo con silencio al principio o
+  cortado fuera de compás confunde la grilla. Loops sin percusión (pads, notas largas) o con swing
+  fuerte suelen dar `null` (queda la sugerencia por duración). Probado solo con señales sintéticas
+  (clicks y baterías a 90–174 BPM de 4, 8 y 16 beats, también pasadas por mp3), no con un corpus real.
+  Decodifica cada archivo otra vez en el navegador (además del `<audio>` para la duración): con
+  muchos archivos grandes, la lista tarda en completar las marcas "auto".
 - ✅ Resuelto (oct 2026): `files.beats` chocaba con un campo calculado del front (`calculateBars()`
   lo pisaba con duración / tempo). Ahora `beats` lo carga el creador, el backend deduce `bpm` y el
   front calcula aparte `play_rate` / `play_beats` / `in_tempo` (`calculate_timing`, ver "Tempo" en
