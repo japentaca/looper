@@ -376,7 +376,8 @@ queda en X BPM ... (¿es un shot?)").
 cualquiera) o vacío = sin dato. Si el campo **no viene**, se sugiere por el nombre del archivo
 (`suggest_key`: `atonal` si nombra percusión o ruidos —kick, snare, hat, perc, top, crash, noise,
 impact...— salvo que también diga bass, synth, seq, theme...; si no, una nota escrita como palabra
-suelta entre `_`, `-` o paréntesis, como `FL_..._C#_Bass Loop` o `G_Synth_Loop`).
+suelta entre `_`, `-` o paréntesis, como `FL_..._C#_Bass Loop` o `G_Synth_Loop`, o la que sigue al
+tempo aunque esté separada por espacios, como `Synth Melody 120bpm F# Funk`).
 Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
 
 1. **Antes de recibir el archivo** (el cuerpo multipart se lee recién después): otra subida del

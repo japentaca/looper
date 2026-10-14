@@ -23,11 +23,14 @@ export function normalize_key(v) {
 // letra antes ("Top_Loop" sí, "stop" o "that" no)
 const KEY_ATONAL_WORDS = /(?<![a-z])(kick|bombo|snare|hat|perc|crash|ride|cymbal|top|tom|clap|shaker|tribal|drum|noise|impact|upfilter|riser|sweep)/i
 const KEY_TONAL_WORDS = /bass|synth|seq|melod|theme|lead|chord|pad|voice|vocal|riff|arp|sitar|pluck/i
+// nota escrita después del tempo, separada por espacios: "Synth Melody 120bpm F# Funk", "Bass 95 BPM Cm"
+const KEY_AFTER_BPM_RE = /\d\s*[bB][pP][mM][\s_-]+([A-G](?:[#♯♭]|b(?![a-z]))?(?:\s*(?:minor|min|major|maj|m)(?![a-z]))?)(?![A-Za-z0-9#♯♭])/g
 
 // tonalidad sugerida por el nombre del archivo: "atonal" si nombra percusión o ruidos; si no, la nota
-// que aparezca como palabra suelta entre separadores (`_C#_`, `G_Bass`, `(Key_Bb)`). Las letras
-// sueltas tienen que ser mayúsculas y no se separa por espacios, para no tomar "Percussion A Loop"
-// como La. Si aparecen dos tonalidades distintas, null
+// que aparezca como palabra suelta entre separadores (`_C#_`, `G_Bass`, `(Key_Bb)`) o la que sigue al
+// tempo aunque esté separada por espacios (`120bpm F# Funk`). Las notas tienen que ser mayúsculas y
+// fuera de esos dos casos no se separa por espacios, para no tomar "Percussion A Loop" como La. Si
+// aparecen dos tonalidades distintas, null
 export function suggest_key(name) {
   let base = String(name ?? "").replace(/\.[^./\\]+$/, "")
   if (KEY_ATONAL_WORDS.test(base) && !KEY_TONAL_WORDS.test(base)) return KEY_ATONAL
@@ -36,6 +39,10 @@ export function suggest_key(name) {
     token = token.trim()
     if (!/^[A-G]/.test(token)) continue
     let k = normalize_key(token)
+    if (k && k != KEY_ATONAL) found.add(k)
+  }
+  for (let m of base.matchAll(KEY_AFTER_BPM_RE)) {
+    let k = normalize_key(m[1])
     if (k && k != KEY_ATONAL) found.add(k)
   }
   return found.size == 1 ? [...found][0] : null

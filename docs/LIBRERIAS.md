@@ -30,7 +30,11 @@ script `backend/import_manifest.js` y el procedimiento de respaldo de `docs/DEPL
   una consulta de solo lectura en el servidor) los nombres de la librería. Que el dueño crea que ya
   la usó no alcanza: en el primer caso, lo cargado venía de otro pack.
 - **Cuota** del usuario destino: `sum(files.duration)` contra `users.max_seconds` (null = el default
-  de `.env`, 1200 s). El dry-run del script también la informa.
+  de `.env`, 1200 s). El dry-run del script también la informa. Si no alcanza, proponer subirla
+  (`max_seconds`; con la cuenta del dueño se acordó 3600 s) antes que `--ignore-quota`, que lo deja
+  pasado de cuota y sin poder subir desde la app.
+- **Tempos y tonalidades presentes**: contar archivos por BPM y por tonalidad, separando lo que tiene
+  nota de la percusión. Define el tempo del proyecto y los tags (ver 6).
 
 ## 2. Decisiones a acordar con el dueño
 
@@ -57,8 +61,11 @@ entra como `shot`, sin tempo. Si la librería no trae el BPM, mandar `beats`.
 
 **Tonalidad** (`music_key`):
 
-- Por defecto la sugiere el nombre (`suggest_key`): la nota del kit, o `atonal` si el nombre dice
-  percusión o ruido (kick, snare, hat, perc, top, crash, tom, tribal, noise, impact, upfilter...).
+- Por defecto la sugiere el nombre (`suggest_key`): la nota como palabra suelta entre `_`, `-` o
+  paréntesis, o la que sigue al tempo (`Bass 120bpm C Funk`), o `atonal` si el nombre dice percusión
+  o ruido (kick, snare, hat, perc, top, crash, tom, tribal, noise, impact, upfilter...). Comprobar
+  la sugerencia sobre todos los nombres antes de armar el manifiesto: si la librería usa otro
+  formato, poner `music_key` en el manifiesto (o mejorar `suggest_key`, en back y front).
 - **FX con nota en el nombre pero sin nota real** → `atonal` explícito en el manifiesto. En el
   primer caso: Glitch Element, Bandpass Seq Loop, Main Psy SFX, Zap, Zap Delay, Glitch SFX. Para
   decidir, además del nombre, medir la planitud espectral (cerca de 0 = con nota; 0,3 o más =
@@ -143,6 +150,17 @@ tonalidad.
 **Configuración del proyecto:** se copian las `props` de la plantilla (tempo, tolerancia, compás,
 rango de cambio de Tag, delay). Con kits de distinto BPM, conviene un tempo dentro de la tolerancia
 de todos (140 con 6 % cubre 140–144; a 140 los de 142/144 suenan hasta ~0,7 semitonos más grave).
+
+**Varios tempos con material con nota** (caso Funk N Groove: 110, 115 y 120 BPM). El motor ajusta
+el tempo cambiando la velocidad, que también cambia la altura: dos loops en C de 110 y 120 BPM,
+tocados juntos a 115, quedan ~1,5 semitonos desafinados entre sí. Criterio:
+
+- Tempo del proyecto = el BPM donde está la mayoría de lo que tiene nota.
+- Lo que tiene nota a otro BPM se importa pero queda **sin pista** (sirve para otro proyecto a ese tempo).
+- La percusión atonal de los otros BPM sí va a pistas: subir la tolerancia para que entre (120 con
+  9 % cubre 110–130). Un drum acelerado no desafina nada.
+- Tags solo para las tonalidades con material suficiente para una sección (bajo + synth/voz); las
+  que tienen 1–2 archivos quedan sin pista.
 
 ## 7. Verificación e informe
 
