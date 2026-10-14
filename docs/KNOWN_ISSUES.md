@@ -68,6 +68,11 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   pista se implementaron en `user_track_groups.props.rest` (oct 2026); `silences` queda como columna
   muerta y **no se debe reutilizar**.
 
+- ✅ Resuelto (oct 2026): al cambiar de Tag quedaba un silencio de 50–100 ms en las pistas que
+  cambiaban de loop (se notaba más con varias a la vez): el loop viejo se cortaba con `stop(-1)`
+  (en el momento del callback, que corre hasta `lookAhead` antes del beat) y el nuevo arrancaba
+  en `time`. Ahora los dos usan `time`. RESET sigue cortando en el momento (es una acción manual).
+
 - 🟡 Tempo por resample (`playbackRate`): acelerar o frenar un loop cambia también su tono (6 % ≈ un
   semitono). Con varias pistas melódicas a distinto bpm pueden desafinar entre sí; para eso se
   baja la tolerancia (knob Tol). Un stretch que conserve el tono (GrainPlayer, SoundTouch) quedó

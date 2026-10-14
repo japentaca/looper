@@ -596,7 +596,10 @@ Flujo:
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
      tracks cuyo archivo no incluye el tag nuevo (los que lo incluyen o no tienen tags siguen
-     sonando: un loop con tags A y B atraviesa el cambio de A a B).
+     sonando: un loop con tags A y B atraviesa el cambio de A a B). El corte es `stop(time)`, en el
+     mismo beat en que arranca el loop nuevo: el callback corre hasta `lookAhead` (~0,1 s) antes de
+     `time`, así que cortar "ya" deja un silencio entre los dos. Si el callback llega después de
+     `time` (hilo principal ocupado) se avisa por consola (`agendado N ms tarde`).
    - Por cada track con `remaining_beats == 0`: si no tiene archivos disponibles para el Tag, no
      hace nada (silencio); si no, elige al azar un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
      `remaining_beats = play_beats - 1`. Si no, decrementa (en descanso solo cuenta) y actualiza el progreso.

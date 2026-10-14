@@ -409,6 +409,10 @@ const beat_repeat_id = Tone.Transport.scheduleRepeat((time) => {
   // número de beat y downbeat calculados desde los ticks del transporte en `time` (no del estado visual)
   let n = Math.round(Tone.Transport.getTicksAtTime(time) / Tone.Transport.PPQ)
   let downbeat = n % parseInt(TrackCtrl.beats_x_bar) == 0
+  // callback tardío (hilo principal ocupado): lo que se agende en `time` arranca tarde
+  // (currentTime crudo del AudioContext: Tone.now() ya le suma el lookAhead)
+  let late = Tone.getContext().currentTime - time
+  if (late > 0) console.warn(`Looper: beat ${n} agendado ${Math.round(late * 1000)} ms tarde`)
 
   // use the callback time to schedule events
   set_next_step(time, n, downbeat)
@@ -664,7 +668,9 @@ function set_next_step(time, n, downbeat) {
               track.remaining_beats = 0
               if (audio_players[track.curr_file.id].state == "started") {
                 //console.log("estaba sonando, invoco audio stop", track.curr_file.original_name_short)
-                stop_file(track.curr_file.id, -1)
+                // se corta en el tiempo del beat (donde arranca el loop nuevo), no ya: el callback corre
+                // hasta lookAhead (~0.1 s) antes del beat y cortar ya dejaba ese silencio entre los dos
+                stop_file(track.curr_file.id, time)
               }
             }
           }
