@@ -172,9 +172,13 @@
       <!-- volumen del archivo (dB) como fader sobre placa de aluminio -->
       <div class="hw_plate volume">
         <span class="silk">Volume</span>
-        <Fader v-model="curr_edit_file.props.volume" :min="-50" :max="0" :length="150" :marks="volume_marks"
+        <!-- posición 0..1 con la misma curva de consola que las pistas, con tope en 0 dB (fader_to_db en mixer.js) -->
+        <Fader :model-value="db_to_fader(curr_edit_file.props.volume, FILE_VOL_MAX_DB)" :min="0" :max="1" :step="0.01"
+          :length="150" :marks="volume_marks" :title="db_label(curr_edit_file.props.volume)"
+          @update:model-value="v => curr_edit_file.props.volume = fader_to_db(v, FILE_VOL_MAX_DB)"
           @change="onChange(curr_edit_file)" />
-        <Lcd small :digits="3" :value="curr_edit_file.props.volume" unit="dB" />
+        <Lcd small :digits="3" :value="curr_edit_file.props.volume > VOL_OFF_DB ? curr_edit_file.props.volume : '---'"
+          unit="dB" />
       </div>
     </div>
 
@@ -207,6 +211,7 @@ import { update_file, error_text } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 import * as toneLib from "../helpers/toneLib"
+import { fader_to_db, db_to_fader, db_label, FILE_VOL_MAX_DB, VOL_OFF_DB } from "../helpers/mixer"
 
 const fileListViewMode = ref("Table")
 
@@ -261,7 +266,9 @@ async function save_timing(file, data) {
 }
 
 
-const volume_marks = [0, -10, -20, -30, -40, -50].map(v => ({ value: v, label: v }))
+// marcas en dB ubicadas según la curva; abajo del todo = silencio
+const volume_marks = [0, -6, -12, -24, -36].map(v => ({ value: db_to_fader(v, FILE_VOL_MAX_DB), label: v }))
+  .concat({ value: 0, label: "-∞" })
 
 const dialogVisible = ref(false)
 const curr_edit_file = ref(null)

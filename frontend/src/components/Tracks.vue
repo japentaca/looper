@@ -119,26 +119,33 @@
           <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
           <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
             :unit="track?.curr_file ? '/' + track.curr_file.play_beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
-          <!-- posición dentro del loop (no aplica a one-shot) -->
-          <StepLeds v-if="!is_oneshot(trg)" :pos="track?.curr_file && TrackCtrl.isPlaying ? track_beat(track) : 0"
-            :beats="track?.curr_file?.play_beats ?? 0" />
+          <!-- posición dentro del loop (no aplica a one-shot: queda invisible para que las tiras de los dos
+            modos tengan el mismo alto y los faders queden alineados) -->
+          <StepLeds :class="{ ghost: is_oneshot(trg) }"
+            :pos="track?.curr_file && TrackCtrl.isPlaying && !is_oneshot(trg) ? track_beat(track) : 0"
+            :beats="is_oneshot(trg) ? 0 : track?.curr_file?.play_beats ?? 0" />
           <!-- loop: archivo que suena; one-shot: último disparo -->
           <span class="file_name">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
-          <!-- one-shot: cada cuántos compases se tira el dado (props.bars), densidad (probabilidad de
-            disparo en cada tirada, props.density) y disparo al empezar cada Tag (props.on_tag_change) -->
-          <div v-if="is_oneshot(trg) && !store.read_only" class="oneshot_ctrls">
-            <Knob :model-value="SHOT_BARS.indexOf(shot_bars(trg))" :min="0" :max="SHOT_BARS.length - 1" :step="1"
-              :size="36" label="Bars" :title="'Tirar el dado cada ' + shot_bars(trg) + ' compás(es)'"
-              @update:model-value="v => set_bars(trg, v)" />
-            <Knob :model-value="trg.props.density ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Dens"
-              :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% cada ' + shot_bars(trg) + ' compás(es)'"
-              @update:model-value="v => set_density(trg, v)" />
-            <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
-              title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
+          <!-- controles de cada modo, en la misma celda; el del otro modo queda invisible (.ghost): la celda
+            toma el alto del más alto y el fader de todas las tiras queda a la misma altura -->
+          <div v-if="!store.read_only" class="mode_ctrls">
+            <!-- one-shot: cada cuántos compases se tira el dado (props.bars), densidad (probabilidad de
+              disparo en cada tirada, props.density) y disparo al empezar cada Tag (props.on_tag_change) -->
+            <div class="oneshot_ctrls" :class="{ ghost: !is_oneshot(trg) }">
+              <Knob :model-value="SHOT_BARS.indexOf(shot_bars(trg))" :min="0" :max="SHOT_BARS.length - 1" :step="1"
+                :size="36" label="Bars" :title="'Tirar el dado cada ' + shot_bars(trg) + ' compás(es)'"
+                @update:model-value="v => set_bars(trg, v)" />
+              <Knob :model-value="trg.props.density ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Dens"
+                :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% cada ' + shot_bars(trg) + ' compás(es)'"
+                @update:model-value="v => set_density(trg, v)" />
+              <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
+                title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
+            </div>
+            <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) -->
+            <Knob :class="{ ghost: is_oneshot(trg) }" :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
+              :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
+              @update:model-value="v => set_rest(trg, v)" />
           </div>
-          <!-- probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) -->
-          <Knob v-else-if="!is_oneshot(trg) && !store.read_only" :model-value="trg.props.rest ?? 0" :min="0" :max="1"
-            :step="0.05" :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'" @update:model-value="v => set_rest(trg, v)" />
           <!-- volumen de la pista (dB, guardado en props.volume; en modo lectura solo en memoria) -->
           <!-- el fader trabaja en posición 0..1 con curva de consola (fader_to_db / db_to_fader en mixer.js) -->
           <Fader :model-value="db_to_fader(trg.props.volume)" :min="0" :max="1" :step="0.01" :length="84"
@@ -194,7 +201,8 @@ import LedMeter from "./hw/LedMeter.vue"
 import StepLeds from "./hw/StepLeds.vue"
 import {
   levels, mixer, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
-  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label
+  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label,
+  vol_db, FILE_VOL_MAX_DB
 } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
 
@@ -425,7 +433,7 @@ function track_beat(track) {
 function start_file(id, time) {
   files_by_id[id].isPlaying = true
   audio_players[id].playbackRate = files_by_id[id].play_rate ?? 1
-  audio_players[id].volume.value = files_by_id[id].props.volume
+  audio_players[id].volume.value = vol_db(files_by_id[id].props.volume, FILE_VOL_MAX_DB)
   route_player(id)
   audio_players[id].start(time)
 }
@@ -935,6 +943,22 @@ function get_available_files_x_tag(tag_id) {
   margin-top: 16px;
   font-size: 18px;
   letter-spacing: 4px;
+}
+
+/* celda común de los controles de cada modo (loop: Rest; one-shot: Bars, Dens, TAG) */
+.mode_ctrls {
+  display: grid;
+  justify-items: center;
+  align-items: start;
+}
+
+.mode_ctrls > * {
+  grid-area: 1 / 1;
+}
+
+/* control del otro modo: ocupa lugar pero no se ve ni se puede tocar (visibility también lo saca del foco) */
+.ghost {
+  visibility: hidden;
 }
 
 .oneshot_ctrls {

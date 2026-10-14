@@ -29,25 +29,28 @@ const TAPE_LOWPASS_HZ = 2000 // filtro dentro del lazo del delay "tape": cada re
 // El fader no es lineal en dB: como en una consola, la posición 0..1 da una ganancia ∝ posición³
 // (dB = VOL_MAX_DB + 60·log10(pos)). Así hay resolución cerca de 0 dB (≈ 79 % del recorrido; −12 dB
 // a la mitad) y la parte de abajo cae rápido hasta el silencio. Lo guardado sigue siendo dB.
+// max_db = tope del fader: VOL_MAX_DB en pistas y master, FILE_VOL_MAX_DB en el volumen de un archivo.
 export const VOL_MAX_DB = 6
+export const FILE_VOL_MAX_DB = 0
 export const VOL_OFF_DB = -60 // este valor (o menos) = fader abajo del todo = silencio
 const VOL_SILENT_DB = -120 // lo que se aplica al nodo en silencio: no se usa -Infinity (rampas
 // exponenciales a 0 y Volume.mute, que mira volume === -Infinity, lo confundirían con un mute)
-export function fader_to_db(pos) {
+export function fader_to_db(pos, max_db = VOL_MAX_DB) {
   if (!(pos > 0)) return VOL_OFF_DB
-  return Math.max(VOL_OFF_DB, Math.round((VOL_MAX_DB + 60 * Math.log10(pos)) * 10) / 10)
+  return Math.max(VOL_OFF_DB, Math.round((max_db + 60 * Math.log10(pos)) * 10) / 10)
 }
-export function db_to_fader(db) {
+export function db_to_fader(db, max_db = VOL_MAX_DB) {
   if (db == null || !(db > VOL_OFF_DB)) return 0
-  return Math.min(1, Math.pow(10, (db - VOL_MAX_DB) / 60))
+  return Math.min(1, Math.pow(10, (db - max_db) / 60))
 }
 // texto para title / LCD: "-∞ dB", "-12 dB", "+3.5 dB"
 export function db_label(db) {
   if (db == null || db <= VOL_OFF_DB) return "-∞ dB"
   return (db > 0 ? "+" : "") + db + " dB"
 }
-function vol_db(db) {
-  return db == null || db <= VOL_OFF_DB ? VOL_SILENT_DB : Math.min(VOL_MAX_DB, db)
+// dB a aplicar a un nodo (Channel, Player, Destination): silencio en VOL_OFF_DB o menos
+export function vol_db(db, max_db = VOL_MAX_DB) {
+  return db == null || db <= VOL_OFF_DB ? VOL_SILENT_DB : Math.min(max_db, db)
 }
 
 // trg id -> { channel, meter, filter, send, dly_send, walk }. walk = estado de la caminata al azar del drift:

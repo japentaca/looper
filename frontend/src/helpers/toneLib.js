@@ -1,5 +1,6 @@
 import * as Tone from 'tone'
 import { store, audio_players } from "../helpers/composable"
+import { vol_db, FILE_VOL_MAX_DB } from "./mixer"
 
 
 
@@ -33,7 +34,7 @@ export async function playFile(file) {
   if (store.curr_file !== file) store.curr_file.isPreviewing = false
   store.curr_file = file
   mainPlayer.buffer.set(audio_players[file.id].buffer)
-  mainPlayer.volume.value = file.props.volume
+  mainPlayer.volume.value = vol_db(file.props.volume, FILE_VOL_MAX_DB)
   mainPlayer.start()
   started++
   store.curr_file.isPreviewing = true

@@ -360,7 +360,8 @@ async function install_project(p, same) {
     if (!f.props) {
       f.props = {}
     }
-    if (!f.props.volume) f.props.volume = -6
+    // -6 dB por defecto solo si falta o es inválido (antes `!volume` también pisaba un 0 dB guardado)
+    if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
     let url = import.meta.env.VITE_APP_BACKEND + "/api/file/" + f.id
     //console.log(url)
     f.isLoaded = false
