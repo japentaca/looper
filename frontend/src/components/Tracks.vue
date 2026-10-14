@@ -130,7 +130,9 @@
             :pos="track?.curr_file && TrackCtrl.isPlaying && !is_oneshot(trg) ? track_beat(track) : 0"
             :beats="is_oneshot(trg) ? 0 : track?.curr_file?.play_beats ?? 0" />
           <!-- loop: archivo que suena; one-shot: último disparo -->
-          <span class="file_name">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
+          <!-- clic: abre el diálogo de edición de ese archivo (Files.vue, vía store.edit_file_id) -->
+          <span class="file_name" :class="{ editable: !store.read_only && strip_file(trg, track) }"
+            @click="edit_strip_file(trg, track)">{{ strip_file(trg, track)?.original_name ?? "—" }}</span>
           <!-- controles de cada modo, en la misma celda; el del otro modo queda invisible (.ghost): la celda
             toma el alto del más alto y el fader de todas las tiras queda a la misma altura -->
           <div v-if="!store.read_only" class="mode_ctrls">
@@ -325,6 +327,12 @@ function toggle_on_tag_change(trg) {
 // archivo a mostrar en la tira: el loop que suena o el último disparo one-shot
 function strip_file(trg, track) {
   return is_oneshot(trg) ? track?.last_shot : track?.curr_file
+}
+
+// en modo lectura (/p/:id) no hay Files.vue ni se edita nada
+function edit_strip_file(trg, track) {
+  let file = strip_file(trg, track)
+  if (file && !store.read_only) store.edit_file_id = file.id
 }
 
 // el tiempo del delay sigue a TrackCtrl.tempo solo (watch en mixer.js), también mientras se mueve el knob.
@@ -1087,5 +1095,14 @@ function get_available_files_x_tag(tag_id) {
   color: var(--hw_silk);
   opacity: 0.6;
   font-size: 10px;
+}
+
+.file_name.editable {
+  cursor: pointer;
+}
+
+.file_name.editable:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 </style>

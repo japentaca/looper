@@ -324,6 +324,13 @@ async function editFile(file) {
   curr_edit_file.value = file
   dialogVisible.value = true
 }
+
+// pedido de edición desde otro componente (store.edit_file_id, ver composable.js)
+watch(() => store.edit_file_id, (id) => {
+  if (id == null) return
+  if (files_by_id[id]) editFile(files_by_id[id])
+  store.edit_file_id = null
+})
 // tags que se pueden agregar al archivo del diálogo de edición
 const unassigned_tags = computed(() => store.tags.filter(t => !curr_edit_file.value?.tags.includes(t.id)))
 

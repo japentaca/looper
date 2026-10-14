@@ -52,6 +52,9 @@ export const store = reactive({
   // modo lectura (/p/:id, proyecto público): se puede tocar START/STOP y el mixer, pero nada se
   // guarda. Todos los guardados de este archivo lo chequean y no mandan ningún request
   read_only: false,
+  // pedido de abrir el diálogo de edición de un archivo desde otro componente (id del archivo; lo
+  // atiende y vuelve a null Files.vue). Lo usa el nombre del loop que suena en las tiras de Tracks.vue
+  edit_file_id: null,
 })
 export let files_by_id = reactive([])
 
