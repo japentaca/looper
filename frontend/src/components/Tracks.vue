@@ -1,20 +1,18 @@
 <template>
   <div class="tracks_panel">
-    <section class="hw_panel controls">
+    <section class="hw_panel controls" :class="{ read_only: store.read_only }">
       <div class="brand silk">Transport</div>
 
-      <div class="group transport">
+      <!-- secciones: en un panel ancho van en una grilla de dos filas (ver .controls en el CSS); en uno
+        angosto se acomodan en fila con wrap, en el orden del template -->
+      <div class="group g_transport">
         <LedButton size="big" led="green" :lit="TrackCtrl.isPlaying" :disabled="TrackCtrl.isReady != true"
           :text="TrackCtrl.isPlaying ? 'STOP' : 'START'" label="Play / stop"
           @click="TrackCtrl.isPlaying ? stop() : request_start()" />
         <LedButton text="RESET" label="New tag" @click="reset" />
-        <!-- volumen master (TrackCtrl.master, dB, guardado en projects.props; en modo lectura solo en memoria).
-          Misma curva que los faders de las pistas: 0 dB a ~79 % del recorrido -->
-        <Knob :model-value="db_to_fader(TrackCtrl.master)" :min="0" :max="1" :step="0.01" :size="48" label="Master"
-          :title="'Master ' + db_label(TrackCtrl.master)" @update:model-value="set_master" />
       </div>
 
-      <div class="group tempo">
+      <div class="group g_tempo">
         <Knob v-model="TrackCtrl.tempo" :min="10" :max="160" label="Tempo" @change="onBPMSliderchange" />
         <Lcd :value="TrackCtrl.tempo" :digits="3" unit="BPM" />
         <!-- tolerancia de tempo (%, TrackCtrl.tempo_tol): los loops que haya que correr más que esto no se
@@ -22,20 +20,20 @@
         <Knob v-model="TrackCtrl.tempo_tol" :min="0" :max="TEMPO_TOL_MAX" :step="0.5" :size="48" label="Tol"
           :title="'Tempo tolerance ±' + TrackCtrl.tempo_tol + '% (' + out_of_tempo + ' loop(s) out)'"
           @change="on_tol_change" />
-        <!-- posición del transporte: compás.tiempo -->
-        <Lcd :value="bar_position" :digits="4" caption="Bar . beat" />
       </div>
 
-      <!-- modo lectura (/p/:id): solo START/STOP, RESET, master, tempo, tolerancia y el mixer (volumen, mute, solo); el resto
-        de la config del proyecto no se muestra (no se guardaría nada igual, ver can_save en composable.js) -->
-      <div v-if="!store.read_only" class="group">
-        <ToggleSwitch v-model="TrackCtrl.beats_x_bar" label="Time sig"
+      <!-- posición del transporte (compás.tiempo) y compás del proyecto -->
+      <div class="group g_position">
+        <Lcd :value="bar_position" :digits="4" caption="Bar . beat" />
+        <!-- modo lectura (/p/:id): solo START/STOP, RESET, master, tempo, tolerancia y el mixer (volumen, mute, solo); el resto
+          de la config del proyecto no se muestra (no se guardaría nada igual, ver can_save en composable.js) -->
+        <ToggleSwitch v-if="!store.read_only" v-model="TrackCtrl.beats_x_bar" label="Time sig"
           :options="[{ value: '3', label: '3/4' }, { value: '4', label: '4/4' }]" @change="onSignatureChange" />
       </div>
 
       <!-- delay global sincronizado al tempo (TrackCtrl.delay, guardado en projects.props). Cada pista le
         manda señal con su knob "Dly" -->
-      <div v-if="!store.read_only" class="group delay">
+      <div v-if="!store.read_only" class="group g_delay">
         <div class="delay_sel">
           <span class="silk">Delay</span>
           <Lcd small :digits="0">
@@ -56,7 +54,7 @@
           @update:model-value="v => set_delay_cfg('level', v)" />
       </div>
 
-      <div v-if="!store.read_only" class="group">
+      <div v-if="!store.read_only" class="group g_range">
         <!-- placa de aluminio con los dos faders del rango de cambio de TAG -->
         <div class="hw_plate tag_range">
           <span class="silk plate_title">Tag change</span>
@@ -70,7 +68,7 @@
       </div>
 
       <!-- TAG actual: cuenta regresiva de beats hasta el próximo cambio -->
-      <div class="group tag_now">
+      <div class="group g_tag">
         <div class="tag_lcd">
           <span class="silk">Current tag</span>
           <Lcd :value="TrackCtrl.isPlaying ? current_TAG.remaining_beats : ''" :digits="3"
@@ -87,6 +85,13 @@
           <Led color="red" :pulse="TrackCtrl.isPlaying && current_TAG.remaining_beats <= 4 ? beat.n : null" />
           <span class="silk dim">Change</span>
         </div>
+      </div>
+
+      <!-- volumen master (TrackCtrl.master, dB, guardado en projects.props; en modo lectura solo en memoria).
+        Misma curva que los faders de las pistas: 0 dB a ~79 % del recorrido -->
+      <div class="group g_master">
+        <Knob :model-value="db_to_fader(TrackCtrl.master)" :min="0" :max="1" :step="0.01" :size="64" label="Master"
+          :title="'Master ' + db_label(TrackCtrl.master)" @update:model-value="set_master" />
       </div>
     </section>
 
@@ -781,6 +786,7 @@ function get_available_files_x_tag(tag_id) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  container-type: inline-size;
 }
 
 .card {
@@ -829,8 +835,47 @@ function get_available_files_x_tag(tag_id) {
   letter-spacing: 3px;
 }
 
-.tag_now {
-  margin-left: auto;
+/* panel ancho: grilla de dos filas. Fila 1: transporte, tempo, delay; fila 2: posición y Tag actual.
+   La placa del rango de Tag y el master ocupan las dos filas a la derecha. En modo lectura no hay
+   delay ni rango: tres columnas. Las columnas suman ~1280 px (medido en el navegador). */
+@container (min-width: 1300px) {
+  .controls {
+    display: grid;
+    grid-template-columns: auto auto auto auto auto;
+    grid-template-areas:
+      "transport tempo delay range master"
+      "position  tag   tag   range master";
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .controls.read_only {
+    grid-template-columns: auto auto auto;
+    grid-template-areas:
+      "transport tempo master"
+      "position  tag   master";
+  }
+
+  .g_transport { grid-area: transport; }
+  .g_tempo { grid-area: tempo; }
+  .g_delay { grid-area: delay; }
+  .g_range { grid-area: range; }
+  .g_master { grid-area: master; }
+  .g_position { grid-area: position; }
+  .g_tag { grid-area: tag; }
+
+  /* la primera columna arranca pegada al borde, sin línea separadora */
+  .controls .g_transport,
+  .controls .g_position {
+    border-left: 0;
+    padding-left: 4px;
+  }
+
+  /* la placa y el master ocupan el alto de las dos filas: su línea separadora también */
+  .g_range,
+  .g_master {
+    align-self: stretch;
+  }
 }
 
 .tag_lcd {
