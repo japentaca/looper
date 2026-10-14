@@ -75,6 +75,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
   esquema, endpoints y fases). Leer antes de trabajar en usuarios, proyectos, subidas o despliegue.
 - `docs/DEPLOY.md` — despliegue en el VPS: preparación inicial del servidor, despliegue habitual con
   `deploy/deploy.sh`, respaldo de la base, rollback, verificación y lecciones (pm2, nginx, Cloudflare).
+- `docs/LIBRERIAS.md` — cómo incorporar una librería de loops entera en producción (manifiesto,
+  `import_manifest.js`, tonalidad, pistas y tags del proyecto). Seguirla cuando el dueño traiga una.
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes
   o Tracks.vue**; muchos comportamientos raros ya están explicados ahí.
 

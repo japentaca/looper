@@ -1,0 +1,153 @@
+# Incorporar una librería de loops
+
+Guía para cargar una librería de loops/samples entera en producción y armar con ella un proyecto
+listo para sonar. Está escrita para que la siga un agente (o una persona) cuando el dueño trae una
+librería nueva. Se aplicó por primera vez con Function Loops "Psytrance Warriors" (2026-10-14):
+proyecto **Psytrance Warriors**, armado a partir de **Progressive**.
+
+Piezas que usa: la tonalidad de los archivos (`files.music_key`, ver `docs/ARCHITECTURE.md`), el
+script `backend/import_manifest.js` y el procedimiento de respaldo de `docs/DEPLOY.md`.
+
+## Resumen del flujo
+
+1. Relevar la librería y lo que ya está cargado.
+2. Acordar con el dueño qué entra, a qué proyecto y qué proyecto sirve de plantilla.
+3. Armar en local una carpeta con los audios renombrados y un `manifest.json`.
+4. Probar la importación en local sobre una copia de la base.
+5. En el servidor: respaldar la base, copiar la carpeta, dry-run, importar, borrar la carpeta.
+6. Armar pistas y tags del proyecto (respaldo y dry-run otra vez).
+7. Verificar e informar.
+
+## 1. Relevamiento
+
+- **Estructura y nombres.** Listar los archivos (`find`) sin MIDI ni imágenes. Las librerías suelen
+  traer por kit: `Loops`, `One-Shots`, `Stems` y un `FullMix`; la tonalidad y el BPM suelen estar en
+  el nombre de la carpeta del kit (`Kit_03_(Key_Bb)_(140BPM)`) y a veces en el del archivo
+  (`FL_CPS_KIT03_140_Bb_Bass Loop.wav`).
+- **Duraciones** con el `ffprobe` de `backend/node_modules/ffprobe-static`. El límite es 60 s por
+  archivo: Stems y FullMix casi siempre pasan y quedan afuera.
+- **¿Ya está cargada?** Buscar en `files.original_name` (sobre una copia de `storage/db.sqlite` o con
+  una consulta de solo lectura en el servidor) los nombres de la librería. Que el dueño crea que ya
+  la usó no alcanza: en el primer caso, lo cargado venía de otro pack.
+- **Cuota** del usuario destino: `sum(files.duration)` contra `users.max_seconds` (null = el default
+  de `.env`, 1200 s). El dry-run del script también la informa.
+
+## 2. Decisiones a acordar con el dueño
+
+Preguntar (con opciones y una recomendada) solo lo que no esté decidido abajo:
+
+- Qué entra: por defecto **Loops y One-Shots**; Stems y FullMix no.
+- Destino: por defecto la cuenta del dueño y un **proyecto nuevo con el nombre de la librería**.
+- Proyecto plantilla para pistas y configuración (en el primer caso, Progressive).
+- Excepciones de tonalidad (FX que el nombre marca con nota pero suenan sin ella, ver 3).
+
+## 3. Criterios de nombres, tipo, tempo y tonalidad
+
+**Nombres** (`original_name`): únicos dentro de la librería y con la tonalidad escrita, para que
+`suggest_key` la encuentre y para distinguirlos en la lista.
+
+- Loops: el nombre original si ya trae kit, BPM y tonalidad.
+- One-shots: suelen repetirse entre kits (`FL_CPS_Bass.wav` en todos): se les antepone el prefijo del
+  kit y se les agrega ` One-Shot` → `FL_CPS_KIT03_140_Bb_Bass One-Shot.wav`. El sufijo evita choques
+  con loops que se llaman igual (`..._Snare.wav`).
+
+**Tipo y tempo:** lo de `Loops` entra como `loop` con el `bpm` del kit (el script calcula
+`beats = round(duración × bpm / 60)`; un loop de 8 compases da 16 o 32 beats); lo de `One-Shots`
+entra como `shot`, sin tempo. Si la librería no trae el BPM, mandar `beats`.
+
+**Tonalidad** (`music_key`):
+
+- Por defecto la sugiere el nombre (`suggest_key`): la nota del kit, o `atonal` si el nombre dice
+  percusión o ruido (kick, snare, hat, perc, top, crash, tom, tribal, noise, impact, upfilter...).
+- **FX con nota en el nombre pero sin nota real** → `atonal` explícito en el manifiesto. En el
+  primer caso: Glitch Element, Bandpass Seq Loop, Main Psy SFX, Zap, Zap Delay, Glitch SFX. Para
+  decidir, además del nombre, medir la planitud espectral (cerca de 0 = con nota; 0,3 o más =
+  ruidoso o barrido):
+
+  ```bash
+  ffmpeg -hide_banner -i "<archivo>" -af "pan=mono|c0=c0,aspectralstats=measure=flatness,ametadata=print:file=-" -f null - 2>/dev/null \
+    | awk -F= '/flatness/{s+=$2;n++} END{printf "%.3f\n", s/n}'
+  ```
+
+- Ante la duda, dejarlo con la nota del kit: es el criterio conservador para el filtro.
+
+## 4. Carpeta y manifiesto (en local)
+
+Carpeta nueva en el scratchpad, plana, con los audios ya renombrados y un `manifest.json` con el
+formato de la cabecera de `backend/import_manifest.js`:
+
+```json
+[
+ { "file": "FL_CPS_KIT03_140_Bb_Bass Loop.wav", "kind": "loop", "bpm": 140 },
+ { "file": "FL_CPS_KIT03_140_Bb_Zap Loop.wav", "kind": "loop", "bpm": 140, "music_key": "atonal" },
+ { "file": "FL_CPS_KIT03_140_Bb_Kick One-Shot.wav", "kind": "shot" }
+]
+```
+
+Se arma con un script de una sola vez (no va al repo) que recorre los kits, saca kit/tonalidad/BPM
+del nombre de la carpeta, copia y renombra, y aplica las excepciones de tonalidad. Comprobar que la
+cantidad de archivos de la carpeta coincida con la de entradas (si no, hubo nombres repetidos).
+
+## 5. Prueba local e importación en el servidor
+
+**Local, sobre una copia** (nunca sobre `storage/`): un directorio de prueba con su `.env`
+(`storage_path` a un `audio/` vacío, `db_file` a una copia de la base ya migrada) y desde ahí:
+
+```bash
+node <repo>/backend/import_manifest.js --user=<email> --project="<proyecto>" --dry-run <carpeta>/manifest.json
+node <repo>/backend/import_manifest.js --user=<email> --project="<proyecto>" <carpeta>/manifest.json
+```
+
+Revisar en la copia: cantidades por `kind` y `music_key`, `beats`/`bpm` de algunos loops, filas en
+`project_files`. Correrlo una segunda vez tiene que saltear todo (es repetible).
+
+**Servidor** (`docs/DEPLOY.md`, "Importar audios en lote"): si hubo cambios de código, desplegar
+antes. Después: respaldar la base, copiar la carpeta (`tar -cf - carpeta | ssh jape-pruebas 'tar -xf - -C /tmp'`,
+`chmod -R a+rX`), dry-run, importación real como `looper` con `nice`, revisar el resumen (errores 0)
+y borrar la carpeta de `/tmp`.
+
+## 6. Pistas y tags del proyecto
+
+Se escriben **directo en la base** con un script de una sola vez (en una transacción, con
+`--dry-run` que imprime el reparto), corrido en el servidor como `looper` después de otro respaldo.
+El script se niega a seguir si el proyecto ya tiene pistas. Al terminar, el dueño tiene que
+**recargar la app** si tenía el proyecto abierto: guardar desde una pestaña vieja pisa las pistas
+(los PUT de pistas y tags reemplazan la colección completa).
+
+**Pistas:** se copian las de la plantilla (nombre, color y `props`: volumen, descanso, modo,
+reverb, delay, drift) con ids nuevos, más las que hagan falta. Reparto por nombre del archivo, en
+este orden (la primera regla que coincide):
+
+| Pista | Loops cuyo nombre dice |
+|---|---|
+| bombos | Kick |
+| Bajos | Bass |
+| Perc | Percussion, Tribal, Toms |
+| Drums | Hat, Snare, Crash, Top |
+| FX (nueva; props de Synth con `rest` 0,6 y `delay` -14) | Glitch, Impact, Zap, Psy SFX, Voice |
+| Synth | todo lo demás (Synth, Seq, Theme, Melody, Airy, Riff...) |
+
+Shots → pista **one shots** (modo one-shot) solo los que funcionan sueltos sobre los loops: Crash,
+Upfilter, Noise, Reverse Voice, Glitch, Zap, Sitar, Snare Up, Airy, Cinematic Tom. Los one-shots
+de kick, snare, hat, bass y secuencias cortas quedan **sin pista** (en el proyecto, sin sonar): se
+encimarían con los loops; el dueño los asigna si quiere.
+
+**Tags:** uno por tonalidad presente (`C#`, `Bb`, `G#`), no por kit, así se mezclan kits de la misma
+tonalidad.
+
+- Archivo con nota → el tag de su `music_key`.
+- Bombos → el tag de la tonalidad de su kit aunque sean `atonal` (en psytrance el kick está afinado
+  con el bajo).
+- Atonales → **sin tags**: el motor los considera compatibles con cualquier Tag.
+
+**Configuración del proyecto:** se copian las `props` de la plantilla (tempo, tolerancia, compás,
+rango de cambio de Tag, delay). Con kits de distinto BPM, conviene un tempo dentro de la tolerancia
+de todos (140 con 6 % cubre 140–144; a 140 los de 142/144 suenan hasta ~0,7 semitonos más grave).
+
+## 7. Verificación e informe
+
+- En el servidor: conteos por pista y tags del proyecto, y que `GET /api/file/<id>` de un archivo
+  nuevo responda 200.
+- Informar: qué entró y qué no (y por qué), reparto por pista y tag, archivos sin pista, rutas de
+  los respaldos, y que la mezcla (volúmenes) y la escucha quedan para el dueño. Nada de esto se
+  puede verificar de oído desde acá.
