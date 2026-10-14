@@ -59,14 +59,14 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | PUT | `/projects/:id/track_groups` | sí | array **completo** `[{ id, name, color, props }]` | `{ stat: true }`; 400 si el body no es un array, falta un `id` o hay un id repetido o usado en otro proyecto; 404 si no es del usuario |
 | PUT | `/projects/:id/tags` | sí | array **completo** `[{ id, name, color }]` | ídem `track_groups` |
 | PUT | `/projects/:id/files` | sí | `{ add?, update?, remove? }` (ver detalle abajo) | `{ stat: true, data: [archivo del proyecto] }` (todos los del proyecto, ya actualizados); 400 `{ stat: false, text }` si algo es inválido (no se aplica nada); 404 si el proyecto no es del usuario |
-| PUT | `/files/:id` | sí | `{ original_name?, kind?, beats?, bpm? }` | `{ stat: true, data: archivo }` (forma del catálogo); `{ stat: false, text }` si un valor es inválido; 404 si el archivo no es del usuario o no existe |
+| PUT | `/files/:id` | sí | `{ original_name?, kind?, beats?, bpm?, music_key? }` | `{ stat: true, data: archivo }` (forma del catálogo); `{ stat: false, text }` si un valor es inválido; 404 si el archivo no es del usuario o no existe |
 | DELETE | `/files/:id` | sí | — | `{ stat: true, data: { removed_from_projects } }`; borra el archivo **en cascada** de todos los proyectos (propios y ajenos), la fila, el mp3 y descuenta `users.bytes_used`; 404 si no es del usuario o no existe |
-| GET | `/catalog` | sí | query opcional: `bpm`, `bpm_tol`, `beats`, `creator`, `q`, `page`, `per_page` | `{ stat: true, data: { items: [archivo del catálogo con creador y usos], total, page, per_page } }` (solo archivos disponibles); 400 `{ stat: false, text }` si un parámetro es inválido. Ver detalle abajo |
+| GET | `/catalog` | sí | query opcional: `bpm`, `bpm_tol`, `beats`, `key`, `atonal`, `creator`, `q`, `page`, `per_page` | `{ stat: true, data: { items: [archivo del catálogo con creador y usos], total, page, per_page } }` (solo archivos disponibles); 400 `{ stat: false, text }` si un parámetro es inválido. Ver detalle abajo |
 | GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
 | GET | `/public/projects` | no | query opcional: `page`, `per_page` | `{ stat: true, data: { items: [proyecto de la galería], total, page, per_page } }` (proyectos no ocultos, con dueño `active` y al menos un archivo disponible); 400 si un parámetro es inválido; 429 por el límite por IP. Ver `public` abajo |
 | GET | `/public/project/:id` | no | — | `{ stat: true, data: proyecto público }` (config, pistas, tags, archivos **disponibles** y creador); 404 `{ stat: false, text: "Proyecto inexistente" }` si no existe, está oculto o su dueño no está `active` (sin distinguir); 429 por el límite por IP. Ver `public` abajo |
 | POST | `/report` | sí | `{ target_type: "file" \| "project", target_id, reason }` | `{ stat: true, text, data: { duplicate } }` (crea una fila en `reports` con `status = 'open'`, o `duplicate: true` si ya había una abierta del mismo usuario sobre lo mismo); `{ stat: false, text }` si el motivo está vacío o pasa de 500 caracteres, o el target es propio; 400 `target_type`/`target_id` inválidos; 404 si el archivo o proyecto no existe o no está a la vista; 429 por el límite diario. Ver `report` abajo |
-| POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `kind`, `beats`, `bpm` y `project_id` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, kind/beats/bpm inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
+| POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `kind`, `beats`, `bpm`, `music_key` y `project_id` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, kind/beats/bpm/music_key inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
 | GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
 | PUT | `/admin/users/:id` | admin | `{ action, password?, max_seconds? }` | `{ stat: true, data: usuario admin }` (ya actualizado); `{ stat: false, text }` si la acción no corresponde al estado, el usuario es admin, o la clave/cuota no es válida; 400 acción desconocida; 404 usuario inexistente. Ver detalle abajo |
 | GET | `/admin/reports` | admin | query `status` opcional: `open` \| `resolved` \| `dismissed` (sin él o vacío: todas) | `{ stat: true, data: [denuncia admin] }`, las más nuevas primero (hasta 500); 400 si `status` es otro valor. Ver `admin/reports` abajo |
@@ -148,7 +148,7 @@ Proyecto en la **forma de la lista** (`GET /projects`, `u_info.projects`, respue
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
   track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, bars, reverb, drift, delay } }], // props: {} si no hay nada
   tags: [{ id, name, color }],
-  files: [{ id, original_name, size, duration, kind, bpm, beats, ts, // del catálogo (files)
+  files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, // del catálogo (files)
             track_group, tags: [tag_id, ...], props: { volume }, // del proyecto (project_files)
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
@@ -235,12 +235,12 @@ Solo el **dueño** del archivo: uno ajeno o inexistente responde 404 `{ stat: fa
 inexistente" }` (sin distinguir). Archivo en la **forma del catálogo**:
 
 ```js
-{ id, original_name, size, duration, kind, bpm, beats, ts, name: "<id>.mp3", own: bool, available: bool }
+{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, name: "<id>.mp3", own: bool, available: bool }
 ```
 
-- `PUT /files/:id` `{ original_name?, kind?, beats?, bpm? }`: solo lo que venga. `original_name` se
+- `PUT /files/:id` `{ original_name?, kind?, beats?, bpm?, music_key? }`: solo lo que venga. `original_name` se
   recorta, 1 a 128 caracteres; `kind`, `beats` y `bpm` como en `/upload` (si viene alguno, el `bpm`
-  se recalcula con la `duration` guardada). Pista, tags y volumen son de cada proyecto (`PUT /projects/:id/files`). Reemplaza a
+  se recalcula con la `duration` guardada); `music_key` como en `/upload` (vacío o `null` = sin dato). Pista, tags y volumen son de cada proyecto (`PUT /projects/:id/files`). Reemplaza a
   `save_fileData` (eliminado en la tarea 3.4).
 - `DELETE /files/:id`: en una transacción borra las filas de `project_files` que lo usan en
   **todos** los proyectos (también los de otros usuarios que lo importaron), la fila de `files` y
@@ -259,6 +259,8 @@ Query, toda opcional:
 | `bpm` | número 20..400 | `files.bpm` entre `bpm - bpm_tol` y `bpm + bpm_tol` (los archivos sin BPM quedan afuera) |
 | `bpm_tol` | número 0..50, default 2 | tolerancia de `bpm` (sin `bpm` se ignora) |
 | `beats` | entero 1..1024 | `files.beats` igual |
+| `key` | una nota (`C`, `C#`, `Db`... `B`; si trae `m` se ignora) | `files.music_key` con esa tónica, en mayor o menor (`G` trae `G` y `Gm`); los sin dato quedan afuera |
+| `atonal` | `0` \| `1`, default 0 | con `key`, suma los archivos `atonal` (sin `key` se ignora) |
 | `creator` | nombre público, hasta 64 caracteres | creador con ese nombre exacto, sin distinguir mayúsculas |
 | `q` | texto, hasta 64 caracteres | `original_name` contiene el texto (sin distinguir mayúsculas en ASCII; `%` y `_` son literales) |
 | `page` | entero ≥ 1, default 1 | página |
@@ -270,7 +272,7 @@ desempata por `id`, así el paginado es estable). Respuesta:
 
 ```js
 {
-  items: [{ id, original_name, duration, kind, bpm, beats, ts, name: "<id>.mp3",
+  items: [{ id, original_name, duration, kind, bpm, beats, music_key, ts, name: "<id>.mp3",
             own: bool,                 // el archivo es del usuario de la sesión
             uses: n,                   // cantidad de proyectos que lo usan (filas de project_files, de cualquier usuario)
             creator: { name, bio } }], // nombre público y bio del dueño (bio null si no tiene)
@@ -319,7 +321,7 @@ default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los 
   creator: { name, bio },
   track_groups: [{ id, name, color, props }],      // como en GET /projects/:id
   tags: [{ id, name, color }],
-  files: [{ id, original_name, size, duration, kind, bpm, beats, ts, name: "<id>.mp3", available: true,
+  files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, name: "<id>.mp3", available: true,
             track_group, tags, props }]            // forma de GET /projects/:id, sin `own`
 }
 ```
@@ -368,6 +370,13 @@ al tempo del proyecto cierra a menos de 1 %; si no, la cantidad "redonda" 1, 2, 
 24, 32... que deja el loop más cerca del tempo; sin proyecto, de 120). El `bpm` guardado siempre se
 recalcula: `beats × 60 / duración`, y tiene que quedar en 20..400 (si no → "Con N beats el loop
 queda en X BPM ... (¿es un shot?)").
+`music_key` = tonalidad del archivo (`normalize_key` en `utils.js`): una nota con grafía fija
+(`C C# D Eb E F F# G G# A Bb B`; se aceptan enarmónicos, minúsculas, `♯`/`♭`) más `m` si es menor
+(`min`/`minor` también; `maj`/`major` se descarta), `"atonal"` (percusión, ruidos: combina con
+cualquiera) o vacío = sin dato. Si el campo **no viene**, se sugiere por el nombre del archivo
+(`suggest_key`: `atonal` si nombra percusión o ruidos —kick, snare, hat, perc, top, crash, noise,
+impact...— salvo que también diga bass, synth, seq, theme...; si no, una nota escrita como palabra
+suelta entre `_`, `-` o paréntesis, como `FL_..._C#_Bass Loop` o `G_Synth_Loop`).
 Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
 
 1. **Antes de recibir el archivo** (el cuerpo multipart se lee recién después): otra subida del
@@ -387,7 +396,7 @@ Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
    (todo se recodifica, también los mp3), normalizado a -18 LUFS / -1 dBTP con una ganancia fija
    (sin compresión; ver `convert` en `docs/ARCHITECTURE.md`). La duración ya se midió sobre la entrada. Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
 4. **Transacción**: vuelve a calcular la cuota (por si cambió mientras se convertía; 403 si ya no
-   entra), inserta la fila en `files` (`duration` medida sobre la entrada, `kind`, `bpm`, `beats`, `ts`,
+   entra), inserta la fila en `files` (`duration` medida sobre la entrada, `kind`, `bpm`, `beats`, `music_key`, `ts`,
    `size` del mp3, `tags = []`) y suma `size` a `users.bytes_used`. Con `project_id`, vuelve a
    comprobar que el proyecto siga siendo del usuario (404 si se borró mientras se convertía) e
    inserta la fila de `project_files`: el archivo queda en ese proyecto sin pista, sin tags y con

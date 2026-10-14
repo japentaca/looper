@@ -557,7 +557,7 @@ router.post("/projects", require_session, async (req, res) => {
 
 // columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`)
 const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
-  "f.beats", "f.ts", "f.hidden", "u.status as owner_status"]
+  "f.beats", "f.music_key", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
 const FILE_ID_MAX = 36
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
@@ -572,9 +572,18 @@ function file_available(r) {
 function file_out(r, user_id) {
   return {
     id: r.id, original_name: r.original_name, size: r.size, duration: r.duration, kind: r.kind ?? "loop",
-    bpm: r.bpm, beats: r.beats, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, available: file_available(r),
+    bpm: r.bpm, beats: r.beats, music_key: r.music_key ?? null, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id,
+    available: file_available(r),
   }
 }
+
+// tonalidad que viene en un body (subida o PUT /files/:id): vacío → null (sin dato); "atonal" o una
+// tonalidad en cualquier grafía (utils.normalize_key) → forma canónica; undefined si es inválida
+function parse_music_key(v) {
+  if (v === null || String(v).trim() === "") return null
+  return utils.normalize_key(v) ?? undefined
+}
+const MUSIC_KEY_ERROR = "Tonalidad inválida: una nota (C, C#, Db... B) con \"m\" si es menor, \"atonal\" o vacío"
 
 // archivos de un proyecto: los del catálogo más su pista, tags y props dentro del proyecto
 async function list_project_files(db, project_id, user_id) {
@@ -884,8 +893,9 @@ router.put('/logout', async (req, res) => {
 
 })
 
-// metadatos de un archivo propio: body { original_name?, kind?, beats?, bpm? } (solo lo que venga).
-// kind / beats / bpm siguen las reglas de parse_timing (bpm se deduce de beats y la duración).
+// metadatos de un archivo propio: body { original_name?, kind?, beats?, bpm?, music_key? } (solo lo que
+// venga). kind / beats / bpm siguen las reglas de parse_timing (bpm se deduce de beats y la duración);
+// music_key, las de parse_music_key.
 // Solo el dueño: un archivo ajeno o inexistente responde 404.
 // Pista, tags y volumen son de cada proyecto (PUT /projects/:id/files). Responde el archivo
 // (forma del catálogo). Reemplaza a save_fileData
@@ -898,6 +908,10 @@ router.put('/files/:id', require_session, async (req, res) => {
       return res.send({ stat: false, text: `El nombre debe tener entre 1 y ${FILE_NAME_MAX} caracteres` })
     }
     upd.original_name = name
+  }
+  if (body.music_key !== undefined) {
+    upd.music_key = parse_music_key(body.music_key)
+    if (upd.music_key === undefined) return res.send({ stat: false, text: MUSIC_KEY_ERROR })
   }
   let user_id = req.user.id
   try {
@@ -953,8 +967,9 @@ router.delete('/files/:id', require_session, async (req, res) => {
 })
 
 // catálogo: archivos disponibles (no ocultos, dueño activo) de todos los usuarios, para importar.
-// Query (todo opcional): bpm + bpm_tol (± tolerancia), beats, creator (nombre público exacto, sin
-// distinguir mayúsculas), q (texto en el nombre del archivo), page (desde 1) y per_page.
+// Query (todo opcional): bpm + bpm_tol (± tolerancia), beats, key (tónica: trae esa tónica en mayor o
+// menor) + atonal=1 (suma los atonales), creator (nombre público exacto, sin distinguir mayúsculas),
+// q (texto en el nombre del archivo), page (desde 1) y per_page.
 // Cada archivo trae el nombre público y la bio del creador y `uses` (proyectos que lo usan); nunca
 // el email ni el id del dueño
 const CATALOG_PER_PAGE = 50
@@ -972,7 +987,7 @@ function parse_catalog_query(query) {
     return { ok: true, v: v.trim() }
   }
   let f = {}
-  for (let k of ["bpm", "bpm_tol", "beats", "creator", "q", "page", "per_page"]) {
+  for (let k of ["bpm", "bpm_tol", "beats", "key", "atonal", "creator", "q", "page", "per_page"]) {
     let r = get(k)
     if (!r.ok) return { error: `Parámetro inválido: ${k}` }
     f[k] = r.v
@@ -990,6 +1005,14 @@ function parse_catalog_query(query) {
   if (f.beats) {
     out.beats = parse_beats(f.beats)
     if (out.beats === undefined) return { error: `Beats inválido: tiene que ser un entero entre 1 y ${BEATS_MAX}` }
+  }
+  if (f.key) {
+    // se filtra por tónica: "Gm" o "G" traen los dos modos
+    let k = utils.normalize_key(f.key)
+    if (!k || k == utils.KEY_ATONAL) return { error: "Tonalidad inválida: tiene que ser una nota (C, C#, Db... B)" }
+    out.key = k.replace(/m$/, "")
+    if (f.atonal && !["0", "1"].includes(f.atonal)) return { error: "atonal tiene que ser 0 o 1" }
+    out.atonal = f.atonal == "1"
   }
   if (f.creator) {
     if ([...f.creator].length > CATALOG_TEXT_MAX) return { error: "Creador inválido" }
@@ -1023,6 +1046,11 @@ function catalog_query(db, f) {
     .where("u.status", "active").andWhere("f.hidden", 0)
   if (f.bpm !== undefined) qb.whereBetween("f.bpm", [f.bpm - f.bpm_tol, f.bpm + f.bpm_tol])
   if (f.beats !== undefined) qb.where("f.beats", f.beats)
+  if (f.key !== undefined) {
+    let keys = [f.key, f.key + "m"]
+    if (f.atonal) keys.push(utils.KEY_ATONAL)
+    qb.whereIn("f.music_key", keys)
+  }
   if (f.creator !== undefined) qb.whereRaw("lower(u.name) = ?", [f.creator])
   if (f.q !== undefined) qb.whereRaw("f.original_name like ? escape '\\'", ["%" + like_escape(f.q) + "%"])
   return qb
@@ -1035,7 +1063,7 @@ router.get('/catalog', require_session, async (req, res) => {
   try {
     let { total } = await catalog_query(global.knex, f).count({ total: "*" }).first()
     let rows = await catalog_query(global.knex, f)
-      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.ts",
+      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.ts",
         "u.name as creator_name", "u.bio as creator_bio",
         global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
       // los más nuevos primero; los migrados sin ts al final
@@ -1043,7 +1071,8 @@ router.get('/catalog', require_session, async (req, res) => {
       .limit(f.per_page).offset((f.page - 1) * f.per_page)
     let items = rows.map(r => ({
       id: r.id, original_name: r.original_name, duration: r.duration, kind: r.kind ?? "loop", bpm: r.bpm,
-      beats: r.beats, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id, uses: Number(r.uses) || 0,
+      beats: r.beats, music_key: r.music_key ?? null, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id,
+      uses: Number(r.uses) || 0,
       creator: { name: r.creator_name, bio: r.creator_bio ?? null },
     }))
     return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
@@ -1278,7 +1307,8 @@ function count_traffic(req, res) {
 }
 
 // ---------- subida de archivos ----------
-// Un archivo por request (con su `kind`, `beats` y/o `bpm`, ver parse_timing). Orden de los chequeos:
+// Un archivo por request (con su `kind`, `beats` y/o `bpm`, ver parse_timing, y `music_key`: si no viene
+// el campo, se sugiere por el nombre con utils.suggest_key; vacío = sin dato). Orden de los chequeos:
 //  1. antes de recibir el cuerpo (upload_precheck): sesión activa (require_session), una subida en
 //     curso por usuario, disco libre y cuota no agotada. Así un rechazo no obliga a recibir el archivo.
 //  2. con el archivo en un temporal: formato por extensión, ffprobe (¿es audio?, duración <= 60 s),
@@ -1485,6 +1515,8 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     let tempo_hint = project ? parse_props(project.props).tempo : null
     let timing = parse_timing(body, duration, { kind: "loop", beats: null }, tempo_hint)
     if (timing.error) return fail(400, timing.error)
+    let music_key = body.music_key === undefined ? utils.suggest_key(file.name) : parse_music_key(body.music_key)
+    if (music_key === undefined) return fail(400, MUSIC_KEY_ERROR)
 
     let q = await user_quota(global.knex, user_id)
     if (q.used + duration > q.max) {
@@ -1517,6 +1549,7 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       kind: timing.kind,
       bpm: timing.bpm,
       beats: timing.beats,
+      music_key: music_key,
       ts: new Date().toISOString().slice(0, 19),
     }
     try {

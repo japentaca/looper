@@ -29,6 +29,7 @@ export default async function do_migrations() {
   await create_column_float("files", "bpm") // deducido: beats × 60 / duración (solo loops)
   await create_column_number("files", "beats") // largo del loop en beats; lo carga el creador (solo loops)
   await create_column_string("files", "kind", 8, "loop") // "loop" (se ajusta al tempo) | "shot" (sample suelto)
+  await migrate_file_keys() // files.music_key: tonalidad ("G", "C#m"...), "atonal" o null (sin dato)
   await migrate_file_ts()
   await migrate_file_durations()
   // oculto por el admin (moderación): 0 | 1. Fuera del catálogo y del sorteo, sin cascada
@@ -207,6 +208,22 @@ const MIGRATE_TEMPO_DEFAULT = 138 // TEMPO_DEFAULT de frontend/src/helpers/Track
 const MIGRATE_BPM_MIN = 20 // BPM_MIN y BPM_MAX de routes/api.js
 const MIGRATE_BPM_MAX = 400
 const MIGRATE_BPM_SNAP = 0.02
+
+// columna de tonalidad (ver normalize_key en utils.js). Solo al crearla, se completa con la sugerencia
+// del nombre original de cada archivo (utils.suggest_key); después la carga el dueño
+async function migrate_file_keys() {
+  if (await global.knex.schema.hasColumn("files", "music_key")) return
+  await create_column_string("files", "music_key", 8)
+  let files = await global.knex("files").select("id", "original_name")
+  let n = 0
+  for (let f of files) {
+    let key = utils.suggest_key(f.original_name)
+    if (!key) continue
+    await global.knex("files").where({ id: f.id }).update({ music_key: key })
+    n++
+  }
+  console.log(`Tonalidad de archivos: ${n} de ${files.length} completados por el nombre`)
+}
 
 async function migrate_file_beats() {
   let files = await global.knex("files").where({ kind: "loop" }).whereNotNull("duration")
