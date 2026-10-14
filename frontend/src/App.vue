@@ -25,6 +25,11 @@
           <span class="silk ch">R</span>
           <LedMeter horizontal :segments="20" :value="levels.master[1].level" :peak="levels.master[1].peak" />
         </div>
+        <!-- reducción de ganancia del limitador master: amarillo > 1 dB, rojo > 3 dB -->
+        <div class="gr" :title="'Limiter GR: ' + levels.gr.toFixed(1) + ' dB'">
+          <Led :color="levels.gr > 3 ? 'red' : 'yellow'" :lit="levels.gr > 1" />
+          <span class="silk ch">LIM</span>
+        </div>
       </div>
 
       <!-- proyecto activo (LCD) y botones de los diálogos de proyectos y de importar del catálogo -->
@@ -284,6 +289,13 @@ onMounted(async () => {
   grid-template-columns: auto auto;
   align-items: center;
   gap: 2px 4px;
+}
+
+.gr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .ch {

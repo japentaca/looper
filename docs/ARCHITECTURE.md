@@ -752,6 +752,12 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 - **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
   (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
   pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.
+  **Indicador GR**: en el mismo loop de `requestAnimationFrame` de los vúmetros se lee
+  `master_limiter.reduction` (el `reduction` del `DynamicsCompressorNode` nativo, dB ≤ 0, expuesto
+  por `Tone.Limiter` en 14.7) y se guarda positivo en `levels.gr`. En la barra superior, junto al
+  vúmetro master, un `Led` rotulado LIM se enciende amarillo con más de 1 dB de reducción y rojo con
+  más de 3 dB (el `title` muestra el valor). Como el resto de los medidores, solo se actualiza
+  mientras suena el transporte o un preview; al cortarse el loop queda en 0.
 - Un `Tone.Meter` por canal, **post-mute** (muestra lo que se escucha), y uno estéreo colgado del
   output de `Tone.getDestination()` (o sea **post-limitador**) para el master de la barra superior
   (incluye el preview).

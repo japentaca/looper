@@ -176,8 +176,9 @@ function new_level() {
   return { level: 0, peak: 0, peak_time: 0 }
 }
 
-// niveles 0..1 para los LedMeter: levels.trgs[trg_id] y levels.master[0|1] (L/R)
-export const levels = reactive({ trgs: {}, master: [new_level(), new_level()] })
+// niveles 0..1 para los LedMeter: levels.trgs[trg_id] y levels.master[0|1] (L/R).
+// levels.gr = reducción de ganancia del limitador master en dB (positiva; 0 = no está limitando)
+export const levels = reactive({ trgs: {}, master: [new_level(), new_level()], gr: 0 })
 
 // props de la pista (track group); {} si no existe. Se busca en store.track_groups (y no en el índice)
 // para no depender de que rebuildIndexes() ya haya corrido, y para que sea reactivo.
@@ -409,8 +410,12 @@ function frame(now) {
   let master = master_meter.getValue()
   showing = update(levels.master[0], master[0], now) || showing
   showing = update(levels.master[1], master[1], now) || showing
+  // reduction es del DynamicsCompressorNode nativo (dB, ≤ 0); sin señal vuelve sola a 0 con el release
+  levels.gr = Math.max(0, -master_limiter.reduction)
+  showing = levels.gr > 0.05 || showing
   // al detenerse se sigue midiendo hasta que los medidores caen solos a cero
   raf = active || showing ? requestAnimationFrame(frame) : null
+  if (raf === null) levels.gr = 0
 }
 
 // el loop de animación corre solo mientras algo suena (transporte o preview)
