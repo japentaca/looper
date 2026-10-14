@@ -253,6 +253,7 @@ function row_class({ row }) {
   let cls = [`fid_${row.id}`]
   if (!drawable(row)) cls.push("unavailable_row")
   if (drag_id.value === row.id) cls.push("drag_over_row")
+  if (is_previewing(row)) cls.push("previewing_row")
   return cls.join(" ")
 }
 
@@ -526,6 +527,17 @@ const iconSize = ref(18)
 
 .el-table :deep(.unavailable_row) {
   opacity: 0.45;
+}
+
+/* fila que suena en el preview (botón play del renglón) */
+/* variables de Element Plus para el fondo de la fila, así también vale con el hover */
+.el-table :deep(.previewing_row) {
+  --el-table-tr-bg-color: rgba(53, 224, 122, 0.14);
+  --el-table-row-hover-bg-color: rgba(53, 224, 122, 0.2);
+}
+
+.el-table :deep(.previewing_row) > td.el-table__cell:first-child {
+  box-shadow: inset 3px 0 0 var(--hw_green);
 }
 
 .el-table :deep(.drag_over_row) > td.el-table__cell {
