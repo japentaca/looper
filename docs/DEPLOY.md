@@ -257,6 +257,23 @@ cd /var/lib/looper && sudo -u looper -H node -e "
 No reemplaza a un backup de verdad: queda en el mismo disco, y los backups siguen fuera del plan.
 Borrar los respaldos viejos a mano.
 
+### Importar audios en lote (`import_manifest.js`)
+
+Para cargar una librería entera a una cuenta sin pasar por el navegador: se arma una carpeta con los
+audios y un `manifest.json` (formato en la cabecera de `backend/import_manifest.js`: archivo, nombre,
+`kind`, `bpm` o `beats`, `music_key`), se copia al servidor y se corre como el usuario de la app. Usa
+la misma conversión y normalización que `/upload`, respeta la cuota (salvo `--ignore-quota`) y con
+`--project=<nombre>` agrega todo a ese proyecto del usuario (lo crea si no existe). Es repetible:
+saltea los que el usuario ya tiene con el mismo nombre. Respaldar la base antes (ver arriba).
+
+```bash
+scp -r carpeta jape-pruebas:/tmp/import && ssh jape-pruebas
+chmod -R a+rX /tmp/import && cd /var/lib/looper/looper/backend
+sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" --dry-run /tmp/import/manifest.json
+sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" /tmp/import/manifest.json
+rm -rf /tmp/import
+```
+
 ### Normalizar los audios ya subidos (una vez)
 
 Desde la normalización de loudness en `/upload` (-18 LUFS / -1 dBTP, ganancia fija), los archivos
