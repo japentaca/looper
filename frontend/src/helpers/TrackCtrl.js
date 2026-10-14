@@ -23,8 +23,9 @@ export const BEATS_X_BAR_DEFAULT = "4"
 export const TAG_RANGE_MIN = 5
 export const TAG_RANGE_MAX = 9
 export const TAG_RANGE_DEFAULT = [6, 7]
+export const MASTER_DEFAULT = 0 // volumen master en dB (knob Master; curva y rango en mixer.js)
 
-// tempo, compás, rango de cambio de Tag y delay son la config del proyecto activo: se guardan en
+// tempo, compás, rango de cambio de Tag, delay y volumen master son la config del proyecto activo: se guardan en
 // projects.props (save_project_props_debounced en composable.js) y se aplican al cargar el proyecto
 export const TrackCtrl = reactive({
   tempo: TEMPO_DEFAULT,
@@ -32,6 +33,7 @@ export const TrackCtrl = reactive({
   beats_x_bar: BEATS_X_BAR_DEFAULT,
   tag_range: [...TAG_RANGE_DEFAULT],
   delay: delay_default(),
+  master: MASTER_DEFAULT,
   isPlaying: false,
   isReady: false,
   // estado del motor (lo escribe Tracks.vue; los pads de la barra lateral lo leen)

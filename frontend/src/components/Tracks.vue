@@ -8,6 +8,10 @@
           :text="TrackCtrl.isPlaying ? 'STOP' : 'START'" label="Play / stop"
           @click="TrackCtrl.isPlaying ? stop() : request_start()" />
         <LedButton text="RESET" label="New tag" @click="reset" />
+        <!-- volumen master (TrackCtrl.master, dB, guardado en projects.props; en modo lectura solo en memoria).
+          Misma curva que los faders de las pistas: 0 dB a ~79 % del recorrido -->
+        <Knob :model-value="db_to_fader(TrackCtrl.master)" :min="0" :max="1" :step="0.01" :size="48" label="Master"
+          :title="'Master ' + db_label(TrackCtrl.master)" @update:model-value="set_master" />
       </div>
 
       <div class="group tempo">
@@ -22,7 +26,7 @@
         <Lcd :value="bar_position" :digits="4" caption="Bar . beat" />
       </div>
 
-      <!-- modo lectura (/p/:id): solo START/STOP, RESET, tempo, tolerancia y el mixer (volumen, mute, solo); el resto
+      <!-- modo lectura (/p/:id): solo START/STOP, RESET, master, tempo, tolerancia y el mixer (volumen, mute, solo); el resto
         de la config del proyecto no se muestra (no se guardaría nada igual, ver can_save en composable.js) -->
       <div v-if="!store.read_only" class="group">
         <ToggleSwitch v-model="TrackCtrl.beats_x_bar" label="Time sig"
@@ -136,8 +140,10 @@
           <Knob v-else-if="!is_oneshot(trg) && !store.read_only" :model-value="trg.props.rest ?? 0" :min="0" :max="1"
             :step="0.05" :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'" @update:model-value="v => set_rest(trg, v)" />
           <!-- volumen de la pista (dB, guardado en props.volume; en modo lectura solo en memoria) -->
-          <Fader :model-value="trg.props.volume" :min="-48" :max="6" :length="84" :marks="strip_volume_marks"
-            label="Vol" :title="trg.props.volume + ' dB'" @update:model-value="v => set_volume(trg.id, v)" />
+          <!-- el fader trabaja en posición 0..1 con curva de consola (fader_to_db / db_to_fader en mixer.js) -->
+          <Fader :model-value="db_to_fader(trg.props.volume)" :min="0" :max="1" :step="0.01" :length="84"
+            :marks="strip_volume_marks" label="Vol" :title="db_label(trg.props.volume)"
+            @update:model-value="v => set_volume(trg.id, fader_to_db(v))" />
           <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada), send al delay global
             (props.delay, ídem) y modulación lenta del filtro y del send de reverb (props.drift, 0..1) -->
           <div v-if="!store.read_only" class="fx_ctrls">
@@ -188,7 +194,7 @@ import LedMeter from "./hw/LedMeter.vue"
 import StepLeds from "./hw/StepLeds.vue"
 import {
   levels, mixer, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
-  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB, set_delay, DLY_OFF_DB
+  set_reverb, set_drift, start_drift, stop_drift, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label
 } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
 
@@ -256,7 +262,15 @@ const strips = computed(() => store.track_groups.map(trg => ({
   trg,
   track: tracks.find(t => t.track_group?.id === trg.id) ?? null
 })))
-const strip_volume_marks = [0, -12, -24, -48].map(v => ({ value: v, label: v }))
+// marcas del fader en dB, ubicadas según la curva (el de abajo del todo es silencio)
+const strip_volume_marks = [6, 0, -12, -24].map(v => ({ value: db_to_fader(v), label: v > 0 ? "+" + v : v }))
+  .concat({ value: 0, label: "-∞" })
+
+// volumen master: el knob da la posición 0..1; mixer.js aplica TrackCtrl.master con un watcher
+function set_master(pos) {
+  TrackCtrl.master = fader_to_db(pos)
+  save_project_props_debounced()
+}
 
 // probabilidad de descanso de la pista (se llama mientras se mueve el knob; el guardado es diferido)
 function set_rest(trg, v) {

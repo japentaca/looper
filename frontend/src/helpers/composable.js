@@ -39,7 +39,7 @@ export let track_groups_by_id = {}
 import {
   TrackCtrl, calculate_timing, stop_transport, delay_default, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX,
   DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, TEMPO_TOL_DEFAULT, TEMPO_TOL_MAX, BEATS_X_BAR_DEFAULT, TAG_RANGE_MIN, TAG_RANGE_MAX,
-  TAG_RANGE_DEFAULT
+  TAG_RANGE_DEFAULT, MASTER_DEFAULT
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
 
@@ -114,7 +114,7 @@ export function save_trackGroups_debounced(ms = 500) {
     save_trackGroups()
   }, ms)
 }
-// --- config del proyecto (projects.props): tempo, tolerancia, compás, rango de cambio de Tag y delay ---
+// --- config del proyecto (projects.props): tempo, tolerancia, compás, rango de cambio de Tag, delay y master ---
 // guardado diferido: se llama al cambiar tempo, tolerancia, compás, el rango de Tag o el delay (no al cargar)
 let save_project_props_timer = null
 export function save_project_props_debounced(ms = 500) {
@@ -129,7 +129,7 @@ async function save_project_props() {
   if (!can_save()) return
   let props = {
     tempo: TrackCtrl.tempo, tempo_tol: TrackCtrl.tempo_tol, beats_x_bar: TrackCtrl.beats_x_bar, tag_range: [...TrackCtrl.tag_range],
-    delay: { ...TrackCtrl.delay }
+    delay: { ...TrackCtrl.delay }, master: TrackCtrl.master
   }
   await save_collection(() => api.update_project(store.project.id, { props }), null,
     "la configuración (tempo / tag / delay)")
@@ -175,6 +175,8 @@ function apply_project_props(props) {
     feedback: clamp(d.feedback, 0, DELAY_FEEDBACK_MAX, def.feedback),
     level: clamp(d.level, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, def.level),
   })
+  // volumen master en dB: -60 (= silencio) .. +6, el rango del knob (VOL_OFF_DB..VOL_MAX_DB de mixer.js)
+  TrackCtrl.master = clamp(p.master, -60, 6, MASTER_DEFAULT)
   Tone.Transport.bpm.value = TrackCtrl.tempo
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
 }

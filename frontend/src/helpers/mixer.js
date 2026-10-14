@@ -25,6 +25,31 @@ const DELAY_TIME_RAMP = 0.1 // rampa al cambiar el tempo o la división (s): evi
 const DELAY_FADE = 0.3 // fundido de salida del delay anterior al cambiar de tipo (s)
 const TAPE_LOWPASS_HZ = 2000 // filtro dentro del lazo del delay "tape": cada repetición pasa una vez más
 
+// --- curva de los faders de volumen (pistas y master) ---
+// El fader no es lineal en dB: como en una consola, la posición 0..1 da una ganancia ∝ posición³
+// (dB = VOL_MAX_DB + 60·log10(pos)). Así hay resolución cerca de 0 dB (≈ 79 % del recorrido; −12 dB
+// a la mitad) y la parte de abajo cae rápido hasta el silencio. Lo guardado sigue siendo dB.
+export const VOL_MAX_DB = 6
+export const VOL_OFF_DB = -60 // este valor (o menos) = fader abajo del todo = silencio
+const VOL_SILENT_DB = -120 // lo que se aplica al nodo en silencio: no se usa -Infinity (rampas
+// exponenciales a 0 y Volume.mute, que mira volume === -Infinity, lo confundirían con un mute)
+export function fader_to_db(pos) {
+  if (!(pos > 0)) return VOL_OFF_DB
+  return Math.max(VOL_OFF_DB, Math.round((VOL_MAX_DB + 60 * Math.log10(pos)) * 10) / 10)
+}
+export function db_to_fader(db) {
+  if (db == null || !(db > VOL_OFF_DB)) return 0
+  return Math.min(1, Math.pow(10, (db - VOL_MAX_DB) / 60))
+}
+// texto para title / LCD: "-∞ dB", "-12 dB", "+3.5 dB"
+export function db_label(db) {
+  if (db == null || db <= VOL_OFF_DB) return "-∞ dB"
+  return (db > 0 ? "+" : "") + db + " dB"
+}
+function vol_db(db) {
+  return db == null || db <= VOL_OFF_DB ? VOL_SILENT_DB : Math.min(VOL_MAX_DB, db)
+}
+
 // trg id -> { channel, meter, filter, send, dly_send, walk }. walk = estado de la caminata al azar del drift:
 // f 0..1 (0 = filtro abierto, 1 = lo más cerrado que permite drift) y s 0..1 (0.5 = send base)
 const channels_by_trg = {}
@@ -34,6 +59,10 @@ const trg_of_player = new WeakMap()
 // chain() solo rearma input → limiter → output de Destination: lo que entra (canales, preview) sigue igual.
 const master_limiter = new Tone.Limiter(-1)
 Tone.getDestination().chain(master_limiter)
+// volumen master (TrackCtrl.master, dB): el volume de Destination está antes del limitador, así que
+// subirlo de 0 dB empuja contra el limitador en vez de clipear. Afecta también al preview.
+Tone.getDestination().volume.value = vol_db(TrackCtrl.master)
+watch(() => TrackCtrl.master, (db) => Tone.getDestination().volume.rampTo(vol_db(db), 0.05))
 // el vúmetro master cuelga del output de Destination, o sea que mide después del limitador
 const master_meter = new Tone.Meter({ channels: 2, smoothing: 0.8 })
 Tone.getDestination().connect(master_meter)
@@ -178,7 +207,7 @@ function get_strip(trg) {
     let p = trg_props(trg)
     // channelCount 2: si no, Tone.Channel pasa el audio a mono
     let channel = new Tone.Channel({
-      channelCount: 2, volume: p.volume ?? 0, mute: !!mixer.mute[trg], solo: !!mixer.solo[trg]
+      channelCount: 2, volume: vol_db(p.volume ?? 0), mute: !!mixer.mute[trg], solo: !!mixer.solo[trg]
     }).toDestination()
     // filtro de la pista (los players entran acá). Tone.Filter es Gain → BiquadFilter → Gain nativos,
     // que ya son estéreo (a diferencia del Panner del Channel). Abierto a 20 kHz con Q 0 no colorea.
@@ -253,11 +282,12 @@ export function toggle_solo(trg) {
   get_channel(trg).solo = mixer.solo[trg]
 }
 
-// volumen de la pista en dB (se llama mientras se mueve el fader; el guardado es diferido)
+// volumen de la pista en dB (se llama mientras se mueve el fader; el guardado es diferido).
+// Rampa corta: con la curva del fader un paso abajo del todo puede ser de varios dB.
 export function set_volume(trg, db) {
   let p = trg_props(trg)
   p.volume = db
-  get_channel(trg).volume.value = db
+  get_channel(trg).volume.rampTo(vol_db(db), 0.03)
   save_trackGroups_debounced()
 }
 
