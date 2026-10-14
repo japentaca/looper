@@ -33,8 +33,9 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   quedar desbalanceados. Los archivos muy picudos quedan por debajo de -18 LUFS por el tope de
   -1 dBTP, y el encoder mp3 puede pasar ese tope en algunas décimas (más en material muy
   impulsivo); los muy bajos (más de 30 dB por debajo) quedan cortos por el tope de ganancia. Los de
-  menos de ~0,4 s no se pueden medir y quedan sin tocar. Como `GET /file/:id` se sirve `immutable`,
-  los navegadores con el archivo viejo en caché no ven el normalizado.
+  menos de ~0,4 s no se pueden medir y quedan sin tocar. Como `GET /file/:id` se sirve `immutable`, el
+  front pide `/api/file/<id>?v=<AUDIO_VERSION>` (`file_url` en `helpers/api.js`): al reprocesar los
+  mp3 del servidor hay que subir ese número y desplegar, o los navegadores siguen con el archivo viejo.
 - 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
   descontado en `DELETE /files/:id`), pero es solo informativo: la cuota es en segundos de audio
   (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa.

@@ -117,7 +117,7 @@ import {
   store, files_by_id, audio_players, load_project, estimate_files_memory, memory_warning_limit
 } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
-import { get_catalog, save_project_files, error_text } from "../helpers/api"
+import { get_catalog, save_project_files, error_text, file_url } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
 import ReportDialog from "./ReportDialog.vue"
 
@@ -225,7 +225,7 @@ async function toggle_preview(row) {
   let loaded = files_by_id[row.id]
   try {
     if (loaded?.isLoaded && audio_players[row.id]) await toneLib.playFile(loaded)
-    else await toneLib.playUrl(row, import.meta.env.VITE_APP_BACKEND + "/api/file/" + row.id)
+    else await toneLib.playUrl(row, file_url(row.id))
   } catch {
     set_msg("error", `No se pudo escuchar "${row.original_name}"`)
   }

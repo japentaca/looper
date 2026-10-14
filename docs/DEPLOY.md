@@ -281,7 +281,13 @@ sudo -u looper -H nice node normalize_existing.js
 - Para volver atrás un archivo: copiar su respaldo encima del mp3 (el `size` de la base queda con el
   del normalizado; es informativo).
 - `GET /file/:id` sirve con caché `immutable` de un año: un navegador que ya tenía un archivo en caché
-  sigue usando la versión vieja hasta que se borre su caché.
+  sigue usando la versión vieja. Por eso el front pide `/api/file/<id>?v=<AUDIO_VERSION>`
+  (`frontend/src/helpers/api.js`). **Orden:** primero correr el script y recién después desplegar el
+  front con `AUDIO_VERSION` subido; al revés, un navegador que cargue en el medio guarda por un año
+  el audio viejo bajo la versión nueva. Para esta normalización (`AUDIO_VERSION = 2`): desplegar
+  hasta el commit del script (`git` en el servidor a ese commit, o un despliegue antes de traer el
+  cambio de versión), correr el script y después el despliegue normal. Para un reproceso futuro,
+  subir el número de nuevo con el mismo orden.
 
 ## Rollback
 

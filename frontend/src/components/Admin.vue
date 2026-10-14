@@ -165,7 +165,7 @@ import { useRouter } from "vue-router"
 import { ElMessageBox } from "element-plus"
 import {
   admin_get_users, admin_update_user, admin_get_reports, admin_update_report, admin_set_file_hidden,
-  admin_set_project_hidden, admin_get_stats, error_text
+  admin_set_project_hidden, admin_get_stats, error_text, file_url
 } from "../helpers/api"
 import { store, files_by_id, audio_players } from "../helpers/composable"
 import * as toneLib from "../helpers/toneLib"
@@ -330,7 +330,7 @@ async function toggle_preview(row) {
     if (loaded?.isLoaded && audio_players[row.target_id]) await toneLib.playFile(loaded)
     else {
       let file = { id: row.target_id, original_name: row.target.name }
-      await toneLib.playUrl(file, import.meta.env.VITE_APP_BACKEND + "/api/file/" + row.target_id)
+      await toneLib.playUrl(file, file_url(row.target_id))
     }
   } catch {
     set_msg("error", `No se pudo escuchar "${row.target.name}"`)

@@ -180,7 +180,9 @@ La preparación inicial del servidor, el respaldo de la base, el rollback y la v
    sesión y borra la cookie.
 5. El audio lo descarga Tone.js por URL, sin cookie: `GET /api/file/:id` es público (los archivos
    son siempre públicos). Valida que `id` sea un uuid (evita path traversal), busca el dueño en
-   `files` (404 si no está) y sirve `storage_path/<user_id>/<id>.mp3` con caché `immutable` de un año.
+   `files` (404 si no está) y sirve `storage_path/<user_id>/<id>.mp3` con caché `immutable` de un año. El front arma la URL con
+   `file_url(id)` (`helpers/api.js`), que agrega `?v=<AUDIO_VERSION>`: subir ese número invalida la
+   caché de todos los navegadores si se reprocesan los mp3 (el backend ignora el query).
    Cada respuesta suma los bytes que salieron por el socket (headers y descargas cortadas incluidos)
    a la tabla `traffic`, para controlar el tope de tráfico del VPS. Si en producción el proxy cachea
    o sirve los mp3 directo, ese tráfico no se cuenta acá.

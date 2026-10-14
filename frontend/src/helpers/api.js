@@ -1,5 +1,14 @@
 import request from './request'
 
+// versión del audio servido: GET /file/:id va con caché immutable de un año, así que si se reprocesan
+// los mp3 del servidor (p.ej. backend/normalize_existing.js) hay que subir este número para que los
+// navegadores los vuelvan a bajar. El backend ignora el query.
+const AUDIO_VERSION = 2
+// url pública del audio de un archivo
+export function file_url(id) {
+  return import.meta.env.VITE_APP_BACKEND + "/api/file/" + id + "?v=" + AUDIO_VERSION
+}
+
 export function login(data) {
   return request({
     url: '/api/login',
