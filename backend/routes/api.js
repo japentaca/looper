@@ -1496,9 +1496,11 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     await fs.mkdir(dir, { recursive: true })
     let file_id = uuid()
     out_file = dir + "/" + file_id + ".mp3"
-    // todo se recodifica (también los mp3) a MP3 VBR V0 44.1 kHz estéreo sin metadatos
+    // todo se recodifica (también los mp3) a MP3 VBR V0 44.1 kHz estéreo sin metadatos, normalizado
+    // a -18 LUFS / -1 dBTP con ganancia fija
     try {
-      await enqueue_conversion(() => utils.convert(file.tempFilePath, out_file))
+      let ln = await enqueue_conversion(() => utils.convert(file.tempFilePath, out_file))
+      console.log("Convertido", file_id, `I=${ln.input_i} LUFS TP=${ln.input_tp} dBTP ganancia=${ln.gain} dB`)
     } catch (e) {
       console.log("Error convirtiendo", file.name, e.message)
       return fail(422, `No se pudo convertir ${file.name}`)

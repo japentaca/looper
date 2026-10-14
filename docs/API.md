@@ -384,7 +384,8 @@ Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
    duración ya medida) → 400; la duración no entra en la cuota → 403
    "No te alcanza la cuota: te quedan m:ss y <nombre> dura m:ss"; disco otra vez → 507.
 3. **Conversión** en la cola global (concurrencia 1) a MP3 VBR V0 44,1 kHz estéreo sin metadatos
-   (todo se recodifica, también los mp3). Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
+   (todo se recodifica, también los mp3), normalizado a -18 LUFS / -1 dBTP con una ganancia fija
+   (sin compresión; ver `convert` en `docs/ARCHITECTURE.md`). La duración ya se midió sobre la entrada. Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
 4. **Transacción**: vuelve a calcular la cuota (por si cambió mientras se convertía; 403 si ya no
    entra), inserta la fila en `files` (`duration` medida sobre la entrada, `kind`, `bpm`, `beats`, `ts`,
    `size` del mp3, `tags = []`) y suma `size` a `users.bytes_used`. Con `project_id`, vuelve a

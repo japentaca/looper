@@ -257,6 +257,32 @@ cd /var/lib/looper && sudo -u looper -H node -e "
 No reemplaza a un backup de verdad: queda en el mismo disco, y los backups siguen fuera del plan.
 Borrar los respaldos viejos a mano.
 
+### Normalizar los audios ya subidos (una vez)
+
+Desde la normalización de loudness en `/upload` (-18 LUFS / -1 dBTP, ganancia fija), los archivos
+anteriores se normalizan una vez con `backend/normalize_existing.js`, después de desplegar ese
+cambio. Antes, respaldar la base (ver arriba): el script actualiza `files.size` y recalcula
+`users.bytes_used = sum(files.size)`. Primero `--dry-run`, que solo informa:
+
+```bash
+ssh jape-pruebas
+cd /var/lib/looper/looper/backend
+sudo -u looper -H nice node normalize_existing.js --dry-run
+sudo -u looper -H nice node normalize_existing.js
+```
+
+- Recodifica (de a uno) los que necesitan más de ±0,5 dB; no toca `duration` ni los volúmenes de
+  `project_files`. Cada original se copia antes a `/var/lib/looper/backups/audio_pre_normalize_<fecha>/<user_id>/<id>.mp3`
+  (`<storage_path>/../../backups/...`; otro con `--backup-dir=<dir>`), y el nuevo se escribe a un
+  temporal y se renombra encima. Ese respaldo ocupa lo mismo que los audios: verificar el disco
+  libre antes (`df -h /var/lib/looper`) y borrarlo a mano cuando ya no haga falta.
+- Es repetible: saltea los que ya tienen respaldo en algún `audio_pre_normalize_*` de ese directorio
+  y los que no pasan el umbral. Puede correr con el backend andando (cada reemplazo es atómico).
+- Para volver atrás un archivo: copiar su respaldo encima del mp3 (el `size` de la base queda con el
+  del normalizado; es informativo).
+- `GET /file/:id` sirve con caché `immutable` de un año: un navegador que ya tenía un archivo en caché
+  sigue usando la versión vieja hasta que se borre su caché.
+
 ## Rollback
 
 **Volver a un commit anterior** (el problema está en el código):

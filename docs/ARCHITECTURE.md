@@ -320,7 +320,8 @@ estadísticas en paralelo):
    ~30 ms de relleno del encoder). Se chequea la cuota con esa duración y otra vez el disco.
 3. `utils.convert` a `storage_path/<user_id>/<file_id>.mp3` dentro de una **cola global con
    concurrencia 1** (cadena de promesas en memoria: el VPS tiene 1 vCPU). Todo se recodifica a MP3
-   V0, también los mp3.
+   V0, también los mp3, normalizado a -18 LUFS / -1 dBTP con ganancia fija (ver `convert` abajo).
+   Se loguea la medición y la ganancia aplicada (no se guardan en la base).
 4. Transacción: se recalcula la cuota (`users.max_seconds` o `default_max_seconds` contra
    `sum(files.duration)` del usuario), se inserta la fila en `files` (`duration`, `kind`, `bpm`, `beats`,
    `ts`, `size` real del mp3, `tags = []`) y se suma `size` a `users.bytes_used`.
@@ -353,7 +354,20 @@ rutas van como argumentos, así que espacios o caracteres raros no rompen nada).
 - `convert(in, out)` → MP3 **VBR V0** (`libmp3lame -q:a 0`), 44.1 kHz, estéreo, solo el primer
   stream de audio, **sin metadatos** (`-map_metadata -1`, sin ID3v2 ni carátula) y con cabecera
   Xing/LAME (guarda el retardo del encoder, para que el decodificador recorte el silencio inicial y
-  el loop empalme). Lanza si ffmpeg falla.
+  el loop empalme). Lanza si ffmpeg falla. Devuelve `{ input_i, input_tp, gain }`.
+  **Normalización de loudness** (dos pasadas de ffmpeg, las dos dentro del mismo trabajo de la cola):
+  1. `measure_loudness(in)`: `loudnorm=I=-18:TP=-1:LRA=11:print_format=json` solo como análisis
+     (`-f null -`; el JSON sale por stderr). Da `input_i` (LUFS integrado) e `input_tp` (true peak).
+     Se mide después de la misma conversión a 44.1 kHz estéreo que se codifica.
+  2. `loudness_gain`: ganancia fija `min(-18 - input_i, -1 - input_tp)` dB, limitada a ±30 dB y
+     redondeada a centésimas; 0 si la medición no es válida (silencio o archivo de menos de ~0,4 s:
+     loudnorm da `-inf`) o `input_i <= -70`.
+  3. La ganancia se aplica con `volume=<gain>dB` en la recodificación a mp3. **No** se usa loudnorm
+     para aplicar (comprime y, en modo lineal, cae a dinámico si no llega): con ganancia fija la
+     forma de onda y la unión del loop no cambian. Los archivos muy picudos quedan por debajo de
+     -18 LUFS por el tope de pico, y el encoder mp3 puede pasar el -1 dBTP en algunas décimas de dB.
+  Los archivos subidos antes de la normalización se procesan una vez con `backend/normalize_existing.js`
+  (ver `docs/DEPLOY.md`).
 
 La duración que da ffprobe de un mp3 ya convertido es ~30 ms mayor que la del original (estimación
 por el padding del encoder): la duración "real" de un archivo conviene medirla sobre la entrada.

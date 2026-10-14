@@ -27,6 +27,14 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 
 ## Backend
 
+- 🟡 Normalización de loudness (oct 2026): los archivos subidos antes se normalizan con
+  `backend/normalize_existing.js`, que los recodifica mp3 → mp3 (pérdida generacional mínima, V0).
+  Los volúmenes de pista (`project_files.props.volume`) ajustados a oído antes de normalizar pueden
+  quedar desbalanceados. Los archivos muy picudos quedan por debajo de -18 LUFS por el tope de
+  -1 dBTP, y el encoder mp3 puede pasar ese tope en algunas décimas (más en material muy
+  impulsivo); los muy bajos (más de 30 dB por debajo) quedan cortos por el tope de ganancia. Los de
+  menos de ~0,4 s no se pueden medir y quedan sin tocar. Como `GET /file/:id` se sirve `immutable`,
+  los navegadores con el archivo viejo en caché no ven el normalizado.
 - 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
   descontado en `DELETE /files/:id`), pero es solo informativo: la cuota es en segundos de audio
   (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa.
