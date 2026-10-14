@@ -51,10 +51,9 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   `composable.js`; los valores viejos quedaron en `project_files.props` (copiados por la migración),
   pero nada los lee y `save_file` solo guarda `volume` (el backend también filtra con lista blanca),
   así que desaparecen al guardar el archivo. **No reutilizarlo.**
-- 🟡 Las pistas one-shot no encienden su pad en la barra lateral (`SidebarItem.vue` mira
-  `curr_file.isPlaying` y una one-shot no tiene `curr_file`). Además `start_file` pone
-  `isPlaying = true` en el archivo disparado y nadie lo baja cuando termina solo (tampoco en loops
-  reemplazados por otro): el flag no es confiable para saber si un archivo suena.
+- ✅ Resuelto (oct 2026): las pistas one-shot no encendían su pad en la barra lateral y el flag
+  `isPlaying` de cada archivo no bajaba cuando el archivo terminaba solo. Ahora lo baja el `onstop`
+  del `Tone.Player` y el pad se enciende si suena cualquier archivo de su Track Group.
 - 🟡 `user_track_groups.silences` y la tabla `sets` no se usan (`silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
   track groups queda en null; en la base actual estaba vacía en todas las filas). Los silencios por
   pista se implementaron en `user_track_groups.props.rest` (oct 2026); `silences` queda como columna

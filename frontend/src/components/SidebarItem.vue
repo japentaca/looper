@@ -35,8 +35,9 @@ const KINDS = {
       file.track_group_obj = null
       return true
     },
-    // suena si algún track de ese grupo tiene un archivo reproduciéndose
-    is_lit: (id) => TrackCtrl.tracks.some(t => t.track_group?.id == id && t.curr_file?.isPlaying)
+    // suena si algún archivo del grupo se está reproduciendo (el loop de la pista o los disparos one-shot,
+    // que pueden ser varios superpuestos)
+    is_lit: (id) => store.files.some(f => f.track_group == id && f.isPlaying)
   },
   tag: {
     list: () => store.tags, save: save_tags, label: "tag",

@@ -546,7 +546,11 @@ async function getAudioPlayer(url, file) {
         file.loadError = true
         store.load_progress.done++
         resolve({ player: player, file: file })
-      }
+      },
+      // onstop se llama por cada fuente que termina (por stop o al llegar al final), antes de que Tone
+      // actualice su estado: se mira en el tick siguiente si queda algo sonando (p.ej. un reinicio del
+      // mismo loop). Así isPlaying baja también cuando el archivo termina solo.
+      onstop: () => setTimeout(() => { file.isPlaying = player.state == "started" }, 0)
     }).toDestination()
   })
 }

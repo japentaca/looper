@@ -612,7 +612,9 @@ Flujo:
    (de `duration` a 1) y un LED que destella en los últimos 4 beats antes del cambio.
    `current_TAG` y `tracks` viven en `TrackCtrl` (los escribe solo `Tracks.vue`): así los pads de la
    barra lateral (`SidebarItem.vue`) se iluminan si su Track Group tiene un archivo sonando
-   (`curr_file.isPlaying`) o si su Tag es el activo.
+   (algún archivo del grupo con `isPlaying`: el loop de la pista o los disparos one-shot) o si su
+   Tag es el activo. `isPlaying` lo sube `start_file` y lo baja `stop_file` o el `onstop` del
+   `Tone.Player` (`getAudioPlayer`), así también se apaga cuando el archivo termina solo.
 6. Las tiras de canal se arman con la lista computada `strips` (todos los `store.track_groups`, cada
    uno con su track de `TrackCtrl.tracks` si existe), así se ven y se configuran (volumen, mute,
    solo, descanso) también con el transporte detenido y en pistas sin archivos. El `Knob` chico
