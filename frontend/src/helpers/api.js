@@ -35,8 +35,9 @@ export function delete_file(file) {
   })
 }
 
-// metadatos de un archivo propio: { original_name?, kind?, beats?, bpm? } → { stat, data: archivo }
-// (kind = "loop" | "shot"; en los loops manda beats y el backend deduce el bpm)
+// metadatos de un archivo propio: { original_name?, kind?, beats?, bpm?, music_key? } → { stat, data: archivo }
+// (kind = "loop" | "shot"; en los loops manda beats y el backend deduce el bpm; music_key: ver helpers/music_key.js,
+// "" o null = sin dato)
 export function update_file(id, data) {
   return request({
     url: '/api/files/' + encodeURIComponent(id),
@@ -54,15 +55,17 @@ export function get_user_info(data) {
 }
 // subida de UN archivo (multipart) con `kind` ("loop" | "shot"), `beats` y `bpm` opcionales (sin beats
 // el backend los deduce del bpm o del tempo del proyecto; el bpm guardado siempre sale de los beats) y
-// `project_id` opcional (proyecto propio al que se agrega el archivo, sin pista ni tags).
+// `project_id` opcional (proyecto propio al que se agrega el archivo, sin pista ni tags). `music_key`:
+// tonalidad ("" = sin dato); si es undefined no se manda y el backend la sugiere por el nombre.
 // Sin timeout: un archivo grande más la conversión pueden tardar más que el default de request.js.
 // on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión)
-export function upload_file(file, { kind, bpm, beats, project_id } = {}, on_progress) {
+export function upload_file(file, { kind, bpm, beats, music_key, project_id } = {}, on_progress) {
   let data = new FormData()
   data.append("file", file, file.name)
   if (kind) data.append("kind", String(kind))
   if (bpm != null && bpm !== "") data.append("bpm", String(bpm))
   if (beats != null && beats !== "") data.append("beats", String(beats))
+  if (music_key !== undefined) data.append("music_key", music_key ?? "")
   if (project_id) data.append("project_id", String(project_id))
   return request({
     url: '/api/upload',
@@ -236,7 +239,8 @@ export function save_project_files(id, data) {
 }
 
 // catálogo de archivos disponibles (paginado). params opcionales:
-//  { bpm, bpm_tol, beats, creator, q, page, per_page } → { stat, data: { items, total, page, per_page } }
+//  { bpm, bpm_tol, beats, key, atonal, creator, q, page, per_page } → { stat, data: { items, total, page, per_page } }
+//  (key = tónica, trae mayor y menor; atonal = 1 suma los atonales)
 export function get_catalog(params = {}) {
   return request({
     url: '/api/catalog',

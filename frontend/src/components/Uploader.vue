@@ -28,6 +28,7 @@
       <span class="name">File</span>
       <span class="num">Type</span>
       <span class="num">Beats</span>
+      <span class="num">Key</span>
       <span class="state"></span>
     </div>
     <div v-for="item in items" :key="item.uid" class="row" :class="item.status">
@@ -54,6 +55,14 @@
             :title="`Detectado en el audio (confianza ${Math.round(item.detected.confidence * 100)} %)`"> · auto</span>
         </small>
       </span>
+      <span class="num">
+        <el-select v-model="item.music_key" class="num" size="small" filterable placeholder="—"
+          :disabled="busy || item.status == 'done'">
+          <el-option v-for="o in KEY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+        </el-select>
+        <small v-if="item.music_key && item.music_key === item.key_auto" class="meta auto"
+          title="Sugerida por el nombre del archivo">auto</small>
+      </span>
       <span class="state">
         <template v-if="item.status == 'uploading'">{{ item.progress < 100 ? item.progress + '%' : 'MP3…' }}</template>
         <template v-else-if="item.status == 'done'">OK</template>
@@ -63,6 +72,7 @@
     <div class="hint">
       Loop: se ajusta al tempo del proyecto; poné cuántos beats dura (el BPM sale de ahí). Viene una
       sugerencia según la duración o, si se detecta el pulso en el audio, marcada "auto". Shot: sample suelto, suena a su velocidad original (solo en pistas one-shot).
+      Key: tonalidad (sirve para filtrar); "atonal" para percusión o ruidos. Si el nombre la trae, viene marcada "auto".
     </div>
   </div>
 
@@ -77,6 +87,7 @@ import { store, store_get_user_info } from '../helpers/composable'
 import { upload_file, error_text } from '../helpers/api'
 import { TrackCtrl, suggest_timing } from '../helpers/TrackCtrl'
 import { detect_beats } from '../helpers/bpm_detect'
+import { suggest_key, KEY_OPTIONS } from '../helpers/music_key'
 import { ElMessage } from 'element-plus'
 
 // mismos valores que el backend (routes/api.js): UPLOAD_MAX_MB, formatos y duración máxima
@@ -87,9 +98,11 @@ const ACCEPT = EXTENSIONS.map(e => "." + e).join(",")
 const FORMATS_TEXT = "mp3 / wav / ogg / flac / m4a / aiff"
 
 const uploader = ref(null)
-// archivos elegidos: { uid, raw, name, size, duration, kind, beats, beats_auto, detected, status, progress, error }
+// archivos elegidos: { uid, raw, name, size, duration, kind, beats, beats_auto, detected, music_key, key_auto,
+// status, progress, error }
 // beats_auto = los beats que sugirió la app (si beats sigue igual, el usuario no los tocó);
-// detected = { beats, bpm, confidence } de detect_beats
+// detected = { beats, bpm, confidence } de detect_beats; music_key = tonalidad ("" = sin dato) y key_auto
+// la que sugirió el nombre (suggest_key)
 // status: "ready" | "uploading" | "done" | "error"
 const items = ref([])
 const busy = ref(false)
@@ -126,9 +139,11 @@ function onFileChosen(upload_file_item) {
   if (store.files.some(f => f.original_name == name)) return reject(`${name}: ya subiste un archivo con ese nombre`)
   if (items.value.some(i => i.name == name && i.status != "done")) return reject(`${name} ya está en la lista`)
 
+  let key = suggest_key(name) ?? ""
   items.value.push({
     uid: upload_file_item.uid, raw: raw, name: name, size: raw.size, duration: null,
-    kind: "loop", beats: null, beats_auto: null, detected: null, status: "ready", progress: 0, error: ""
+    kind: "loop", beats: null, beats_auto: null, detected: null, music_key: key, key_auto: key,
+    status: "ready", progress: 0, error: ""
   })
   // la reactividad pasa por el elemento del array (no por el objeto suelto)
   read_duration(items.value[items.value.length - 1])
@@ -203,7 +218,10 @@ async function doUpload() {
       item.progress = 0
       item.error = ""
       try {
-        let res = await upload_file(item.raw, { kind: item.kind, beats: item.kind == "loop" ? item.beats : null, project_id: store.project?.id }, p => { item.progress = p })
+        let res = await upload_file(item.raw, {
+          kind: item.kind, beats: item.kind == "loop" ? item.beats : null, music_key: item.music_key ?? "",
+          project_id: store.project?.id
+        }, p => { item.progress = p })
         if (res?.stat) {
           item.status = "done"
           ok++
@@ -257,7 +275,7 @@ async function doUpload() {
 
 .row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px 84px 52px;
+  grid-template-columns: minmax(0, 1fr) 84px 84px 84px 52px;
   gap: 8px;
   align-items: center;
   padding: 4px 0;
@@ -326,7 +344,7 @@ async function doUpload() {
 
 @media (max-width: 600px) {
   .row {
-    grid-template-columns: minmax(0, 1fr) 64px 64px 40px;
+    grid-template-columns: minmax(0, 1fr) 64px 64px 64px 40px;
     gap: 6px;
   }
 }

@@ -17,6 +17,11 @@
       <span class="silk">Beats</span>
       <el-input-number v-model="filters.beats" class="f_num" :min="1" :max="1024" :step="1" step-strictly
         controls-position="right" placeholder="any" />
+      <span class="silk">Key</span>
+      <el-select v-model="filters.key" class="f_key" placeholder="any" clearable filterable @change="search(1)">
+        <el-option v-for="t in KEY_TONICS" :key="t" :label="t" :value="t" />
+      </el-select>
+      <el-checkbox v-model="filters.atonal" :disabled="!filters.key" @change="filters.key && search(1)">+ atonal</el-checkbox>
       <el-button type="primary" :loading="loading" @click="search(1)">SEARCH</el-button>
       <el-button :disabled="loading" @click="clear_filters">CLEAR</el-button>
     </div>
@@ -52,6 +57,9 @@
       </el-table-column>
       <el-table-column label="Beats" width="64" align="right">
         <template #default="{ row }">{{ row.beats ?? "–" }}</template>
+      </el-table-column>
+      <el-table-column label="Key" width="64">
+        <template #default="{ row }">{{ key_label(row.music_key) }}</template>
       </el-table-column>
       <el-table-column label="Dur." width="70" align="right">
         <template #default="{ row }">{{ fmt_seconds(row.duration) }}</template>
@@ -120,13 +128,15 @@ import { TrackCtrl } from "../helpers/TrackCtrl"
 import { get_catalog, save_project_files, error_text, file_url } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
 import ReportDialog from "./ReportDialog.vue"
+import { KEY_TONICS, key_label } from "../helpers/music_key"
 
 const visible = defineModel({ type: Boolean, default: false })
 
 const PER_PAGE = 25
 const BPM_TOL_DEFAULT = 2
 
-const filters = reactive({ q: "", creator: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null })
+// key = tónica (trae mayor y menor); atonal = sumar los atonales a ese filtro
+const filters = reactive({ q: "", creator: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null, key: "", atonal: true })
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -169,6 +179,10 @@ function catalog_params(p) {
     if (filters.bpm_tol != null) params.bpm_tol = filters.bpm_tol
   }
   if (filters.beats != null) params.beats = filters.beats
+  if (filters.key) {
+    params.key = filters.key
+    params.atonal = filters.atonal ? 1 : 0
+  }
   return params
 }
 
@@ -189,7 +203,7 @@ async function search(p = 1) {
 }
 
 function clear_filters() {
-  Object.assign(filters, { q: "", creator: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null })
+  Object.assign(filters, { q: "", creator: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null, key: "", atonal: true })
   search(1)
 }
 function use_tempo() {
@@ -312,6 +326,10 @@ function fmt_date(ts) {
 
 .f_num {
   width: 110px;
+}
+
+.f_key {
+  width: 84px;
 }
 
 .f_tol {

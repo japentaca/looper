@@ -267,7 +267,8 @@ con `register_stop(stop)` (y lo quita al desmontarse).
 superior (al lado de PROJECTS; deshabilitado sin proyecto abierto). Busca en `GET /catalog`
 (`get_catalog`, 25 por página) con filtros de texto en el nombre, creador (nombre exacto; también se
 filtra haciendo clic en el creador de una fila), BPM ± tolerancia (el botón `= TEMPO` pone el tempo
-del proyecto) y beats. Cada fila muestra nombre, BPM, beats y duración tal como están en la base
+del proyecto), beats y tonalidad (una tónica, que trae mayor y menor, con "+ atonal" para sumar los
+atonales). Cada fila muestra nombre, BPM, beats, tonalidad y duración tal como están en la base
 (los de la base: `beats` lo carga el creador), creador (la bio en un tooltip), usos y fecha; las que ya están en
 el proyecto activo (cruce con `store.files`) aparecen marcadas *in project* y no se pueden elegir, y
 las propias, *mine*. La selección se guarda por id y se mantiene al cambiar de página o de filtro
@@ -334,7 +335,7 @@ convertido. **El nombre en disco siempre es `<file_id>.mp3`**; el nombre origina
 `files.original_name`.
 
 En el front, `Uploader.vue` usa `el-upload` solo para elegir archivos (drag o diálogo, con la lista
-de extensiones aceptadas): arma su propia lista con tipo (loop/shot) y beats por archivo (sugeridos con `suggest_timing` según la duración y el tempo del proyecto y, si parece un loop, reemplazados por la detección en el audio de `detect_beats`, ver "Tempo"; muestra el BPM que resulta), hace los
+de extensiones aceptadas): arma su propia lista con tipo (loop/shot) y beats por archivo (sugeridos con `suggest_timing` según la duración y el tempo del proyecto y, si parece un loop, reemplazados por la detección en el audio de `detect_beats`, ver "Tempo"; muestra el BPM que resulta) y tonalidad (`suggest_key` de `helpers/music_key.js` sobre el nombre, marcada "auto"; editable, se manda siempre, vacía = sin dato), hace los
 chequeos baratos (extensión, 80 MB, nombre repetido; la duración la estima el navegador solo para
 avisar) y **envía de a un archivo, en serie**, con `api.upload_file` (sin timeout, con progreso). Los
 rechazos muestran el `text` del backend junto al archivo, que queda en la lista. Arriba muestra la
@@ -445,6 +446,9 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   Estos campos **no** existen en la DB.
   Los tags se asignan arrastrando un pad de Tag sobre un archivo (toggle: si ya lo tiene, lo quita)
   o desde el diálogo de edición de `Files.vue` (✕ en cada chip y un select para agregar).
+  `Files.vue` muestra la tonalidad (`music_key`; el dueño la cambia en el diálogo de edición) y filtra
+  la lista por tónica, con "+ atonal" (`key_matches` de `helpers/music_key.js`, misma regla que el
+  catálogo). El filtro solo cambia lo que se muestra: el motor sortea todos los archivos.
 - `store.track_groups`: al cargar se completa `props` con los defaults (`trg_default_props()` en
   `composable.js`) más lo guardado. Las pistas nuevas (`addTrackGroup` en `App.vue`) nacen con los
   defaults. Los cambios de mixer se guardan con `save_trackGroups_debounced()` (500 ms).
