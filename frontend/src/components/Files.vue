@@ -9,10 +9,10 @@
     </div>
     <div v-show="(fileListViewMode == 'Box')" class="box">
       <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags -->
-      <div v-for="(file, index) in store.files" :key="file.id" class="cart"
-        :class="{ playing: is_sounding(file), drag_over: drag_index === index, unavailable: !drawable(file) }"
-        :title="not_drawable_title(file)" @dragover="ondragover($event, index)"
-        @dragleave="ondragleave($event, index)" @drop="ondrop($event, index)">
+      <div v-for="file in store.files" :key="file.id" class="cart"
+        :class="{ playing: is_sounding(file), drag_over: drag_id === file.id, unavailable: !drawable(file) }"
+        :title="not_drawable_title(file)" @dragover="ondragover($event, file)"
+        @dragleave="ondragleave($event, file)" @drop="ondrop($event, file)">
         <div class="grip">
           <Led color="green" :lit="is_sounding(file)" />
         </div>
@@ -57,7 +57,9 @@
         </div>
       </div>
     </div>
-    <div v-show="(fileListViewMode == 'Table')">
+    <!-- el-table no tiene eventos de drag por fila: se delegan desde el contenedor (ver row_file) -->
+    <div v-show="(fileListViewMode == 'Table')" @dragover="ondragover_table" @dragleave="ondragleave_table"
+      @drop="ondrop_table">
       <el-table :data="store.files" style="width: 100%" :row-class-name="row_class">
         <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
         <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
@@ -202,7 +204,7 @@
 <script setup>
 
 import { ref, watch, computed } from "vue"
-import { store, audio_players, track_groups_by_id, toggle_file_tag, save_file, delete_project_file } from "../helpers/composable"
+import { store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file } from "../helpers/composable"
 import Fader from "./hw/Fader.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
@@ -218,8 +220,12 @@ const fileListViewMode = ref("Table")
 // archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
 // no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
 const unavailable_title = "Unavailable: hidden by an admin or its owner is blocked. It is not played."
+// la clase fid_<id> identifica el archivo de cada fila para el drag&drop (la tabla se puede ordenar)
 function row_class({ row }) {
-  return drawable(row) ? "" : "unavailable_row"
+  let cls = [`fid_${row.id}`]
+  if (!drawable(row)) cls.push("unavailable_row")
+  if (drag_id.value === row.id) cls.push("drag_over_row")
+  return cls.join(" ")
 }
 
 // --- tempo (ver file_timing en TrackCtrl.js) ---
@@ -290,37 +296,51 @@ async function onChange(file) {
   await save_file(file)
 }
 
-async function ondrop(e, index) {
-  drag_index.value = null
-  console.log("drop", e, index)
+async function ondrop(e, file) {
+  drag_id.value = null
+  e.preventDefault()
   let msg_type = e.dataTransfer.getData("msg_type")
-  console.log("msg_type", msg_type)
   if (msg_type == "track_group") {
     let id = e.dataTransfer.getData("id")
-    console.log("drop trg", id)
-    store.files[index].track_group = id
-    store.files[index].track_group_obj = track_groups_by_id[id]
-    await save_file(store.files[index])
+    file.track_group = id
+    file.track_group_obj = track_groups_by_id[id]
+    await save_file(file)
   } else if (msg_type == "tag") {
     // un archivo puede tener varios tags: soltar un tag que ya tiene lo quita
-    await toggleTag(store.files[index], e.dataTransfer.getData("id"))
-
+    await toggleTag(file, e.dataTransfer.getData("id"))
   }
-  e.preventDefault()
-
-
 }
-// cartucho resaltado mientras se le arrastra encima un pad de Track Group o Tag
-const drag_index = ref(null)
+// cartucho o fila resaltados mientras se les arrastra encima un pad de Track Group o Tag
+const drag_id = ref(null)
 
-async function ondragover(e, index) {
-  drag_index.value = index
+function ondragover(e, file) {
+  drag_id.value = file.id
   e.preventDefault()
 }
-async function ondragleave(e, index) {
+function ondragleave(e, file) {
   // dragleave también salta al pasar sobre un hijo del cartucho: solo se limpia si se sale del todo
-  if (!e.currentTarget.contains(e.relatedTarget) && drag_index.value === index) drag_index.value = null
+  if (!e.currentTarget.contains(e.relatedTarget) && drag_id.value === file.id) drag_id.value = null
   e.preventDefault()
+}
+
+// vista Table: archivo de la fila bajo el puntero, según su clase fid_<id> (ver row_class)
+function row_file(e) {
+  let tr = e.target.closest?.("tr.el-table__row")
+  let cls = tr && [...tr.classList].find(c => c.startsWith("fid_"))
+  return cls ? files_by_id[cls.slice(4)] : null
+}
+function ondragover_table(e) {
+  let file = row_file(e)
+  if (file) ondragover(e, file)
+  else drag_id.value = null
+}
+function ondragleave_table(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) drag_id.value = null
+}
+function ondrop_table(e) {
+  let file = row_file(e)
+  if (file) ondrop(e, file)
+  else drag_id.value = null
 }
 
 // el archivo es el que está sonando en el preview
@@ -463,6 +483,10 @@ const iconSize = ref(18)
 
 .el-table :deep(.unavailable_row) {
   opacity: 0.45;
+}
+
+.el-table :deep(.drag_over_row) > td.el-table__cell {
+  box-shadow: inset 0 2px 0 var(--hw_yellow), inset 0 -2px 0 var(--hw_yellow);
 }
 
 .out_tempo {
