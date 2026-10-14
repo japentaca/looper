@@ -6,10 +6,19 @@
         <el-radio-button label="Table" />
 
       </el-radio-group>
+      <!-- filtro por tonalidad (solo lo que se muestra; el motor sortea todos) -->
+      <span class="key_filter">
+        <span class="silk">Key</span>
+        <el-select v-model="key_filter.tonic" size="small" class="key_select" placeholder="any" clearable filterable>
+          <el-option v-for="t in KEY_TONICS" :key="t" :label="t" :value="t" />
+        </el-select>
+        <el-checkbox v-model="key_filter.atonal" size="small" :disabled="!key_filter.tonic">+ atonal</el-checkbox>
+        <span v-if="key_filter.tonic" class="muted">{{ shown_files.length }} / {{ store.files.length }}</span>
+      </span>
     </div>
     <div v-show="(fileListViewMode == 'Box')" class="box">
       <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags -->
-      <div v-for="file in store.files" :key="file.id" class="cart"
+      <div v-for="file in shown_files" :key="file.id" class="cart"
         :class="{ playing: is_sounding(file), drag_over: drag_id === file.id, unavailable: !drawable(file) }"
         :title="not_drawable_title(file)" @dragover="ondragover($event, file)"
         @dragleave="ondragleave($event, file)" @drop="ondrop($event, file)">
@@ -27,7 +36,8 @@
             <p class="name">{{ file.original_name }}</p>
           </el-tooltip>
           <p class="specs">
-            <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ timing_text(file) }}</template>
+            <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ timing_text(file) }}<template
+                v-if="file.music_key"> · {{ file.music_key }}</template></template>
             <template v-else>loading…</template>
             <span v-if="file.available === false" class="unavailable_mark"> · unavailable</span>
             <span v-else-if="out_of_tempo(file)" class="unavailable_mark"> · out of tempo</span>
@@ -60,7 +70,7 @@
     <!-- el-table no tiene eventos de drag por fila: se delegan desde el contenedor (ver row_file) -->
     <div v-show="(fileListViewMode == 'Table')" @dragover="ondragover_table" @dragleave="ondragleave_table"
       @drop="ondrop_table">
-      <el-table :data="store.files" style="width: 100%" :row-class-name="row_class">
+      <el-table :data="shown_files" style="width: 100%" :row-class-name="row_class">
         <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
         <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
         <el-table-column sortable prop="beats" label="Beats" width="80">
@@ -71,6 +81,9 @@
             <span :class="{ out_tempo: out_of_tempo(scope.row) }" :title="not_drawable_title(scope.row)">{{
               scope.row.kind == 'shot' ? '' : fmt_bpm(scope.row.bpm) }}</span>
           </template>
+        </el-table-column>
+        <el-table-column sortable prop="music_key" label="Key" width="80">
+          <template #default="scope">{{ key_label(scope.row.music_key) }}</template>
         </el-table-column>
         <el-table-column sortable label="Track Group" prop="track_group" width="130">
           <template #default="scope">
@@ -151,6 +164,16 @@
             </span>
           </template>
 
+          <!-- tonalidad: solo el dueño la cambia (PUT /files/:id) -->
+          <span class="info_label">Key</span>
+          <span v-if="curr_edit_file.own && !store.read_only">
+            <el-select :model-value="curr_edit_file.music_key ?? ''" size="small" class="key_select" filterable
+              :disabled="saving_timing" @change="v => save_timing(curr_edit_file, { music_key: v })">
+              <el-option v-for="o in KEY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+          </span>
+          <span v-else>{{ key_label(curr_edit_file.music_key) }}</span>
+
           <span class="info_label">Track group</span>
           <span>
             <span v-if="curr_edit_file.track_group_obj" class="chip"
@@ -211,11 +234,16 @@ import Led from "./hw/Led.vue"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import { update_file, error_text } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { KEY_TONICS, KEY_OPTIONS, key_label, key_matches } from "../helpers/music_key"
 
 import * as toneLib from "../helpers/toneLib"
 import { fader_to_db, db_to_fader, db_label, FILE_VOL_MAX_DB, VOL_OFF_DB } from "../helpers/mixer"
 
 const fileListViewMode = ref("Table")
+
+// filtro por tonalidad: tónica elegida (trae mayor y menor) y si se suman los atonales
+const key_filter = ref({ tonic: "", atonal: true })
+const shown_files = computed(() => store.files.filter(f => key_matches(f.music_key, key_filter.value.tonic, key_filter.value.atonal)))
 
 // archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
 // no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
@@ -252,7 +280,7 @@ function timing_text(file) {
   if (file.kind == "shot") return "shot"
   return `${file.beats ?? "?"} beats · ${fmt_bpm(file.bpm)} BPM`
 }
-// cambia tipo o beats de un archivo propio. El backend recalcula el bpm; con la respuesta se
+// cambia tipo, beats o tonalidad de un archivo propio. El backend recalcula el bpm; con la respuesta se
 // actualiza el archivo y se recalcula su playbackRate (vale para el próximo sorteo)
 const saving_timing = ref(false)
 async function save_timing(file, data) {
@@ -263,6 +291,7 @@ async function save_timing(file, data) {
     file.kind = res.data.kind
     file.beats = res.data.beats
     file.bpm = res.data.bpm
+    file.music_key = res.data.music_key
     calculate_timing()
   } catch (e) {
     ElMessage({ type: 'error', message: error_text(e) })
@@ -413,6 +442,20 @@ const iconSize = ref(18)
 <style scoped>
 .view_switch {
   margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.key_filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key_select {
+  width: 96px;
 }
 
 .actions {
