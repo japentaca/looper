@@ -1,5 +1,5 @@
 <template>
-  <div class="range_pads" :class="{ disabled }">
+  <div class="range_pads" :class="{ disabled, small }">
     <div class="pads">
       <button v-for="(o, i) in opts" :key="o.value" type="button" class="pad" :class="{ on: in_range(i) }"
         :disabled="disabled" :title="o.label" @pointerdown="on_down($event, i)" @pointerenter="on_enter(i)"
@@ -25,7 +25,8 @@ const props = defineProps({
   options: { type: Array, default: () => [] },
   modelValue: { type: Array, default: () => [] },
   label: { type: String, default: "" },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  small: { type: Boolean, default: false } // pads chicos, para las tiras de canal
 })
 const emit = defineEmits(["update:modelValue", "change"])
 
@@ -151,6 +152,21 @@ function on_key(e, i) {
 .pad:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.small .pads {
+  gap: 2px;
+  padding: 3px;
+}
+
+.small .pad {
+  min-width: 0;
+  width: 16px;
+  height: 28px;
+  padding: 0;
+  gap: 3px;
+  font-size: 9px;
+  letter-spacing: -0.5px;
 }
 
 .pad_text {

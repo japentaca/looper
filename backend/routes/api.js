@@ -651,8 +651,10 @@ router.get("/projects/:id", require_session, async (req, res) => {
     data.props = parse_props(p.props)
 
     let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
+      .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
     data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
     data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
+      .orderByRaw("rowid")
 
     // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
     data.files = await list_project_files(global.knex, p.id, user_id)
@@ -1219,8 +1221,10 @@ router.get('/public/project/:id', public_rate_limit, async (req, res) => {
       creator: { name: p.creator_name, bio: p.creator_bio ?? null },
     }
     let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
+      .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
     data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
     data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
+      .orderByRaw("rowid")
     // forma de los archivos de GET /projects/:id, sin `own` (no hay usuario)
     let files = await list_project_files(global.knex, p.id, null)
     data.files = files.filter(f => f.available)

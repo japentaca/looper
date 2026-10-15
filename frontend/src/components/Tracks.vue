@@ -101,10 +101,17 @@
         <span class="silk dim">Beat</span>
       </div>
       <div class="strips">
+        <!-- reordenar: se arrastra la tira desde su nombre (el resto de la tira tiene knobs y faders) y se
+          suelta sobre otra tira o sobre un pad de pista de la sidebar; también al revés -->
         <div class="strip" v-for="{ trg, track } in strips" :key="trg.id" :title="strip_file(trg, track)?.original_name"
-          :class="{ silenced: is_silenced(trg.id) }">
+          :class="{ silenced: is_silenced(trg.id), drop_over: drop_over_id === trg.id }"
+          :draggable="drag_handle_id === trg.id" @dragstart="strip_dragstart($event, trg)" @dragend="strip_dragend"
+          @dragover="strip_dragover($event, trg)" @dragleave="strip_dragleave($event, trg)"
+          @drop="strip_drop($event, trg)">
           <span class="strip_color" :style="{ background: trg.color }"></span>
-          <span class="silk strip_name">{{ trg.name }}</span>
+          <span class="silk strip_name" :class="{ handle: !store.read_only }" title="Arrastrar para mover la pista"
+            @mousedown="grab_strip(trg)">{{
+              trg.name }}</span>
           <!-- modo de la pista: loop (sortea loops encadenados) u one-shot (disparos sueltos), en props.mode -->
           <LedButton size="small" :text="is_oneshot(trg) ? 'SHOT' : 'LOOP'" led="yellow" :lit="is_oneshot(trg)"
             :title="is_oneshot(trg) ? 'One-shot: pasar a loop' : 'Loop: pasar a one-shot'" :disabled="store.read_only"
@@ -147,10 +154,15 @@
               <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
                 title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
             </div>
-            <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) -->
-            <Knob :class="{ ghost: is_oneshot(trg) }" :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
-              :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
-              @update:model-value="v => set_rest(trg, v)" />
+            <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) y rango
+              de su duración (props.rest_len: L = lo que dura el loop sorteado, o 1/4/8/32 compases) -->
+            <div class="rest_ctrls" :class="{ ghost: is_oneshot(trg) }">
+              <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
+                :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
+                @update:model-value="v => set_rest(trg, v)" />
+              <RangePads small :model-value="parse_rest_len(trg.props.rest_len)" :options="rest_len_options"
+                :title="'Rest length: ' + rest_len_label(trg)" @update:model-value="v => set_rest_len(trg, v)" />
+            </div>
           </div>
           <!-- volumen de la pista (dB, guardado en props.volume; en modo lectura solo en memoria) -->
           <!-- el fader trabaja en posición 0..1 con curva de consola (fader_to_db / db_to_fader en mixer.js) -->
@@ -194,8 +206,9 @@ import * as Tone from "tone"
 import { ElMessage } from "element-plus"
 import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import {
-  store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_project_props_debounced,
-  pick_weighted, parse_repeat, REPEAT_OPTIONS
+  store, tags_by_id, audio_players, files_by_id, save_trackGroups, save_trackGroups_debounced,
+  save_project_props_debounced, pick_weighted, parse_repeat, REPEAT_OPTIONS, move_item, parse_rest_len,
+  REST_LEN_OPTIONS
 } from "../helpers/composable"
 import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
@@ -273,6 +286,44 @@ const strips = computed(() => store.track_groups.map(trg => ({
   trg,
   track: tracks.find(t => t.track_group?.id === trg.id) ?? null
 })))
+// --- reordenar las tiras con drag&drop (mismos datos que los pads de la sidebar: msg_type, id y la marca
+// looper/track_group; soltar una tira sobre un archivo de Files le asigna la pista, como un pad) ---
+const drag_handle_id = ref(null) // tira agarrada del nombre (solo esa es draggable)
+const dragging_id = ref(null)
+const drop_over_id = ref(null)
+// al soltar el botón (haya o no arrastre, y donde sea) la tira deja de ser draggable: si no, arrastrar un
+// knob o el fader de esa tira empezaría a arrastrar la tira entera
+function grab_strip(trg) {
+  if (store.read_only) return
+  drag_handle_id.value = trg.id
+  window.addEventListener("mouseup", () => { drag_handle_id.value = null }, { once: true })
+}
+function strip_dragstart(e, trg) {
+  e.dataTransfer.effectAllowed = "move"
+  e.dataTransfer.setData("msg_type", "track_group")
+  e.dataTransfer.setData("id", trg.id)
+  e.dataTransfer.setData("looper/track_group", trg.id)
+  dragging_id.value = trg.id
+}
+function strip_dragend() {
+  drag_handle_id.value = dragging_id.value = drop_over_id.value = null
+}
+function strip_dragover(e, trg) {
+  if (store.read_only || dragging_id.value === trg.id || !e.dataTransfer.types.includes("looper/track_group")) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = "move"
+  drop_over_id.value = trg.id
+}
+function strip_dragleave(e, trg) {
+  if (drop_over_id.value === trg.id && !e.currentTarget.contains(e.relatedTarget)) drop_over_id.value = null
+}
+// el motor no depende del orden: cada tira busca su track por id (ver strips)
+async function strip_drop(e, trg) {
+  drop_over_id.value = null
+  if (!e.dataTransfer.types.includes("looper/track_group")) return
+  e.preventDefault()
+  await move_item(store.track_groups, e.dataTransfer.getData("id"), trg.id, save_trackGroups)
+}
 // marcas del fader en dB, ubicadas según la curva (el de abajo del todo es silencio)
 const strip_volume_marks = [6, 0, -12, -24].map(v => ({ value: db_to_fader(v), label: v > 0 ? "+" + v : v }))
   .concat({ value: 0, label: "-∞" })
@@ -287,6 +338,17 @@ function set_master(pos) {
 function set_rest(trg, v) {
   trg.props.rest = Math.round(v * 100) / 100 // evita 0.15000000000000002
   save_trackGroups_debounced()
+}
+// rango de duración del descanso (RangePads ya entrega [min, max] ordenado)
+const rest_len_options = REST_LEN_OPTIONS.map(v => ({ value: v, label: v == "loop" ? "L" : v }))
+function set_rest_len(trg, v) {
+  trg.props.rest_len = v
+  save_trackGroups_debounced()
+}
+function rest_len_label(trg) {
+  let txt = (v) => v == "loop" ? "loop" : v + " bar" + (v > 1 ? "s" : "")
+  let [lo, hi] = parse_rest_len(trg.props.rest_len)
+  return lo === hi ? txt(lo) : txt(lo) + " – " + txt(hi)
 }
 
 // --- pistas one-shot (props.mode == "oneshot") ---
@@ -378,6 +440,13 @@ function draw_candidates(track) {
 function draw_repeat(file) {
   let [lo, hi] = parse_repeat(file.props?.repeat).map(v => REPEAT_OPTIONS.indexOf(v))
   return REPEAT_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
+}
+// beats de un descanso: un valor al azar (uniforme) de REST_LEN_OPTIONS dentro de props.rest_len de la
+// pista; "loop" = lo que dura el loop sorteado `f`, los números son compases del compás actual
+function draw_rest_beats(track, f) {
+  let [lo, hi] = parse_rest_len(track.track_group.props?.rest_len).map(v => REST_LEN_OPTIONS.indexOf(v))
+  let v = REST_LEN_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
+  return v == "loop" ? Math.max(1, files_by_id[f].play_beats) : v * parseInt(TrackCtrl.beats_x_bar)
 }
 function file_weight(id) {
   return files_by_id[id]?.props?.weight ?? 0
@@ -741,14 +810,15 @@ function set_next_step(time, n, downbeat) {
       let f = pick_weighted(candidates, file_weight)
       //console.log("vvv", f, files_by_id[f])
 
-      // descanso: con probabilidad props.rest la pista calla durante lo que dura el loop sorteado
-      // (beats enteros desde este beat, así al volver sigue alineada al compás como un loop más)
+      // descanso: con probabilidad props.rest la pista calla durante lo que dura el loop sorteado o una
+      // cantidad de compases, según props.rest_len (beats enteros desde este beat, así al volver sigue
+      // alineada al compás como un loop más)
       if (Math.random() < (track.track_group.props?.rest ?? 0)) {
         // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
         if (track.curr_file) stop_file(track.curr_file.id, time)
         track.curr_file = null
         track.resting = true
-        track.remaining_beats = Math.max(1, files_by_id[f].play_beats) - 1
+        track.remaining_beats = draw_rest_beats(track, f) - 1
         track.percentage = 0
         track.repeat_n = 1
         track.repeats_left = 0
@@ -1003,6 +1073,16 @@ function get_available_files_x_tag(tag_id) {
   overflow: hidden;
 }
 
+/* destino de un reordenamiento */
+.strip.drop_over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.strip_name.handle {
+  cursor: grab;
+}
+
 /* pista que no se escucha (mute, u otra en solo): se apaga el nombre y el archivo */
 .strip.silenced .strip_name,
 .strip.silenced .file_name {
@@ -1047,6 +1127,13 @@ function get_available_files_x_tag(tag_id) {
 /* control del otro modo: ocupa lugar pero no se ve ni se puede tocar (visibility también lo saca del foco) */
 .ghost {
   visibility: hidden;
+}
+
+.rest_ctrls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .oneshot_ctrls {

@@ -22,6 +22,15 @@ export function parse_repeat(v) {
   return Array.isArray(v) && v.length == 2 && v.every(n => REPEAT_OPTIONS.includes(n)) && v[0] <= v[1]
     ? [v[0], v[1]] : [1, 1]
 }
+// --- duración de los descansos ---
+// Cada pista tiene un rango [min, max] de REST_LEN_OPTIONS (props.rest_len): al descansar, el motor
+// elige al azar un valor del rango. "loop" = lo que dura el loop sorteado (como antes); los números
+// son compases. Sin dato vale ["loop", "loop"].
+export const REST_LEN_OPTIONS = ["loop", 1, 4, 8, 32]
+export function parse_rest_len(v) {
+  let i = Array.isArray(v) && v.length == 2 ? v.map(x => REST_LEN_OPTIONS.indexOf(x)) : [-1, -1]
+  return i[0] >= 0 && i[1] >= i[0] ? [v[0], v[1]] : ["loop", "loop"]
+}
 // elige un elemento de `items` con chance proporcional a weight_of(item); null si la suma es 0
 export function pick_weighted(items, weight_of) {
   let total = 0
@@ -136,14 +145,14 @@ export async function save_file(file) {
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
 // volume en dB (va al Tone.Channel); rest = probabilidad 0..1 de descansar al terminar cada loop
-// (la usa el motor en Tracks.vue). mode = "loop" | "oneshot"; en oneshot la pista dispara archivos sueltos:
+// (la usa el motor en Tracks.vue) y rest_len = rango de duración del descanso (ver parse_rest_len). mode = "loop" | "oneshot"; en oneshot la pista dispara archivos sueltos:
 // on_tag_change = al empezar cada Tag, density = probabilidad 0..1 de disparar al empezar cada frase
 // de bars compases (1, 2, 4, 8, 16, 32 o 64).
 // reverb = nivel del send a la reverb compartida en dB (null = nada; no se usa -Infinity porque
 // JSON.stringify lo vuelve null igual); drift = modulación lenta 0..1 de filtro y send (ver mixer.js).
 // delay = nivel del send al delay global en dB (null = nada, igual que reverb).
 export function trg_default_props() {
-  return { volume: 0, rest: 0, mode: "loop", on_tag_change: false, density: 0, bars: 1,
+  return { volume: 0, rest: 0, rest_len: ["loop", "loop"], mode: "loop", on_tag_change: false, density: 0, bars: 1,
     reverb: null, drift: 0, delay: null }
 }
 // guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
@@ -358,6 +367,7 @@ async function install_project(p, same) {
   store.track_groups.splice(0)
   for (let t of p.track_groups ?? []) {
     t.props = { ...trg_default_props(), ...(t.props ?? {}) }
+    t.props.rest_len = parse_rest_len(t.props.rest_len)
     // mute y solo ya no se guardan (viven en memoria en mixer.js): se descartan si quedaron de antes
     delete t.props.mute
     delete t.props.solo
@@ -622,6 +632,16 @@ export function toggle_file_tag(file, id) {
   } else {
     set_file_tags(file, [...file.tags, id])
   }
+}
+// mueve la pista o tag `from_id` al lugar de `to_id` dentro de `list` (store.track_groups o store.tags)
+// y guarda la colección (el backend respeta el orden del array). Devuelve true si cambió algo
+export async function move_item(list, from_id, to_id, save) {
+  let from = list.findIndex(x => x.id === from_id)
+  let to = list.findIndex(x => x.id === to_id)
+  if (from < 0 || to < 0 || from === to) return false
+  list.splice(to, 0, list.splice(from, 1)[0])
+  await save()
+  return true
 }
 export function rebuildIndexes() {
   track_groups_by_id = {}

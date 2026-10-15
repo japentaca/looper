@@ -152,7 +152,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
 ```js
 {
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
-  track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, bars, reverb, drift, delay } }], // props: {} si no hay nada
+  track_groups: [{ id, name, color, props: { volume, rest, rest_len, mode, on_tag_change, density, bars, reverb, drift, delay } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, // del catálogo (files)
             track_group, tags: [tag_id, ...], props: { volume, weight?, repeat? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]
@@ -187,6 +187,10 @@ solo se guardan las columnas de una lista blanca (`id, name, color, props` para 
 como JSON y `GET /projects/:id` lo devuelve parseado. `props.reverb` y `props.delay` (sends a la
 reverb y al delay global) son un número en dB o `null` (= nada; no se usa `-Infinity` porque no es
 JSON válido) y `props.drift` un número 0..1. El backend no valida el contenido de `props`.
+
+El orden del array es el orden de las pistas (o tags) en la UI: `GET /projects/:id` y
+`GET /public/projects/:id` las devuelven en el orden en que se insertaron (reordenar = mandar el
+array reordenado).
 
 Los `id` los genera el cliente (uuid; string de hasta 36 caracteres, obligatorio) y son únicos en
 toda la tabla: un id repetido dentro del array → 400 "Id repetido: <id>"; un id que ya usa una fila

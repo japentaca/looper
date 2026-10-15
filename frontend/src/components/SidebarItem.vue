@@ -2,8 +2,12 @@
   <!-- pad de goma tipo MPC: se ilumina con su color mientras su Track Group suena o su Tag está activo -->
   <!-- Track Group: doble clic en cualquier parte del pad (salvo color y borrar) para renombrar.
     Tag: el lápiz (o doble clic) abre TagDialog (nombre, color y peso) -->
-  <div :draggable="!editing" class="pad" :class="{ lit }" :title="cfg.dialog ? 'Doble clic para editar' : 'Doble clic para renombrar'"
-    @dragstart="startDrag($event)" @dblclick="onPadDblclick">
+  <!-- arrastrarlo sobre otro pad del mismo tipo lo mueve a ese lugar (las pistas también se reordenan
+    soltándolas sobre una tira de Tracks.vue, y viceversa) -->
+  <div :draggable="!editing" class="pad" :class="{ lit, drop_over }"
+    :title="cfg.dialog ? 'Doble clic para editar' : 'Doble clic para renombrar'"
+    @dragstart="startDrag($event)" @dragend="dragging = false" @dragover="onDragover" @dragleave="onDragleave"
+    @drop="onDrop" @dblclick="onPadDblclick">
     <el-icon v-if="cfg.dialog" :size="13" class="edit_icon" title="Edit" @click="dialog_visible = true">
       <Edit />
     </el-icon>
@@ -25,7 +29,7 @@
 // y para Tags (kind="tag"). Lo que cambia entre ambos está en KINDS.
 import { ref, computed } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { store, rebuildIndexes, save_tags, save_trackGroups, set_file_tags } from "../helpers/composable"
+import { store, rebuildIndexes, save_tags, save_trackGroups, set_file_tags, move_item } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
 import TagDialog from "./TagDialog.vue"
 
@@ -63,6 +67,8 @@ const item = computed(() => cfg.list()[props.index])
 const editing = ref(false)
 const dialog_visible = ref(false)
 const lit = computed(() => TrackCtrl.isPlaying && cfg.is_lit(item.value.id))
+const dragging = ref(false) // este pad es el que se está arrastrando
+const drop_over = ref(false) // se arrastra encima otro pad del mismo tipo
 let prevName = ""
 
 const nameInput = ref(null)
@@ -98,6 +104,25 @@ function startDrag(evt) {
   evt.dataTransfer.effectAllowed = 'move'
   evt.dataTransfer.setData('msg_type', props.kind)
   evt.dataTransfer.setData('id', item.value.id)
+  // marca del tipo: en dragover solo se pueden leer los tipos, no los datos
+  evt.dataTransfer.setData('looper/' + props.kind, item.value.id)
+  dragging.value = true
+}
+// reordenar: acepta pads (o tiras de Tracks) del mismo tipo
+function onDragover(e) {
+  if (dragging.value || !e.dataTransfer.types.includes('looper/' + props.kind)) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  drop_over.value = true
+}
+function onDragleave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) drop_over.value = false
+}
+async function onDrop(e) {
+  drop_over.value = false
+  if (!e.dataTransfer.types.includes('looper/' + props.kind)) return
+  e.preventDefault()
+  await move_item(cfg.list(), e.dataTransfer.getData('id'), item.value.id, cfg.save)
 }
 async function onColorChange(a) {
   await cfg.save()
@@ -154,6 +179,12 @@ async function deleteItem() {
 }
 
 /* pad encendido: la goma se tiñe y brilla con el color del Track Group / Tag */
+/* destino de un reordenamiento */
+.pad.drop_over {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
 .pad.lit {
   background: radial-gradient(ellipse at 50% 40%,
       color-mix(in srgb, v-bind("item.color") 85%, #fff),
