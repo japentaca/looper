@@ -587,11 +587,16 @@ const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.durat
 const FILE_NAME_MAX = 128
 const FILE_ID_MAX = 36
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
-const PROJECT_FILE_PROPS_KEYS = ["volume", "weight"]
+const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat"]
 // peso en el sorteo (de un archivo en el proyecto o de un Tag): entero 0..WEIGHT_MAX; 0 = no sale nunca
 const WEIGHT_MAX = 32
 function valid_weight(v) {
   return Number.isInteger(v) && v >= 0 && v <= WEIGHT_MAX
+}
+// repetición de un loop del proyecto: [min, max] de REPEAT_OPTIONS (veces seguidas que suena al salir sorteado)
+const REPEAT_OPTIONS = [1, 2, 4, 8, 16]
+function valid_repeat(v) {
+  return Array.isArray(v) && v.length == 2 && v.every(n => REPEAT_OPTIONS.includes(n)) && v[0] <= v[1]
 }
 const FILE_NOT_FOUND = { stat: false, text: "Archivo inexistente" }
 
@@ -816,6 +821,7 @@ function parse_project_file_fields(o, file_id) {
     }
     if (props.volume !== undefined && !Number.isFinite(props.volume)) throw new RowsError("Volumen inválido para " + file_id)
     if (props.weight !== undefined && !valid_weight(props.weight)) throw new RowsError("Peso inválido para " + file_id)
+    if (props.repeat !== undefined && !valid_repeat(props.repeat)) throw new RowsError("Repetición inválida para " + file_id)
     out.props = props
   }
   return out

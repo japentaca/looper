@@ -13,6 +13,15 @@ export function parse_weight(v) {
   let n = Number(v)
   return Number.isInteger(n) && n >= 0 && n <= WEIGHT_MAX ? n : WEIGHT_DEFAULT
 }
+// --- repetición de loops ---
+// Cada archivo del proyecto tiene un rango [min, max] de REPEAT_OPTIONS (props.repeat): al salir
+// sorteado, el motor elige al azar un valor del rango y lo toca esa cantidad de veces seguidas
+// (salvo que el cambio de Tag lo corte). Sin dato vale [1, 1] (una vez, como antes).
+export const REPEAT_OPTIONS = [1, 2, 4, 8, 16]
+export function parse_repeat(v) {
+  return Array.isArray(v) && v.length == 2 && v.every(n => REPEAT_OPTIONS.includes(n)) && v[0] <= v[1]
+    ? [v[0], v[1]] : [1, 1]
+}
 // elige un elemento de `items` con chance proporcional a weight_of(item); null si la suma es 0
 export function pick_weighted(items, weight_of) {
   let total = 0
@@ -121,6 +130,8 @@ export async function save_file(file) {
   let volume = Number(file.props?.volume)
   if (Number.isFinite(volume)) data.props.volume = volume
   data.props.weight = parse_weight(file.props?.weight)
+  let repeat = parse_repeat(file.props?.repeat)
+  if (repeat[1] > 1) data.props.repeat = repeat
   await save_collection(() => api.save_project_files(store.project.id, { update: [data] }), null, "los datos del archivo")
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
@@ -193,7 +204,7 @@ function apply_project_props(props) {
   TrackCtrl.tempo = Math.round(clamp(p.tempo, 10, 160, TEMPO_DEFAULT)) // mismo rango que el knob Tempo
   TrackCtrl.tempo_tol = Math.round(clamp(p.tempo_tol, 0, TEMPO_TOL_MAX, TEMPO_TOL_DEFAULT) * 2) / 2 // pasos de 0.5
   TrackCtrl.beats_x_bar = ["3", "4"].includes(String(p.beats_x_bar)) ? String(p.beats_x_bar) : BEATS_X_BAR_DEFAULT
-  // rango de cambio de Tag: exponentes enteros dentro de los faders, con min <= max
+  // rango de cambio de Tag: exponentes enteros dentro del rango de los pads, con min <= max
   let r = Array.isArray(p.tag_range) ? p.tag_range : TAG_RANGE_DEFAULT
   let r_min = Math.round(clamp(r[0], TAG_RANGE_MIN, TAG_RANGE_MAX, TAG_RANGE_DEFAULT[0]))
   let r_max = Math.round(clamp(r[1], TAG_RANGE_MIN, TAG_RANGE_MAX, TAG_RANGE_DEFAULT[1]))
@@ -394,6 +405,7 @@ async function install_project(p, same) {
     // -6 dB por defecto solo si falta o es inválido (antes `!volume` también pisaba un 0 dB guardado)
     if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
     f.props.weight = parse_weight(f.props.weight)
+    f.props.repeat = parse_repeat(f.props.repeat)
     let url = api.file_url(f.id)
     //console.log(url)
     f.isLoaded = false

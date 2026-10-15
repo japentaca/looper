@@ -49,7 +49,7 @@ frontend/src/
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
     PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
-    hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, StepLeds
+    hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, StepLeds, RangePads (rango [min, max] sobre una lista de valores)
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
@@ -146,7 +146,8 @@ Imitar el estilo existente al editar:
   para faders) y `.silk` (serigrafía). El volumen del diálogo de edición de Files también es un `Fader`. El LCD usa
   la fuente DSEG7 local (`src/assets/fonts/`, OFL). Las texturas son imágenes en `frontend/public/textures/`
   (`chassis.jpg`, `metal.jpg`, `plastic_black.jpg`) usadas como `background-image` con color sólido de respaldo si faltan.
-  Diálogos y tablas siguen con Element Plus.
+  Diálogos y tablas siguen con Element Plus; un diálogo con `class="hw_dialog"` toma la textura del chasis
+  (por ahora solo el de edición de Files).
 - Idioma: UI mayormente en inglés, mensajes al usuario y comentarios en español. Commits en español,
   cortos y descriptivos.
 - Hay mucho `console.log` comentado; no es necesario limpiarlo salvo que la tarea lo pida.

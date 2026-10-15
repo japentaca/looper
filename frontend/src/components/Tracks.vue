@@ -55,13 +55,10 @@
       </div>
 
       <div v-if="!store.read_only" class="group g_range">
-        <!-- placa de aluminio con los dos faders del rango de cambio de TAG -->
+        <!-- placa de aluminio con los pads del rango de cambio de TAG -->
         <div class="hw_plate tag_range">
           <span class="silk plate_title">Tag change</span>
-          <div class="faders">
-            <Fader v-model="tag_range_min" :min="5" :max="9" :marks="tag_range_marks" :length="104" label="Min" />
-            <Fader v-model="tag_range_max" :min="5" :max="9" :marks="tag_range_marks" :length="104" label="Max" />
-          </div>
+          <RangePads v-model="tag_range_model" :options="tag_range_options" />
           <span class="silk plate_value">{{ Math.pow(2, TrackCtrl.tag_range[0]) }}–{{ Math.pow(2, TrackCtrl.tag_range[1]) }}
             beats</span>
         </div>
@@ -120,9 +117,11 @@
           <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
           <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
           <!-- one-shot: el LCD muestra cada cuántos compases se tira el dado (no hay posición de loop) -->
-          <Lcd v-if="is_oneshot(trg)" small :digits="2" :value="shot_bars(trg)" unit="SHOT" />
+          <Lcd v-if="is_oneshot(trg)" small :digits="2" :value="shot_bars(trg)" unit="SHOT" :caption="NBSP" />
           <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
-          <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''"
+          <!-- con repetición, el caption muestra la pasada actual sobre el total (p. ej. 2/4); sin ella queda un
+            espacio duro para que el LCD (y la tira) no cambie de alto. El LCD one-shot lleva el mismo espacio -->
+          <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''" :caption="repeat_caption(track)"
             :unit="track?.curr_file ? '/' + track.curr_file.play_beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
           <!-- posición dentro del loop (no aplica a one-shot: queda invisible para que las tiras de los dos
             modos tengan el mismo alto y los faders queden alineados) -->
@@ -196,7 +195,7 @@ import { ElMessage } from "element-plus"
 import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import {
   store, tags_by_id, audio_players, files_by_id, save_trackGroups_debounced, save_project_props_debounced,
-  pick_weighted
+  pick_weighted, parse_repeat, REPEAT_OPTIONS
 } from "../helpers/composable"
 import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
@@ -214,6 +213,7 @@ import {
   vol_db, FILE_VOL_MAX_DB
 } from "../helpers/mixer"
 import Fader from "./hw/Fader.vue"
+import RangePads from "./hw/RangePads.vue"
 
 function reset() {
 
@@ -224,6 +224,7 @@ function reset() {
     //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
     if (track.curr_file) {
       track.remaining_beats = 0
+      track.repeats_left = 0
 
       stop_file(track.curr_file.id, -1)
     }
@@ -243,20 +244,13 @@ function reset() {
 
 
 
-// faders del rango (exponente n de 2^n beats, en TrackCtrl.tag_range, guardado en projects.props):
-// mover uno empuja al otro para que siempre min <= max
-const tag_range_marks = [5, 6, 7, 8, 9].map(n => ({ value: n, label: Math.pow(2, n) }))
-const tag_range_min = computed({
-  get: () => TrackCtrl.tag_range[0],
+// pads del rango (exponente n de 2^n beats, en TrackCtrl.tag_range, guardado en projects.props);
+// RangePads ya entrega [min, max] ordenado
+const tag_range_options = [5, 6, 7, 8, 9].map(n => ({ value: n, label: Math.pow(2, n) }))
+const tag_range_model = computed({
+  get: () => TrackCtrl.tag_range,
   set: (v) => {
-    TrackCtrl.tag_range = [v, Math.max(v, TrackCtrl.tag_range[1])]
-    save_project_props_debounced()
-  }
-})
-const tag_range_max = computed({
-  get: () => TrackCtrl.tag_range[1],
-  set: (v) => {
-    TrackCtrl.tag_range = [Math.min(v, TrackCtrl.tag_range[0]), v]
+    TrackCtrl.tag_range = v
     save_project_props_debounced()
   }
 })
@@ -379,6 +373,12 @@ function draw_candidates(track) {
   return (available_files_per_TRG[track.track_group.id] ?? [])
     .filter(id => playable(id, track.track_group) && file_weight(id) > 0)
 }
+// veces seguidas que va a sonar un loop recién sorteado: un valor al azar (uniforme) de REPEAT_OPTIONS
+// dentro de su rango props.repeat (con [2, 8] sale 2, 4 u 8)
+function draw_repeat(file) {
+  let [lo, hi] = parse_repeat(file.props?.repeat).map(v => REPEAT_OPTIONS.indexOf(v))
+  return REPEAT_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
+}
 function file_weight(id) {
   return files_by_id[id]?.props?.weight ?? 0
 }
@@ -408,6 +408,7 @@ function stop() {
       track.remaining_beats = 0
       stop_file(track.curr_file.id, -1)
     }
+    track.repeats_left = 0
     track.resting = false
     // one-shot: se cortan los disparos que sigan sonando (pueden ser varios archivos superpuestos)
     if (is_oneshot(track.track_group)) {
@@ -450,6 +451,13 @@ const bar_position = computed(() => {
   return (Math.floor(beat.n / bpb) % 1000 + 1) + "." + (beat.n % bpb + 1)
 })
 
+// espacio duro: caption "vacío" que igual ocupa su renglón en el LCD
+const NBSP = String.fromCharCode(160)
+// pasada actual sobre el total de la repetición del loop (p. ej. "2/4"); sin repetición, NBSP
+function repeat_caption(track) {
+  if (!track?.curr_file || !(track.repeat_n > 1)) return NBSP
+  return (track.repeat_n - track.repeats_left) + "/" + track.repeat_n
+}
 // beat actual (1..beats) del loop que suena en la pista
 function track_beat(track) {
   return track.curr_file.play_beats - track.remaining_beats
@@ -523,6 +531,8 @@ function start() {
       curr_file: null,
       remaining_beats: 0,
       resting: false, // true mientras la pista descansa (ver props.rest en set_next_step)
+      repeat_n: 1, // veces que se toca seguido el loop actual (sorteadas en su props.repeat)
+      repeats_left: 0, // pasadas que le faltan después de la actual
       last_shot: null, // one-shot: último archivo disparado (para la tira)
       shot_n: null // one-shot: beat del último disparo (hace destellar el LED de la tira)
     })
@@ -686,6 +696,7 @@ function set_next_step(time, n, downbeat) {
               //if (true)
               //console.log("le puse remaining beats 0")
               track.remaining_beats = 0
+              track.repeats_left = 0
               if (audio_players[track.curr_file.id].state == "started") {
                 //console.log("estaba sonando, invoco audio stop", track.curr_file.original_name_short)
                 // se corta en el tiempo del beat (donde arranca el loop nuevo), no ya: el callback corre
@@ -710,6 +721,14 @@ function set_next_step(time, n, downbeat) {
     }
 
     if (track.remaining_beats == 0) {
+      // repetición: el loop que terminó vuelve a arrancar en este beat sin sortear otro (si sigue
+      // siendo sorteable: no se quitó del proyecto, no se le bajó el peso a 0, sigue en tempo)
+      if (track.curr_file && track.repeats_left > 0 && draw_candidates(track).includes(track.curr_file.id)) {
+        track.repeats_left--
+        start_file(track.curr_file.id, time)
+        track.remaining_beats = Math.max(1, track.curr_file.play_beats) - 1
+        return
+      }
       track.resting = false
       // pista sin archivos sorteables (ninguno disponible, compatible con el Tag y dentro de la
       // tolerancia de tempo): queda en silencio
@@ -731,12 +750,16 @@ function set_next_step(time, n, downbeat) {
         track.resting = true
         track.remaining_beats = Math.max(1, files_by_id[f].play_beats) - 1
         track.percentage = 0
+        track.repeat_n = 1
+        track.repeats_left = 0
         return
       }
 
       start_file(f, time)
       track.curr_file = files_by_id[f]
       track.remaining_beats = Math.max(1, files_by_id[f].play_beats) - 1
+      track.repeat_n = draw_repeat(files_by_id[f])
+      track.repeats_left = track.repeat_n - 1
 
     } else {
       track.remaining_beats--
@@ -841,11 +864,6 @@ function get_available_files_x_tag(tag_id) {
 .group:nth-child(2) {
   border-left: 0;
   padding-left: 4px;
-}
-
-.faders {
-  display: flex;
-  gap: 6px;
 }
 
 .plate_value {

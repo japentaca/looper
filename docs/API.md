@@ -155,7 +155,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
   track_groups: [{ id, name, color, props: { volume, rest, mode, on_tag_change, density, bars, reverb, drift, delay } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, ts, // del catálogo (files)
-            track_group, tags: [tag_id, ...], props: { volume, weight? }, // del proyecto (project_files); weight 0..32, sin dato = 16
+            track_group, tags: [tag_id, ...], props: { volume, weight?, repeat? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
 ```
@@ -229,9 +229,10 @@ son opcionales):
 - `track_group`: id de una pista **del mismo proyecto** o `null`/`""` (sin pista). `tags`: array de
   ids de tags **del mismo proyecto** (los repetidos se descartan). Si no, "La pista/El tag no es del
   proyecto".
-- `props`: objeto con lista blanca `{ volume, weight }` (`volume` en dB, número; `weight` = peso en el
-  sorteo de su pista, entero 0..32, 0 = no sale nunca; el resto de las claves se ignora). "Peso
-  inválido" si `weight` no es un entero 0..32.
+- `props`: objeto con lista blanca `{ volume, weight, repeat }` (`volume` en dB, número; `weight` = peso en el
+  sorteo de su pista, entero 0..32, 0 = no sale nunca; `repeat` = `[min, max]` con valores de 1, 2, 4, 8, 16
+  y min <= max: veces seguidas que suena el loop al salir sorteado; el resto de las claves se ignora). "Peso
+  inválido" si `weight` no es un entero 0..32; "Repetición inválida" si `repeat` no cumple lo anterior.
 
 Responde todos los archivos del proyecto ya actualizados, con la forma de `files` de
 `GET /projects/:id` (con `own` y `available`). Validar la forma del body no necesita el proyecto:

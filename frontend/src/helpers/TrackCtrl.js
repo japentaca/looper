@@ -19,7 +19,7 @@ export const TEMPO_DEFAULT = 138
 export const TEMPO_TOL_DEFAULT = 6
 export const TEMPO_TOL_MAX = 12
 export const BEATS_X_BAR_DEFAULT = "4"
-// rango del cambio de Tag: exponentes [min, max] de 2^n beats (faders Min/Max, de TAG_RANGE_MIN a TAG_RANGE_MAX)
+// rango del cambio de Tag: exponentes [min, max] de 2^n beats (pads TAG CHANGE, de TAG_RANGE_MIN a TAG_RANGE_MAX)
 export const TAG_RANGE_MIN = 5
 export const TAG_RANGE_MAX = 9
 export const TAG_RANGE_DEFAULT = [6, 7]

@@ -131,8 +131,8 @@
   </div>
 
 
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="640px"
-    align-center draggable>
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(780px, 96vw)"
+    class="hw_dialog" align-center draggable>
     <div class="edit_body">
       <div class="edit_left">
         <div class="edit_info">
@@ -194,23 +194,32 @@
         </div>
       </div>
 
-      <!-- volumen del archivo (dB) como fader sobre placa de aluminio -->
-      <div class="hw_plate volume">
-        <span class="silk">Volume</span>
-        <!-- posición 0..1 con la misma curva de consola que las pistas, con tope en 0 dB (fader_to_db en mixer.js) -->
-        <Fader :model-value="db_to_fader(curr_edit_file.props.volume, FILE_VOL_MAX_DB)" :min="0" :max="1" :step="0.01"
-          :length="150" :marks="volume_marks" :title="db_label(curr_edit_file.props.volume)"
-          @update:model-value="v => curr_edit_file.props.volume = fader_to_db(v, FILE_VOL_MAX_DB)"
-          @change="onChange(curr_edit_file)" />
-        <Lcd small :digits="3" :value="curr_edit_file.props.volume > VOL_OFF_DB ? curr_edit_file.props.volume : '---'"
-          unit="dB" />
-      </div>
-      <!-- peso del archivo en el sorteo de su pista (0 = no sale nunca; ver pick_weighted en composable.js) -->
-      <div class="hw_plate weight" :title="weight_title(curr_edit_file)">
-        <span class="silk">Weight</span>
-        <Knob v-model="curr_edit_file.props.weight" :min="0" :max="WEIGHT_MAX" :size="56"
-          @change="onChange(curr_edit_file)" />
-        <Lcd small :digits="2" :value="curr_edit_file.props.weight" />
+      <!-- placas: Volume a la izquierda (dos filas), Weight y Repeat apiladas a la derecha -->
+      <div class="edit_plates">
+        <!-- volumen del archivo (dB) como fader sobre placa de aluminio -->
+        <div class="hw_plate volume">
+          <span class="silk">Volume</span>
+          <!-- posición 0..1 con la misma curva de consola que las pistas, con tope en 0 dB (fader_to_db en mixer.js) -->
+          <Fader :model-value="db_to_fader(curr_edit_file.props.volume, FILE_VOL_MAX_DB)" :min="0" :max="1" :step="0.01"
+            :length="150" :marks="volume_marks" :title="db_label(curr_edit_file.props.volume)"
+            @update:model-value="v => curr_edit_file.props.volume = fader_to_db(v, FILE_VOL_MAX_DB)"
+            @change="onChange(curr_edit_file)" />
+          <Lcd small :digits="3" :value="curr_edit_file.props.volume > VOL_OFF_DB ? curr_edit_file.props.volume : '---'"
+            unit="dB" />
+        </div>
+        <!-- peso del archivo en el sorteo de su pista (0 = no sale nunca; ver pick_weighted en composable.js) -->
+        <div class="hw_plate weight" :title="weight_title(curr_edit_file)">
+          <span class="silk">Weight</span>
+          <Knob v-model="curr_edit_file.props.weight" :min="0" :max="WEIGHT_MAX" :size="56"
+            @change="onChange(curr_edit_file)" />
+          <Lcd small :digits="2" :value="curr_edit_file.props.weight" />
+        </div>
+        <!-- repetición: al salir sorteado, el loop suena seguido un número de veces al azar dentro de este rango -->
+        <div class="hw_plate repeat" title="Times in a row the loop plays when drawn (random within the range; a Tag change cuts it)">
+          <span class="silk">Repeat</span>
+          <RangePads v-model="curr_edit_file.props.repeat" :options="REPEAT_OPTIONS" @change="onChange(curr_edit_file)" />
+          <span class="silk">{{ repeat_label(curr_edit_file.props.repeat) }}</span>
+        </div>
       </div>
     </div>
 
@@ -235,9 +244,11 @@
 
 import { ref, watch, computed } from "vue"
 import {
-  store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file, WEIGHT_MAX
+  store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file, WEIGHT_MAX,
+  REPEAT_OPTIONS
 } from "../helpers/composable"
 import Fader from "./hw/Fader.vue"
+import RangePads from "./hw/RangePads.vue"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
@@ -342,6 +353,11 @@ function weight_title(file) {
   let w = file.props.weight
   return w == 0 ? "Weight 0: never drawn"
     : `Chance of being drawn, relative to the other files of its track (0 = never, ${WEIGHT_MAX} = max)`
+}
+
+function repeat_label(r) {
+  if (!r) return ""
+  return r[0] == r[1] ? "×" + r[0] : "×" + r[0] + "–" + r[1]
 }
 
 async function onChange(file) {
@@ -723,17 +739,31 @@ const iconSize = ref(18)
 
 .edit_body {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 20px;
 }
 
+/* la columna de datos no se achica por debajo de 300 px: si no entra, las placas bajan */
 .edit_left {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 300px;
+  min-width: 300px;
+}
+
+.edit_plates {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.volume {
+  grid-row: 1 / 3;
 }
 
 .weight {
-  align-self: flex-start;
+  justify-self: start;
 }
 
 
