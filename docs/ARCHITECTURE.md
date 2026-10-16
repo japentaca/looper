@@ -823,7 +823,20 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
       un Tag de 4 beats que empieza en el beat 10 queda en 4, 3, 2, 1 en los beats 10..13 y el corte
       es en el `time` del 14 (se procesa con 1 antes de descontar): en el 10 da 4 y en el 13 da 1,
       igual que un loop de 4 beats arrancado en el 10.
-    Cada instancia se evalúa **una vez por
+    Si los dos caen en el mismo beat cuenta como corte por Tag (`by_tag`). Cada instancia se evalúa
+    **una vez por tirada** (`track.fx_fired`), en el primer beat en que `lead_beats(lead)` es **≥**
+    a los beats que faltan (≥ y no ==: una tirada más corta que la anticipación dispara igual,
+    recortada al tiempo que queda): se tira `prob`, se chequea `cond` y, si pasan,
+    `fx_schedule(trg, inst, time, time + faltan · 60 / bpm)` (bpm actual del transporte: un cambio
+    de tempo en medio de la rampa se tolera; la vuelta a la base la da el beat real del fin) y el id
+    entra en `track.fx_active`. Un cambio de compás en marcha cambia los beats de los `lead` en
+    compases desde el beat siguiente.
+    Si una instancia se evaluó contra un corte por Tag se marca `track.fx_tag_end`: si al llegar el
+    cambio el archivo al final **no** se corta (el preseleccionado se re-sorteó o se editaron los
+    tags del archivo), `fx_back_to_base` vuelve los FX a la base en ese `time` y vacía `fx_fired`
+    (se reevalúan contra el fin que quede; `next_rest` se conserva). Al revés, una instancia ya
+    evaluada contra el fin natural no se reevalúa si un Tag preseleccionado después pasa a cortar
+    la tirada antes (su rampa se recorta en el corte y un `cond: "tag"` no dispara).
   - **Fin = de la tirada**: una repetición del mismo archivo no es fin. El fin es el beat en que la
     pista arranca otro archivo, empieza un descanso, queda sin candidatos, la corta el cambio de Tag
     o pasa a one-shot: ahí `end_run` hace `fx_reset` (si algo se evaluó en la tirada) y limpia
@@ -832,8 +845,11 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     y se guarda en `track.next_rest`; en el fin `loop_step` usa ese resultado en vez de tirar otra vez.
     `null` = sin sortear (se tira en el fin, como siempre).
   - `track.fx_active`: ids de las instancias sonando (para los chips de la tira), actualizado con
-    `Tone.Draw` (se agregan en el beat del disparo y se vacía en el del fin). STOP y RESET llaman a
-    `fx_reset_all` y limpian `fx_fired`, `fx_active` y `next_rest`.
+    `Tone.Draw` (se agregan en el beat del disparo, si la instancia sigue en `fx_fired`, y se vacía
+    en el del fin). STOP y RESET llaman a `fx_reset_all` y limpian `fx_fired`, `fx_active`,
+    `next_rest` y `fx_tag_end` (el chequeo de `fx_fired` evita que un disparo agendado antes de un
+    RESET encienda el chip después). Si `Tone.Draw` descarta el vaciado (callback vencido: pestaña
+    oculta), el chip queda encendido hasta el próximo fin con FX evaluados de esa pista.
   - **UI**: en la sidebar (`App.vue`, debajo de Tags, no en modo lectura) hay una sección **FX** con
     un pad por tipo del catálogo (`FxPad.vue`: mismo look que los de pistas y Tags, sin color, borrar
     ni renombrar). El pad se arrastra con `dataTransfer` tipo `looper/fx` = tipo (sin `msg_type` ni

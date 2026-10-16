@@ -1012,8 +1012,10 @@ function fx_step(track, time) {
     let end = time + left * 60 / Tone.Transport.bpm.value
     fx_schedule(track.track_group.id, inst, time, end)
     let id = inst.id
+    // se chequea fx_fired al dibujar: un RESET entre el callback (hasta ~0,1 s antes) y el beat ya
+    // limpió el estado y el chip quedaría encendido hasta el próximo fin con FX
     Tone.Draw.schedule(() => {
-      if (TrackCtrl.isPlaying && !track.fx_active.includes(id)) track.fx_active.push(id)
+      if (TrackCtrl.isPlaying && track.fx_fired.includes(id) && !track.fx_active.includes(id)) track.fx_active.push(id)
     }, time)
   }
 }
