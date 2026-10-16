@@ -677,7 +677,7 @@ Flujo:
    solo, descanso) también con el transporte detenido y en pistas sin archivos. El `Knob` chico
    "Rest" (0..1, paso 0.05) escribe `trg.props.rest` y guarda con `save_trackGroups_debounced()`;
    el motor lo lee en cada sorteo, así que un cambio vale desde el próximo fin de loop. Debajo, un
-   `RangePads` chico (`small`) con los pads 4/8/16/32 escribe `trg.props.rest_len` (ídem).
+   `RangePads` chico (`small`) con los pads 4/8/16/32 escribe `trg.props.rest_len` (ídem); con Rest en 0 los pads quedan deshabilitados.
    Un `LedButton` LOOP/SHOT (LED amarillo encendido = one-shot) cambia `props.mode`; el motor lo toma
    en el beat siguiente. En modo one-shot la tira oculta el knob Rest, sus pads de duración y los `StepLeds`, el LCD
    muestra `SHOT` con el valor de `bars`, el LED de actividad (amarillo) destella en cada disparo, debajo se ve el nombre

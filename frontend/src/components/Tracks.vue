@@ -160,7 +160,9 @@
               <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
                 :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
                 @update:model-value="v => set_rest(trg, v)" />
+              <!-- con Rest en 0 no hay descansos: los pads quedan deshabilitados -->
               <RangePads small :model-value="parse_rest_len(trg.props.rest_len)" :options="rest_len_options"
+                :disabled="!(trg.props.rest > 0)"
                 :title="'Rest length: ' + rest_len_label(trg)" @update:model-value="v => set_rest_len(trg, v)" />
             </div>
           </div>
