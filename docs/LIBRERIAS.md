@@ -95,6 +95,13 @@ Se arma con un script de una sola vez (no va al repo) que recorre los kits, saca
 del nombre de la carpeta, copia y renombra, y aplica las excepciones de tonalidad. Comprobar que la
 cantidad de archivos de la carpeta coincida con la de entradas (si no, hubo nombres repetidos).
 
+Si el script procesa el audio (recortar a compás, doblar la cola sobre el inicio, `atempo`),
+**medir el nivel de cada archivo de salida** (`volumedetect`: `mean_volume` y `max_volume`) y
+compararlo con el original antes de importar: en Curve, doblar la cola con `asplit` + `amix` dejó 30
+loops en silencio sin ningún error de ffmpeg (se arregló con dos `-i` del mismo archivo en vez de
+`asplit`). Escribir la salida en `pcm_f32le`: al sumar la cola el pico puede pasar 0 dBFS y en
+entero recortaría (la conversión final lo normaliza).
+
 ## 5. Prueba local e importación en el servidor
 
 **Local, sobre una copia** (nunca sobre `storage/`): un directorio de prueba con su `.env`
