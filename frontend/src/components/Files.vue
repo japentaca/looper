@@ -383,6 +383,8 @@ async function ondrop(e, file) {
 const drag_id = ref(null)
 
 function ondragover(e, file) {
+  // un pad de FX (looper/fx, FxPad.vue) solo se suelta en las tiras: acá no se resalta ni se acepta
+  if (e.dataTransfer.types.includes("looper/fx")) return
   drag_id.value = file.id
   e.preventDefault()
 }

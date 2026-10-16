@@ -82,6 +82,14 @@
           <SidebarItem v-for="(tag, index) in store.tags" :key="tag.id" kind="tag" :index="index" />
         </div>
         <el-button class="add_btn" size="small" @click="addTag">+ Tag</el-button>
+
+        <!-- FX de transición: un pad por tipo del catálogo (helpers/fx.js); se arrastran a una tira de Tracks -->
+        <template v-if="!store.read_only">
+          <div class="side_title">FX</div>
+          <div class="pads">
+            <FxPad v-for="type in FX_TYPE_KEYS" :key="type" :type="type" />
+          </div>
+        </template>
       </aside>
 
       <main class="main">
@@ -114,6 +122,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue"
 import SidebarItem from "./components/SidebarItem.vue"
+import FxPad from "./components/FxPad.vue"
 import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
 import Account from "./components/Account.vue"
@@ -129,6 +138,7 @@ import LedButton from "./components/hw/LedButton.vue"
 import LedMeter from "./components/hw/LedMeter.vue"
 import { levels } from "./helpers/mixer"
 import { TrackCtrl } from "./helpers/TrackCtrl"
+import { FX_TYPES } from "./helpers/fx"
 
 import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_trackGroups, trg_default_props, WEIGHT_DEFAULT } from "./helpers/composable"
 
@@ -179,6 +189,8 @@ const status_title = computed(() => store.session_lost
 
 // se están descargando/decodificando los audios del usuario
 const loading_audio = computed(() => store.isLogged == true && !TrackCtrl.isReady && store.load_progress.total > 0)
+
+const FX_TYPE_KEYS = Object.keys(FX_TYPES)
 
 const activeCollapsable = ref('2')
 const accountVisible = ref(false) // diálogo de cuenta (bio y cambio de clave)

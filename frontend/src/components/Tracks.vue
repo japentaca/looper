@@ -102,7 +102,8 @@
       </div>
       <div class="strips">
         <!-- reordenar: se arrastra la tira desde su nombre (el resto de la tira tiene knobs y faders) y se
-          suelta sobre otra tira o sobre un pad de pista de la sidebar; también al revés -->
+          suelta sobre otra tira o sobre un pad de pista de la sidebar; también al revés. También acepta un
+          pad de FX de la sidebar (FxPad.vue, looper/fx): agrega una instancia a props.fx -->
         <div class="strip" v-for="{ trg, track } in strips" :key="trg.id" :title="strip_file(trg, track)?.original_name"
           :class="{ silenced: is_silenced(trg.id), drop_over: drop_over_id === trg.id }"
           :draggable="drag_handle_id === trg.id" @dragstart="strip_dragstart($event, trg)" @dragend="strip_dragend"
@@ -172,7 +173,7 @@
             :marks="strip_volume_marks" label="Vol" :title="db_label(trg.props.volume)"
             @update:model-value="v => set_volume(trg.id, fader_to_db(v))" />
           <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada) y send al delay global
-            (props.delay, ídem). Los FX de transición (props.fx) no tienen UI todavía -->
+            (props.delay, ídem) -->
           <div v-if="!store.read_only" class="fx_ctrls">
             <Knob :model-value="trg.props.reverb ?? REV_OFF_DB" :min="REV_OFF_DB" :max="0" :step="1" :size="36"
               label="Rev" :title="trg.props.reverb == null ? 'Reverb: off' : 'Reverb send ' + trg.props.reverb + ' dB'"
@@ -180,6 +181,18 @@
             <Knob :model-value="trg.props.delay ?? DLY_OFF_DB" :min="DLY_OFF_DB" :max="0" :step="1" :size="36"
               label="Dly" :title="trg.props.delay == null ? 'Delay: off' : 'Delay send ' + trg.props.delay + ' dB'"
               @update:model-value="v => set_delay(trg.id, v)" />
+          </div>
+          <!-- FX de transición (props.fx): un chip por instancia con la letra del tipo, encendido mientras
+            su efecto suena (track.fx_active). Clic: FxDialog. Siempre MAX_FX_PER_TRACK lugares (los vacíos
+            como zócalos apagados) para que la fila no cambie de alto ni de ancho. En modo lectura se ven
+            pero no abren nada; en one-shot se atenúan (se guardan pero no suenan) -->
+          <div class="fx_chips" :class="{ dim: is_oneshot(trg) }"
+            :title="is_oneshot(trg) ? 'One-shot: los FX se conservan pero no suenan (solo en modo loop)' : ''">
+            <button v-for="inst in trg.props.fx ?? []" :key="inst.id" type="button" class="fx_chip"
+              :class="{ on: !!track?.fx_active?.includes(inst.id), editable: !store.read_only }"
+              :title="fx_chip_title(trg, inst)" @click="open_fx(trg, inst)">{{ FX_TYPES[inst.type]?.chip ?? "?" }}</button>
+            <span v-for="n in Math.max(0, MAX_FX_PER_TRACK - (trg.props.fx?.length ?? 0))" :key="'e' + n"
+              class="fx_chip empty"></span>
           </div>
           <!-- mute / solo de la pista (solo en memoria: no se guardan) -->
           <div class="mute_solo">
@@ -197,6 +210,9 @@
       <LedButton size="big" led="green" :lit="true" :text="TrackCtrl.isPlaying ? 'RESUME' : 'START'" />
       <span class="silk gesture_text">Click to start</span>
     </div>
+
+    <FxDialog v-if="!store.read_only" v-model="fx_dialog.visible" :trg_id="fx_dialog.trg_id"
+      :fx_id="fx_dialog.fx_id" />
   </div>
 </template>
 <script setup>
@@ -224,7 +240,8 @@ import {
   set_reverb, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label,
   vol_db, FILE_VOL_MAX_DB, fx_schedule, fx_reset, fx_reset_all
 } from "../helpers/mixer"
-import { lead_beats } from "../helpers/fx"
+import { lead_beats, new_fx, FX_TYPES, MAX_FX_PER_TRACK } from "../helpers/fx"
+import FxDialog from "./FxDialog.vue"
 import Fader from "./hw/Fader.vue"
 import RangePads from "./hw/RangePads.vue"
 
@@ -312,9 +329,13 @@ function strip_dragend() {
   drag_handle_id.value = dragging_id.value = drop_over_id.value = null
 }
 function strip_dragover(e, trg) {
-  if (store.read_only || dragging_id.value === trg.id || !e.dataTransfer.types.includes("looper/track_group")) return
+  if (store.read_only) return
+  let types = e.dataTransfer.types
+  // pad de FX (copia) o tira / pad de pista (mover)
+  let fx = types.includes("looper/fx")
+  if (!fx && (dragging_id.value === trg.id || !types.includes("looper/track_group"))) return
   e.preventDefault()
-  e.dataTransfer.dropEffect = "move"
+  e.dataTransfer.dropEffect = fx ? "copy" : "move"
   drop_over_id.value = trg.id
 }
 function strip_dragleave(e, trg) {
@@ -323,10 +344,46 @@ function strip_dragleave(e, trg) {
 // el motor no depende del orden: cada tira busca su track por id (ver strips)
 async function strip_drop(e, trg) {
   drop_over_id.value = null
+  if (store.read_only) return
+  if (e.dataTransfer.types.includes("looper/fx")) {
+    e.preventDefault()
+    add_fx(trg, e.dataTransfer.getData("looper/fx"))
+    return
+  }
   if (!e.dataTransfer.types.includes("looper/track_group")) return
   e.preventDefault()
   await move_item(store.track_groups, e.dataTransfer.getData("id"), trg.id, save_trackGroups)
 }
+// --- FX de transición: instancias en trg.props.fx (helpers/fx.js); el motor las lee en cada beat ---
+
+// soltar un pad de FX en la tira: instancia nueva con los defaults del tipo (también en one-shot:
+// se guarda pero no suena hasta pasar la pista a loop)
+function add_fx(trg, type) {
+  if (!FX_TYPES[type]) return
+  if (!Array.isArray(trg.props.fx)) trg.props.fx = []
+  let list = trg.props.fx
+  if (list.length >= MAX_FX_PER_TRACK) {
+    ElMessage({ type: "warning", message: `Max ${MAX_FX_PER_TRACK} FX per track` })
+    return
+  }
+  list.push(new_fx(type, list))
+  save_trackGroups_debounced()
+}
+
+// diálogo de edición de una instancia (uno solo para todas las tiras)
+const fx_dialog = reactive({ visible: false, trg_id: null, fx_id: null })
+function open_fx(trg, inst) {
+  if (store.read_only) return
+  Object.assign(fx_dialog, { visible: true, trg_id: trg.id, fx_id: inst.id })
+}
+function fx_chip_title(trg, inst) {
+  let t = (FX_TYPES[inst.type]?.label ?? inst.type) + " " + inst.lead + " · " + Math.round((inst.prob ?? 1) * 100) + "%"
+  if (inst.cond == "rest") t += " · before rest"
+  else if (inst.cond == "tag") t += " · on tag change"
+  if (is_oneshot(trg)) t += " (one-shot: no suena)"
+  return store.read_only ? t : t + " (clic para editar)"
+}
+
 // marcas del fader en dB, ubicadas según la curva (el de abajo del todo es silencio)
 const strip_volume_marks = [6, 0, -12, -24].map(v => ({ value: db_to_fader(v), label: v > 0 ? "+" + v : v }))
   .concat({ value: 0, label: "-∞" })
@@ -1243,6 +1300,57 @@ function get_available_files_x_tag(tag_id) {
 .fx_ctrls {
   display: flex;
   gap: 2px;
+}
+
+/* chips de los FX de transición: alto fijo (4 lugares siempre) para que los faders queden alineados */
+.fx_chips {
+  display: flex;
+  gap: 4px;
+  height: 18px;
+}
+
+.fx_chips.dim {
+  opacity: 0.35;
+}
+
+.fx_chip {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #000;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #2c2d30, #18191b);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: var(--hw_silk);
+  font-family: var(--font_mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  cursor: default;
+  user-select: none;
+}
+
+.fx_chip.editable {
+  cursor: pointer;
+}
+
+.fx_chip.editable:hover {
+  border-color: var(--hw_yellow);
+}
+
+/* encendido (efecto sonando): LED amarillo */
+.fx_chip.on {
+  background: radial-gradient(circle at 40% 35%, #fff, var(--hw_yellow) 60%);
+  box-shadow: 0 0 6px 2px rgba(255, 210, 60, 0.6);
+  color: var(--hw_rubber_ink);
+}
+
+/* lugar libre: zócalo hundido, sin letra */
+.fx_chip.empty {
+  background: #0b0b0c;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .delay_sel {

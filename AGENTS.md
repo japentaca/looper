@@ -41,6 +41,8 @@ frontend/src/
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
     TagDialog.vue    # diálogo de edición de un Tag (nombre, color, peso en el sorteo); lo abre el lápiz del pad
+    FxPad.vue        # pad de un tipo de FX de transición en la sidebar; se arrastra (looper/fx) a una tira de Tracks
+    FxDialog.vue     # diálogo de edición de una instancia de FX de una pista (lead, prob, cond, parámetros, quitar)
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave
@@ -54,7 +56,8 @@ frontend/src/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
     toneLib.js       # reproductor de preview (un archivo suelto, del proyecto o del catálogo por url)
-    mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master)
+    mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición
+    fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
 deploy/

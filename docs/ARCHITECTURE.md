@@ -476,7 +476,7 @@ app, con `store.read_only = true`:
   `flush_pending_saves` no tiene nada que mandar. Los cambios de tempo y del mixer (que llaman a esos
   guardados desde `Tracks.vue` y `mixer.js`) quedan solo en memoria y se pierden al recargar.
 - En `Tracks.vue`, con `read_only` se ven START/STOP, RESET, los knobs Tempo y Tol, y por pista el fader de
-  volumen y M/S; el botón LOOP/SHOT queda deshabilitado; compás, delay, rango de Tag, Rest,
+  volumen, M/S y los chips de FX (se encienden, pero no abren el diálogo; las tiras no aceptan drops); el botón LOOP/SHOT queda deshabilitado; compás, delay, rango de Tag, Rest,
   Dens/TAG y Rev/Dly no se muestran. La vista no monta pads, Files, Uploader, Projects,
   Import, Account ni Admin.
 - Si hay sesión, la vista pide `GET /api/get_user_info` (solo lectura) y, si el proyecto está en la
@@ -776,8 +776,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   `MAX_FX_PER_TRACK` (4) **instancias** `{ id, type, lead, prob, cond, ...parámetros }` de un catálogo
   fijo (`helpers/fx.js`, `FX_TYPES`: rótulo, letra del chip, defaults y rangos). `normalize_fx_list`
   (al cargar, en `install_project`) acota los valores, descarta tipos desconocidos y deja ids únicos;
-  `new_fx(type)` crea una instancia con defaults (para la UI, que todavía no existe: fase 2 de
-  `docs/PLAN_FX.md`).
+  `new_fx(type, list)` crea una instancia con defaults (la usa la UI al soltar un FX en una tira).
   - `lead`: `"1b"`, `"2b"` (beats) o `"1m"`, `"2m"`, `"4m"`, `"8m"` (compases del compás actual;
     `lead_beats(lead, beats_x_bar)`). `prob` 0..1: chance de dispararse en cada fin. `cond`: `any`,
     `rest` (solo si lo que sigue es un descanso) o `tag` (fin por corte de Tag: llega con la fase 3;
@@ -812,10 +811,31 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   - `next_rest`: para `cond: "rest"` el dado de descanso se tira **antes** (al evaluar la instancia)
     y se guarda en `track.next_rest`; en el fin `loop_step` usa ese resultado en vez de tirar otra vez.
     `null` = sin sortear (se tira en el fin, como siempre).
-  - `track.fx_active`: ids de las instancias sonando (para los chips de la fase 2), actualizado con
+  - `track.fx_active`: ids de las instancias sonando (para los chips de la tira), actualizado con
     `Tone.Draw` (se agregan en el beat del disparo y se vacía en el del fin). STOP y RESET llaman a
     `fx_reset_all` y limpian `fx_fired`, `fx_active` y `next_rest`.
-  Los knobs chicos "Rev" y "Dly" van en una fila propia de la tira.
+  - **UI**: en la sidebar (`App.vue`, debajo de Tags, no en modo lectura) hay una sección **FX** con
+    un pad por tipo del catálogo (`FxPad.vue`: mismo look que los de pistas y Tags, sin color, borrar
+    ni renombrar). El pad se arrastra con `dataTransfer` tipo `looper/fx` = tipo (sin `msg_type` ni
+    `id`: los pads de la sidebar no lo aceptan y `Files.vue` lo ignora en `dragover`). Soltarlo sobre
+    una tira de `Tracks.vue` (mismo resaltado `drop_over` que el reordenamiento, `dropEffect` copy)
+    agrega `new_fx(type, lista)` a `trg.props.fx` y guarda con `save_trackGroups_debounced()`; con
+    `MAX_FX_PER_TRACK` instancias avisa con `ElMessage` y no agrega. Se permite en pistas one-shot
+    (se guardan pero no suenan).
+  - Chips: fila propia de la tira, debajo de Rev/Dly, con un chip por instancia (letra del tipo) que
+    se enciende como un LED amarillo mientras su id está en `track.fx_active`. Siempre hay
+    `MAX_FX_PER_TRACK` lugares (los libres son zócalos apagados) y alto fijo, así la tira no cambia de
+    tamaño y los faders de todas las tiras quedan alineados. En una pista one-shot la fila se atenúa.
+    Clic en un chip abre `FxDialog.vue` (uno solo en `Tracks.vue`, con el id de pista e instancia).
+    En modo lectura los chips se ven y se encienden pero no abren nada.
+  - `FxDialog.vue` (`hw_dialog`): título con el rótulo del tipo y la pista; `lead` y `cond` con filas
+    de `LedButton` de selección única (ANY / BEFORE REST / TAG CHANGE; la última no se cumple hasta la
+    fase 3); `prob` con un knob (LCD en %); los parámetros del tipo con knobs según los rangos de
+    `FX_TYPES` (las frecuencias en escala logarítmica: el knob va de 0 a 1 y se convierte a Hz,
+    redondeado a 1 Hz por debajo de 1 kHz y a 10 Hz por encima) y su valor en un LCD chico; REMOVE
+    quita la instancia. Edita la instancia en vivo y guarda con `save_trackGroups_debounced()` en cada
+    cambio. El motor lee la instancia en cada disparo: los cambios valen desde la próxima tirada.
+  Los knobs chicos "Rev" y "Dly" van en una fila propia de la tira, y debajo la de los chips de FX.
 - **Delay global** (config en `TrackCtrl.delay`, guardada en `projects.props.delay`): un único bus como
   la reverb: sends → `delay_in` → delay activo → `fade` → `delay_out` (`Tone.Volume`, nivel de retorno
   `delay.level` en dB) → `Destination` (pasa por el limitador). Solo devuelve las repeticiones (wet = 1).
