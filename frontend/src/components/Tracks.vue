@@ -551,6 +551,13 @@ function stop() {
 }
 
 
+// anticipación con que corre el callback del beat (Tone trae 0,1 s). Más margen = un cambio de Tag
+// con mucho trabajo en el hilo principal (varias pistas que sortean, Vue, recolector) igual llega
+// antes de `time` y no arranca tarde. Costo: lo que usa Tone.now() (preview, START, STOP/RESET)
+// responde ese tiempo después; mute, solo y faders no (no se agendan)
+const LOOK_AHEAD = 0.3
+Tone.getContext().lookAhead = LOOK_AHEAD
+
 // un solo scheduleRepeat por instancia del componente (no por START): STOP detiene el transporte pero
 // no lo borra, y el próximo START lo reutiliza desde el tiempo 0. Se borra al desmontar.
 const beat_repeat_id = Tone.Transport.scheduleRepeat((time) => {
@@ -862,7 +869,7 @@ function set_next_step(time, n, downbeat) {
         track.repeats_left = 0
         if (audio_players[track.curr_file.id].state == "started") {
           // se corta en el tiempo del beat (donde arranca el loop nuevo), no ya: el callback corre
-          // hasta lookAhead (~0.1 s) antes del beat y cortar ya dejaba ese silencio entre los dos
+          // hasta LOOK_AHEAD antes del beat y cortar ya dejaba ese silencio entre los dos
           stop_file(track.curr_file.id, time)
         }
       } else if (track.fx_tag_end) {

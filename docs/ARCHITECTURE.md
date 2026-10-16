@@ -593,7 +593,10 @@ Flujo:
    registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
    sin borrarlo y el próximo START lo reutiliza desde el tiempo 0. Se borra en `onBeforeUnmount`.
    No se crea ningún evento ni `Tone.Loop` por START (los FX de transición se agendan como
-   automatización de los nodos desde este mismo callback).
+   automatización de los nodos desde este mismo callback). El callback corre `LOOK_AHEAD` (0,3 s;
+   Tone trae 0,1) antes del beat: se subió para que un cambio de Tag con varias pistas sorteando a la
+   vez no llegue tarde. Lo que usa `Tone.now()` (preview, START, STOP/RESET) responde ese tiempo
+   después; mute, solo y faders no.
 3. **Selección del Tag** (`draw_tag`, `start_tag`, `next_tag_entry`): `draw_tag()` sortea un Tag con
    **peso** (`tag.weight`, ver abajo; puede repetirse el actual; si todos pesan 0 sale `null`: no hay
    Tag y suenan solo los archivos sin tags, START lo avisa) y su duración = `2^n` con `n` al azar
@@ -621,7 +624,7 @@ Flujo:
      recalcula disponibles y, si cambió, corta los tracks cuyo archivo tiene tags y no incluye el
      tag nuevo (`tag_cuts`: con Tag nuevo `null` se cortan todos los que tienen tags) (los que lo incluyen o no tienen tags siguen
      sonando: un loop con tags A y B atraviesa el cambio de A a B). El corte es `stop(time)`, en el
-     mismo beat en que arranca el loop nuevo: el callback corre hasta `lookAhead` (~0,1 s) antes de
+     mismo beat en que arranca el loop nuevo: el callback corre hasta `LOOK_AHEAD` (0,3 s) antes de
      `time`, así que cortar "ya" deja un silencio entre los dos. Si el callback llega después de
      `time` (hilo principal ocupado) se avisa por consola (`agendado N ms tarde`).
    - Por cada track con `remaining_beats == 0`: primero el dado de descanso (ver abajo); si no
