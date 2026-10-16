@@ -151,7 +151,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
 
 ```js
 {
-  props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
+  props: { tempo, tempo_tol, beats_x_bar, tag_range, delay, reverb }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
   track_groups: [{ id, name, color, props: { volume, rest, rest_len, mode, on_tag_change, density, bars, reverb, delay, fx } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, // del catálogo (files); anchor "start" | "end"
@@ -168,11 +168,11 @@ fuera del sorteo (tarea 3.8) y no se puede importar. Ver `projects/:id/files`.
 - `POST /projects`: `name` se recorta, 1 a 64 caracteres. Todos los proyectos son públicos (no hay visibilidad). `props`
   opcional (default `{}`), con la misma lista blanca que abajo. `hidden` nace en 0.
 - `PUT /projects/:id`: actualiza solo los campos presentes. `props` **reemplaza** la config completa
-  (lista blanca `tempo`, `tempo_tol`, `beats_x_bar`, `tag_range`, `delay`; el resto se ignora; hasta 4096
+  (lista blanca `tempo`, `tempo_tol`, `beats_x_bar`, `tag_range`, `delay`, `reverb`; el resto se ignora; hasta 4096
   caracteres de JSON; el backend no valida los valores: el front los acota al cargar con
 `apply_project_props` en `composable.js`). Forma: `tempo` (BPM), `tempo_tol` (tolerancia de tempo en %, 0..12, default 6; ver "Tempo" en `ARCHITECTURE.md`), `beats_x_bar` (`"3"` | `"4"`),
 `tag_range` (`[min, max]`, exponentes 5..9 de 2^n beats del cambio de Tag) y `delay`
-(`{ type: "pingpong" | "stereo" | "dotted" | "tape", division: "16n" | "8t" | "8n" | "8n." | "4n" | "4n." | "2n", feedback: 0..0.9, level: dB }`). `hidden` no se
+(`{ type: "pingpong" | "stereo" | "dotted" | "tape", division: "16n" | "8t" | "8n" | "8n." | "4n" | "4n." | "2n", feedback: 0..0.9, level: dB }`) y `reverb` (`{ ir: clave de REVERB_IRS en TrackCtrl.js (default "RoomHuge"), level: dB −24..+6 }`). `hidden` no se
   puede cambiar desde acá (lo modera el admin) y se ignora si viene.
 - `DELETE /projects/:id`: en una transacción borra las filas de `project_files`, `user_track_groups`
   y `user_tags` del proyecto y el proyecto. Además borra los archivos **propios** que usaba el proyecto
@@ -338,7 +338,7 @@ default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los 
 ```js
 {
   id, name, ts,
-  props: { tempo, tempo_tol, beats_x_bar, tag_range, delay }, // como en GET /projects/:id
+  props: { tempo, tempo_tol, beats_x_bar, tag_range, delay, reverb }, // como en GET /projects/:id
   creator: { name, bio },
   track_groups: [{ id, name, color, props }],      // como en GET /projects/:id
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)

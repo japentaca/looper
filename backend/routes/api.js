@@ -476,7 +476,7 @@ router.get('/admin/stats', require_admin, async (req, res) => {
 const PROJECT_NAME_MAX = 64
 const PROJECT_NOT_FOUND = { stat: false, text: "Proyecto inexistente" }
 // config del proyecto (projects.props): solo se guardan estas claves (lista blanca), el resto se ignora
-const PROJECT_PROPS_KEYS = ["tempo", "tempo_tol", "beats_x_bar", "tag_range", "delay"]
+const PROJECT_PROPS_KEYS = ["tempo", "tempo_tol", "beats_x_bar", "tag_range", "delay", "reverb", "master"]
 const PROPS_MAX_LENGTH = 4096 // tamaño de las columnas props
 
 // Segundos de audio de un proyecto, para que el frontend estime la memoria que ocupa cargarlo

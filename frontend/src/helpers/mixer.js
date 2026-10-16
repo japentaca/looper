@@ -3,14 +3,14 @@
 // Además hay un vúmetro estéreo en la salida master. Los Meter solo analizan: no cambian el audio.
 // El volumen y los efectos de cada pista viven en trg.props (se guardan con save_trackGroups); mute y solo, en memoria (mixer).
 // Efectos por pista: player → fx_lp → fx_hp → fx_gain → Channel (cadena de los FX de transición, ver
-// fx_schedule), y un send post-fader del canal a una reverb compartida.
+// fx_schedule), y un send post-fader del canal a una reverb compartida (convolución con impulsos reales).
 // Delay global sincronizado al tempo (config en TrackCtrl.delay) con un send post-fader por pista.
 // Los throws (FX echo / verb) salen de un segundo canal por pista (throw_ch) que toma la señal antes
 // de fx_gain (pre-Cut/Fade), con el mismo volumen, mute y solo que el canal principal.
 import * as Tone from "tone"
 import { reactive, watch } from "vue"
 import { store, audio_players, files_by_id, save_trackGroups_debounced } from "./composable"
-import { TrackCtrl, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX } from "./TrackCtrl"
+import { TrackCtrl, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, REVERB_IRS } from "./TrackCtrl"
 
 const FLOOR_DB = -48 // nivel que queda en 0 (abajo de esto el medidor está apagado)
 const PEAK_HOLD_MS = 800 // cuánto se queda quieto el LED de pico antes de caer
@@ -72,9 +72,52 @@ watch(() => TrackCtrl.master, (db) => Tone.getDestination().volume.rampTo(vol_db
 // el vúmetro master cuelga del output de Destination, o sea que mide después del limitador
 const master_meter = new Tone.Meter({ channels: 2, smoothing: 0.8 })
 Tone.getDestination().connect(master_meter)
-// reverb compartida (una sola para todas las pistas). wet = 1: solo devuelve la cola; la señal seca
-// va por el canal. Va a Destination, así pasa por el limitador. Cada canal le manda un send propio.
-const reverb = new Tone.Reverb({ decay: 6, wet: 1 }).toDestination()
+// --- reverb global (una sola para todas las pistas, config en TrackCtrl.reverb) ---
+// sends de las pistas → reverb_in → convolver activo → ir_gain (compensación del impulso, REVERB_IRS)
+// → reverb_out (nivel de retorno) → Destination (pasa por el limitador). Solo devuelve la cola; la
+// señal seca va por el canal. El impulso es un mp3 de public/impulses/ que se descarga al elegirlo;
+// los ya cargados quedan en memoria (ir_buffers) para no volver a bajarlos al ciclar.
+const reverb_in = new Tone.Gain()
+const reverb_out = new Tone.Volume(TrackCtrl.reverb.level).toDestination()
+const ir_buffers = {} // ir -> Promise<AudioBuffer>
+let reverb_fx = null // { ir, convolver, ir_gain }
+
+function load_ir(ir) {
+  if (!ir_buffers[ir]) {
+    ir_buffers[ir] = Tone.ToneAudioBuffer.load(import.meta.env.BASE_URL + "impulses/" + ir + ".mp3")
+    ir_buffers[ir].catch(() => delete ir_buffers[ir]) // si falló, la próxima vez se reintenta
+  }
+  return ir_buffers[ir]
+}
+
+// cambia el impulso. El nuevo se conecta recién cuando terminó de cargar (hasta ahí suena el anterior).
+// El anterior se desconecta de la entrada pero no se corta: su cola sigue hasta el final (dura lo que
+// el impulso) y después se libera. Si se piden varios seguidos mientras carga, queda el último.
+async function build_reverb() {
+  let ir = TrackCtrl.reverb.ir
+  let buffer
+  try {
+    buffer = await load_ir(ir)
+  } catch (e) {
+    console.log("Error cargando el impulso de la reverb", ir, e)
+    return
+  }
+  if (ir != TrackCtrl.reverb.ir || reverb_fx?.ir == ir) return
+  let ir_gain = new Tone.Gain(Tone.dbToGain(REVERB_IRS[ir].gain)).connect(reverb_out)
+  let convolver = new Tone.Convolver(buffer).connect(ir_gain)
+  reverb_in.connect(convolver)
+  let old = reverb_fx
+  reverb_fx = { ir, convolver, ir_gain }
+  if (!old) return
+  reverb_in.disconnect(old.convolver)
+  Tone.getContext().setTimeout(() => {
+    old.convolver.dispose()
+    old.ir_gain.dispose()
+  }, old.convolver.buffer.duration + 0.1)
+}
+build_reverb()
+watch(() => TrackCtrl.reverb.ir, build_reverb)
+watch(() => TrackCtrl.reverb.level, (db) => reverb_out.volume.rampTo(db, 0.05))
 
 // --- delay global (uno solo, como la reverb) ---
 // sends de las pistas → delay_in → delay activo → fade → delay_out (nivel de retorno) → Destination
@@ -222,7 +265,7 @@ function get_strip(trg) {
     // (una pista muteada o callada por otro solo no manda reverb). Ganancia lineal, 0 = nada.
     let send = new Tone.Gain(send_gain(p))
     channel.connect(send)
-    send.connect(reverb)
+    send.connect(reverb_in)
     // send al delay global, igual que el de la reverb: post-fader, post-mute y post-solo
     let dly_send = new Tone.Gain(dly_send_gain(p))
     channel.connect(dly_send)
@@ -240,7 +283,7 @@ function get_strip(trg) {
     fx_hp.connect(throw_ch)
     let throw_send = new Tone.Gain(0)
     throw_ch.connect(throw_send)
-    throw_send.connect(reverb)
+    throw_send.connect(reverb_in)
     let throw_dly_send = new Tone.Gain(0)
     throw_ch.connect(throw_dly_send)
     throw_dly_send.connect(delay_in)

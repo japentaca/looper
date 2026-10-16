@@ -13,6 +13,35 @@ export const DELAY_LEVEL_MAX = 6
 export function delay_default() {
   return { type: "pingpong", division: "8n.", feedback: 0.4, level: 0 }
 }
+// --- reverb global (ver mixer.js): convolución con impulsos reales de frontend/public/impulses/ ---
+// clave = nombre del archivo (sin .mp3), label = texto del LCD, gain = compensación en dB para que
+// todos suenen tan fuerte como la reverb sintética anterior (Tone.Reverb decay 6): medido una vez con
+// ruido rosa por el ConvolverNode normalizado a 48 kHz (LUFS). rt60 = cola en s (Schroeder, informativo).
+// Orden = el de los botones ◀ ▶: plates, prime, rooms y espacios grandes, de corto a largo.
+export const REVERB_IRS = {
+  PlateSuperDry: { label: "PLATE DRY", gain: 1.3, rt60: 2.4 },
+  PlateSmall: { label: "PLATE S", gain: 1.5, rt60: 1.5 },
+  PlateMedium: { label: "PLATE M", gain: 0.4, rt60: 2.3 },
+  PlateLarge: { label: "PLATE L", gain: -1.1, rt60: 3 },
+  PrimeShort: { label: "PRIME S", gain: 7.3, rt60: 0.9 },
+  PrimeMed: { label: "PRIME M", gain: 5.3, rt60: 1.7 },
+  PrimeLong: { label: "PRIME L", gain: 3.4, rt60: 3.4 },
+  PrimeXtraLong: { label: "PRIME XL", gain: 1.7, rt60: 6.7 },
+  RoomMedium: { label: "ROOM M", gain: -3.3, rt60: 1.4 },
+  RoomConcertHall: { label: "HALL", gain: -5.8, rt60: 1.6 },
+  RoomLarge: { label: "ROOM L", gain: -1.9, rt60: 1.7 },
+  RoomHuge: { label: "ROOM XL", gain: -5.2, rt60: 3.1 },
+  RoomPool: { label: "POOL", gain: -8.1, rt60: 10 },
+  Hangar: { label: "HANGAR", gain: -9.2, rt60: 3.8 },
+  OutdoorBlastoff: { label: "BLASTOFF", gain: -4.4, rt60: 5.2 },
+  OutdoorStadium: { label: "STADIUM", gain: -9.3, rt60: 4.6 },
+  AirportTerminal: { label: "AIRPORT", gain: -11.3, rt60: 15.9 },
+}
+export const REVERB_LEVEL_MIN = -24 // nivel de retorno de la reverb en dB (como el del delay)
+export const REVERB_LEVEL_MAX = 6
+export function reverb_default() {
+  return { ir: "RoomHuge", level: 0 }
+}
 export const TEMPO_DEFAULT = 138
 // tolerancia de tempo del proyecto (%, knob Tol): cuánto se puede acelerar o frenar un loop para que
 // entre en el tempo. Con resample (playbackRate) también cambia el tono: 6 % ≈ un semitono
@@ -25,14 +54,15 @@ export const TAG_RANGE_MAX = 9
 export const TAG_RANGE_DEFAULT = [6, 7]
 export const MASTER_DEFAULT = 0 // volumen master en dB (knob Master; curva y rango en mixer.js)
 
-// tempo, compás, rango de cambio de Tag, delay y volumen master son la config del proyecto activo: se guardan en
-// projects.props (save_project_props_debounced en composable.js) y se aplican al cargar el proyecto
+// tempo, compás, rango de cambio de Tag, delay, reverb y volumen master son la config del proyecto activo: se
+// guardan en projects.props (save_project_props_debounced en composable.js) y se aplican al cargar el proyecto
 export const TrackCtrl = reactive({
   tempo: TEMPO_DEFAULT,
   tempo_tol: TEMPO_TOL_DEFAULT,
   beats_x_bar: BEATS_X_BAR_DEFAULT,
   tag_range: [...TAG_RANGE_DEFAULT],
   delay: delay_default(),
+  reverb: reverb_default(),
   master: MASTER_DEFAULT,
   isPlaying: false,
   isReady: false,

@@ -54,6 +54,24 @@
           @update:model-value="v => set_delay_cfg('level', v)" />
       </div>
 
+      <!-- reverb global por convolución (TrackCtrl.reverb, guardada en projects.props): ◀ ▶ eligen el impulso
+        (REVERB_IRS) y Level es el nivel de retorno. Cada pista le manda señal con su knob "Rev" -->
+      <div v-if="!store.read_only" class="group g_reverb">
+        <div class="delay_sel" :title="'Reverb ' + TrackCtrl.reverb.ir + ' (~' + REVERB_IRS[TrackCtrl.reverb.ir].rt60 + ' s)'">
+          <span class="silk">Reverb</span>
+          <Lcd small :digits="0">
+            <span class="delay_lcd">{{ REVERB_IRS[TrackCtrl.reverb.ir].label }}</span>
+          </Lcd>
+          <div class="delay_btns">
+            <LedButton size="small" text="◀" title="Impulso anterior" @click="step_reverb(-1)" />
+            <LedButton size="small" text="▶" title="Impulso siguiente" @click="step_reverb(1)" />
+          </div>
+        </div>
+        <Knob :model-value="TrackCtrl.reverb.level" :min="REVERB_LEVEL_MIN" :max="REVERB_LEVEL_MAX" :step="1" :size="48"
+          label="Level" :title="'Reverb return ' + TrackCtrl.reverb.level + ' dB'"
+          @update:model-value="v => set_reverb_cfg('level', v)" />
+      </div>
+
       <div v-if="!store.read_only" class="group g_range">
         <!-- placa de aluminio con los pads del rango de cambio de TAG -->
         <div class="hw_plate tag_range">
@@ -226,7 +244,8 @@ import {
   REST_LEN_OPTIONS, file_anchor
 } from "../helpers/composable"
 import {
-  TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX
+  TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX,
+  REVERB_IRS, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX
 } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -527,6 +546,19 @@ function set_delay_cfg(key, v) {
 function cycle_delay(key, options) {
   let i = options.indexOf(TrackCtrl.delay[key])
   set_delay_cfg(key, options[(i + 1) % options.length])
+}
+
+// --- reverb global (TrackCtrl.reverb; mixer.js carga el impulso con un watcher) ---
+const REVERB_IR_KEYS = Object.keys(REVERB_IRS)
+function set_reverb_cfg(key, v) {
+  TrackCtrl.reverb[key] = v
+  save_project_props_debounced()
+}
+// ◀ ▶: impulso anterior / siguiente (dan la vuelta en los extremos)
+function step_reverb(dir) {
+  let n = REVERB_IR_KEYS.length
+  let i = REVERB_IR_KEYS.indexOf(TrackCtrl.reverb.ir)
+  set_reverb_cfg("ir", REVERB_IR_KEYS[(i + dir + n) % n])
 }
 
 function stop() {
@@ -1274,7 +1306,7 @@ function get_available_files_x_tag(tag_id) {
   letter-spacing: 3px;
 }
 
-/* panel ancho: grilla de dos filas. Fila 1: transporte, tempo, delay; fila 2: posición y Tag actual.
+/* panel ancho: grilla de dos filas. Fila 1: transporte, tempo, delay; fila 2: posición, Tag actual y reverb.
    La placa del rango de Tag y el master ocupan las dos filas a la derecha. En modo lectura no hay
    delay ni rango: tres columnas. Las columnas suman ~1280 px (medido en el navegador). */
 @container (min-width: 1300px) {
@@ -1283,7 +1315,7 @@ function get_available_files_x_tag(tag_id) {
     grid-template-columns: auto auto auto auto auto;
     grid-template-areas:
       "transport tempo delay range master"
-      "position  tag   tag   range master";
+      "position  tag   reverb range master";
     justify-content: space-between;
     align-items: center;
   }
@@ -1298,6 +1330,7 @@ function get_available_files_x_tag(tag_id) {
   .g_transport { grid-area: transport; }
   .g_tempo { grid-area: tempo; }
   .g_delay { grid-area: delay; }
+  .g_reverb { grid-area: reverb; }
   .g_range { grid-area: range; }
   .g_master { grid-area: master; }
   .g_position { grid-area: position; }
