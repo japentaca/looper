@@ -17,7 +17,7 @@ export const LEAD_OPTIONS = [
 ]
 
 // condición del fin: any = cualquier fin; rest = solo si lo que sigue es un descanso;
-// tag = solo si el fin es un corte por cambio de Tag (fase 3; por ahora nunca se cumple)
+// tag = solo si el fin es un corte por cambio de Tag (el Tag siguiente se preselecciona, ver Tracks.vue)
 export const COND_OPTIONS = [
   { value: "any", label: "ANY" },
   { value: "rest", label: "REST" },

@@ -14,7 +14,7 @@
             :lit="inst.lead === o.value" :title="lead_title(o.value)" @click="set('lead', o.value)" />
         </div>
       </div>
-      <!-- condición del fin (TAG: corte por cambio de Tag, llega con la fase 3 de docs/PLAN_FX.md) -->
+      <!-- condición del fin (TAG: el fin de la tirada es un corte por cambio de Tag) -->
       <div class="row">
         <span class="silk row_label">When</span>
         <div class="btns">
@@ -72,7 +72,7 @@ const COND_TEXT = { any: "ANY", rest: "BEFORE REST", tag: "TAG CHANGE" }
 const COND_TITLE = {
   any: "At every end of the run",
   rest: "Only when a rest follows",
-  tag: "Only when a tag change cuts the loop (coming soon: never fires yet)",
+  tag: "Only when a tag change cuts the loop",
 }
 
 // pista e instancia se buscan por id (pueden desaparecer: pista borrada, instancia quitada)

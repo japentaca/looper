@@ -587,25 +587,39 @@ Conceptos:
 
 Flujo:
 1. `start()`: agrupa los archivos sorteables por track group (`files_per_TRG`, con un array, quizás vacío, para
-   cada track group) y por tag; crea un track por cada track group de `store.track_groups`; elige un Tag (`selectTag`) y calcula archivos disponibles por track
+   cada track group) y por tag; crea un track por cada track group de `store.track_groups`; sortea y activa un Tag (`start_tag(draw_tag())`, que además preselecciona el siguiente) y calcula archivos disponibles por track
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**. Se
    registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
    sin borrarlo y el próximo START lo reutiliza desde el tiempo 0. Se borra en `onBeforeUnmount`.
    No se crea ningún evento ni `Tone.Loop` por START (los FX de transición se agendan como
    automatización de los nodos desde este mismo callback).
-3. `selectTag()`: Tag sorteado con **peso** (`tag.weight`, ver abajo; puede repetirse el actual; si
-   todos pesan 0 no hay Tag y suenan solo los archivos sin tags: START lo avisa); duración = `2^n` con `n` al azar dentro del rango de los pads TAG CHANGE (`hw/RangePads.vue`, `TrackCtrl.tag_range`, guardado en `projects.props`)
-   (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
+3. **Selección del Tag** (`draw_tag`, `start_tag`, `next_tag_entry`): `draw_tag()` sortea un Tag con
+   **peso** (`tag.weight`, ver abajo; puede repetirse el actual; si todos pesan 0 sale `null`: no hay
+   Tag y suenan solo los archivos sin tags, START lo avisa) y su duración = `2^n` con `n` al azar
+   dentro del rango de los pads TAG CHANGE (`hw/RangePads.vue`, `TrackCtrl.tag_range`, guardado en
+   `projects.props`) (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por
+   beat). `start_tag(sorteo)` lo activa (`current_TAG.tag`, `duration`, `remaining_beats = duration + 1`,
+   `old_tag` = copia del anterior o `{ id: "nada" }` si no había, levanta `tag_starting`) y
+   **preselecciona el siguiente**: `current_TAG.next_tag` / `next_duration` se sortean al empezar
+   cada Tag. En el cambio entra el preseleccionado (`next_tag_entry`) y se sortea el siguiente; así
+   el motor sabe de antemano qué pistas va a cortar el cambio y cuándo (fin por corte de Tag de los
+   FX de transición). Si el preseleccionado ya no es sorteable al llegar el cambio (se le bajó el
+   peso a 0; o era `null` y algún Tag pasó a tener peso), se re-sortea en ese momento. Los Tags que
+   se sortean son los de `available_tags`, calculados en START. START y RESET activan un sorteo
+   nuevo (no el preseleccionado) y preseleccionan otro; RESET sigue siendo inmediato.
    **Pesos**: Tags y archivos (por proyecto) tienen un peso entero 0..32 (default 16). `pick_weighted`
    (`composable.js`) elige con chance = peso / suma de los pesos de los candidatos; todos iguales =
    sorteo uniforme (como antes de los pesos); peso 0 = nunca. `draw_candidates` deja afuera los
    archivos con peso 0 (si no queda ninguno la pista calla). Los pesos se leen en cada sorteo, así
-   que editarlos con el transporte en marcha vale desde el próximo. Se editan en el diálogo de cada
+   que editarlos con el transporte en marcha vale desde el próximo. Para los Tags, el próximo sorteo
+   es el que se hace al empezar el Tag siguiente: el Tag ya preseleccionado no cambia (salvo que su
+   peso pase a 0, ver arriba). Se editan en el diálogo de cada
    archivo (`Files.vue`, knob WEIGHT) y en `TagDialog.vue` (lápiz del pad del Tag: nombre, color y peso).
 4. `set_next_step(time)`:
-   - Si al Tag le queda 1 beat: elige nuevo Tag, recalcula disponibles y, si cambió, corta los
-     tracks cuyo archivo no incluye el tag nuevo (los que lo incluyen o no tienen tags siguen
+   - Si al Tag le queda 1 beat: activa el Tag preseleccionado (y preselecciona el siguiente),
+     recalcula disponibles y, si cambió, corta los tracks cuyo archivo tiene tags y no incluye el
+     tag nuevo (`tag_cuts`: con Tag nuevo `null` se cortan todos los que tienen tags) (los que lo incluyen o no tienen tags siguen
      sonando: un loop con tags A y B atraviesa el cambio de A a B). El corte es `stop(time)`, en el
      mismo beat en que arranca el loop nuevo: el callback corre hasta `lookAhead` (~0,1 s) antes de
      `time`, así que cortar "ya" deja un silencio entre los dos. Si el callback llega después de
@@ -636,7 +650,7 @@ Flujo:
    - **Pistas one-shot (`trg.props.mode == "oneshot"`)**: no participan de la lógica de loops
      (ni `remaining_beats` ni descansos); en cada beat pasan por `oneshot_step(track, time, n,
      tag_start, downbeat)`, que dispara si:
-     - `on_tag_change` y empieza un Tag (`tag_start`): `selectTag()` levanta el flag `tag_starting`
+     - `on_tag_change` y empieza un Tag (`tag_start`): `start_tag()` levanta el flag `tag_starting`
        y el primer `set_next_step` siguiente lo consume. Desde `set_next_step` es el mismo beat (el
        mismo `time`) en que se elige el Tag; desde `start()` es el primer beat del transporte y desde
        RESET el beat siguiente. Dispara en cada Tag nuevo, aunque el sorteo repita el mismo Tag.
@@ -779,8 +793,8 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   `new_fx(type, list)` crea una instancia con defaults (la usa la UI al soltar un FX en una tira).
   - `lead`: `"1b"`, `"2b"` (beats) o `"1m"`, `"2m"`, `"4m"`, `"8m"` (compases del compás actual;
     `lead_beats(lead, beats_x_bar)`). `prob` 0..1: chance de dispararse en cada fin. `cond`: `any`,
-    `rest` (solo si lo que sigue es un descanso) o `tag` (fin por corte de Tag: llega con la fase 3;
-    por ahora nunca se cumple).
+    `rest` (solo si lo que sigue es un descanso) o `tag` (solo si el fin de la tirada es un corte por
+    cambio de Tag, ver abajo).
   - Tipos: `cut` (silencio: `fx_gain` a 0 con una rampa de 5 ms), `lpf` / `hpf` (`fx_lp` / `fx_hp`
     en rampa exponencial a `to_hz`, con su `q` aplicado al disparo), `fade` (`fx_gain` en rampa lineal
     a `to_db`; −60 = silencio), `echo` / `verb` (throws: el send al delay / a la reverb sube a `level`
@@ -798,12 +812,18 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     Mover Rev o Dly durante un throw: el knob manda (`rampTo` cancela lo agendado).
   - Motor (`Tracks.vue`): las pistas one-shot ignoran `props.fx` (las instancias se conservan). En
     cada beat, después del paso del loop (`loop_step`, que devuelve si la pista está sonando una
-    tirada), `fx_step` calcula `beats_to_end(track)` = `repeats_left · play_beats + remaining_beats + 1`
-    (beats hasta el fin natural contando el actual; en el último beat de la última repetición da 1;
-    en la fase 3 se tomará el mínimo con el corte por Tag). Cada instancia se evalúa **una vez por
-    tirada** (ids en `track.fx_fired`), en el primer beat en que `lead_beats ≥ beats_to_end` (≥ y no
-    ==: una tirada más corta que la anticipación dispara igual, recortada): se tira `prob`, se chequea
-    `cond` y se agenda `fx_schedule(trg, inst, time, time + beats_to_end · 60 / bpm)`.
+    tirada), `fx_step` calcula `beats_to_end(track)`: beats hasta el fin de la tirada contando el
+    actual (1 = este es el último beat de lo que suena), el **mínimo** entre:
+    - fin natural (`natural_end_beats`) = `repeats_left · play_beats + remaining_beats + 1` (en el
+      último beat de la última repetición da 1);
+    - fin por **corte de Tag** (`tag_cut_beats`) = `current_TAG.remaining_beats` (ya descontado el
+      beat actual) si el cambio al Tag preseleccionado va a cortar el archivo (misma regla
+      `tag_cuts` que el corte real: tiene tags y no incluye `next_tag`; si `next_tag` es el actual
+      no hay corte; con `next_tag` `null` se cortan todos los que tienen tags), si no ∞. Ejemplo:
+      un Tag de 4 beats que empieza en el beat 10 queda en 4, 3, 2, 1 en los beats 10..13 y el corte
+      es en el `time` del 14 (se procesa con 1 antes de descontar): en el 10 da 4 y en el 13 da 1,
+      igual que un loop de 4 beats arrancado en el 10.
+    Cada instancia se evalúa **una vez por
   - **Fin = de la tirada**: una repetición del mismo archivo no es fin. El fin es el beat en que la
     pista arranca otro archivo, empieza un descanso, queda sin candidatos, la corta el cambio de Tag
     o pasa a one-shot: ahí `end_run` hace `fx_reset` (si algo se evaluó en la tirada) y limpia
@@ -829,8 +849,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     Clic en un chip abre `FxDialog.vue` (uno solo en `Tracks.vue`, con el id de pista e instancia).
     En modo lectura los chips se ven y se encienden pero no abren nada.
   - `FxDialog.vue` (`hw_dialog`): título con el rótulo del tipo y la pista; `lead` y `cond` con filas
-    de `LedButton` de selección única (ANY / BEFORE REST / TAG CHANGE; la última no se cumple hasta la
-    fase 3); `prob` con un knob (LCD en %); los parámetros del tipo con knobs según los rangos de
+    de `LedButton` de selección única (ANY / BEFORE REST / TAG CHANGE); `prob` con un knob (LCD en %); los parámetros del tipo con knobs según los rangos de
     `FX_TYPES` (las frecuencias en escala logarítmica: el knob va de 0 a 1 y se convierte a Hz,
     redondeado a 1 Hz por debajo de 1 kHz y a 10 Hz por encima) y su valor en un LCD chico; REMOVE
     quita la instancia. Edita la instancia en vivo y guarda con `save_trackGroups_debounced()` en cada

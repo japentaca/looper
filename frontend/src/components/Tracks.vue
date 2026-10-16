@@ -267,7 +267,8 @@ function reset() {
   })
   // RESET es inmediato: los FX en curso se cortan ya (el próximo beat arranca limpio)
   fx_reset_all()
-  selectTag()
+  // Tag nuevo ya (sorteo fresco, no el preseleccionado) y se sortea el siguiente
+  start_tag(draw_tag())
   // los disponibles tienen que ser los del Tag nuevo (antes RESET seguía sorteando con los del anterior)
   get_available_files_x_tag(current_TAG.tag?.id)
   //set_next_step(-1)
@@ -675,10 +676,11 @@ function start() {
       // instancias ya evaluadas en la tirada actual e ids sonando (para los chips; vía Tone.Draw)
       next_rest: null,
       fx_fired: [],
-      fx_active: []
+      fx_active: [],
+      fx_tag_end: false // true si las instancias de la tirada se evaluaron contra un corte por Tag
     })
   }
-  selectTag()
+  start_tag(draw_tag())
   get_available_files_x_tag(current_TAG.tag?.id)
 
   beat.n = 0 // el transporte arranca de cero; evita mostrar la posición de la corrida anterior
@@ -783,26 +785,58 @@ onBeforeUnmount(() => {
 
 // true desde que se elige un Tag hasta que set_next_step procesa su primer beat
 let tag_starting = false
-function selectTag() {
-  //console.log("llamaron a selectTag")
-  if (current_TAG.tag == null) {
-    current_TAG.tag = { id: "nada", name: "vacio" }
-  }
-  current_TAG.old_tag = { ...current_TAG.tag }
-  // sorteo ponderado por el peso del Tag (puede repetirse el actual); si todos pesan 0 no hay Tag y
-  // suenan solo los archivos sin tags
-  current_TAG.tag = pick_weighted(available_tags, t => t?.weight ?? 0)
+// "sin Tag": old_tag cuando el Tag que termina era null (todos los pesos en 0)
+const NO_TAG = { id: "nada", name: "vacio" }
+
+// sorteo de un Tag y su duración (no lo activa). Ponderado por el peso del Tag (puede repetirse el
+// actual); si todos pesan 0 sale null (no hay Tag y suenan solo los archivos sin tags). Duración:
+// 2^n beats con n al azar en TrackCtrl.tag_range
+function draw_tag() {
+  let tag = pick_weighted(available_tags, t => t?.weight ?? 0)
   let base = parseInt((Math.random() * ((TrackCtrl.tag_range[1] + 1) - (TrackCtrl.tag_range[0]))) + (TrackCtrl.tag_range[0]))
-  //console.log(TrackCtrl.tag_range[0], TrackCtrl.tag_range[1], base)
-  current_TAG.duration = Math.pow(2, base)
-  //console.log("current_TAG.duration", current_TAG.dura1tion)
-  current_TAG.remaining_beats = current_TAG.duration + 1
+  return { tag, duration: Math.pow(2, base) }
+}
+
+// ¿el Tag preseleccionado se puede activar todavía? Si se le bajó el peso a 0 mientras esperaba, no
+// (y null, "sin Tag", solo vale si siguen todos en 0). La lista available_tags es la de START
+function tag_drawable(tag) {
+  if (tag) return tag.weight > 0
+  return !available_tags.some(t => t?.weight > 0)
+}
+
+// activa un Tag sorteado ({ tag, duration }) y preselecciona el siguiente (current_TAG.next_tag y
+// next_duration). Así se sabe de antemano qué pistas va a cortar el cambio y cuándo (ver
+// tag_cut_beats). Lo llaman start() y reset() con un sorteo nuevo y set_next_step con el preseleccionado
+function start_tag(drawn) {
+  current_TAG.old_tag = { ...(current_TAG.tag ?? NO_TAG) }
+  current_TAG.tag = drawn.tag
+  current_TAG.duration = drawn.duration
+  // set_next_step descuenta 1 antes de procesar el beat: en el primer beat del Tag queda en duration
+  current_TAG.remaining_beats = drawn.duration + 1
+  let next = draw_tag()
+  current_TAG.next_tag = next.tag
+  current_TAG.next_duration = next.duration
   // el próximo beat que procese set_next_step es el primero del Tag nuevo (ahí disparan los one-shot
   // con on_tag_change). Llamado desde set_next_step es ese mismo beat; desde start() o reset(), el siguiente.
   tag_starting = true
+}
 
-  //console.log("current tag", current_TAG)
+// el Tag que entra en el cambio: el preseleccionado, salvo que ya no sea sorteable (se re-sortea).
+// Los pesos editados durante un Tag valen desde el sorteo siguiente: el preseleccionado no cambia
+// (salvo que su peso pase a 0)
+function next_tag_entry() {
+  if (tag_drawable(current_TAG.next_tag)) {
+    return { tag: current_TAG.next_tag, duration: current_TAG.next_duration }
+  }
+  return draw_tag()
+}
 
+// ¿el cambio de Tag de from_id a to_tag corta este archivo? Solo si el Tag cambia de verdad y el
+// archivo tiene tags y no incluye el nuevo (los archivos sin tags nunca se cortan; to_tag null =
+// "sin Tag" corta todos los que tienen tags)
+function tag_cuts(file, from_id, to_tag) {
+  if (from_id === to_tag?.id) return false
+  return file.tags.length > 0 && !file.tags.includes(to_tag?.id)
 }
 
 
@@ -814,39 +848,29 @@ function set_next_step(time, n, downbeat) {
 
 
   if (current_TAG.remaining_beats == 1) {
-    //console.log("A buscar un TAG")
-
-    selectTag()
-    //console.log("Seleccioné nuevo tag", current_TAG.tag, current_TAG.old_tag)
+    // cambio de Tag: entra el preseleccionado (y se preselecciona el siguiente)
+    start_tag(next_tag_entry())
     get_available_files_x_tag(current_TAG.tag?.id)
 
-    if ((current_TAG.old_tag.id !== current_TAG.tag?.id)) {
-
-      //console.log("cambió el tag", current_TAG.old_tag.id)
-      tracks.map(track => {
-
-        //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
-        if (track.curr_file) {
-          //console.log("Track tiene current file")
-          if (track.curr_file.tags.length > 0) {
-
-            // solo se cortan los loops que no tienen el tag nuevo; los que tienen varios tags
-            // (p.ej. A y B) siguen sonando al pasar de A a B
-            if (!track.curr_file.tags.includes(current_TAG.tag?.id)) {
-              //if (true)
-              //console.log("le puse remaining beats 0")
-              track.remaining_beats = 0
-              track.repeats_left = 0
-              if (audio_players[track.curr_file.id].state == "started") {
-                //console.log("estaba sonando, invoco audio stop", track.curr_file.original_name_short)
-                // se corta en el tiempo del beat (donde arranca el loop nuevo), no ya: el callback corre
-                // hasta lookAhead (~0.1 s) antes del beat y cortar ya dejaba ese silencio entre los dos
-                stop_file(track.curr_file.id, time)
-              }
-            }
-          }
+    for (const track of tracks) {
+      if (!track.curr_file) continue
+      // solo se cortan los loops que no tienen el tag nuevo; los que tienen varios tags (p.ej. A y B)
+      // siguen sonando al pasar de A a B
+      if (tag_cuts(track.curr_file, current_TAG.old_tag.id, current_TAG.tag)) {
+        // loop_step ve remaining_beats == 0 sin repeticiones en este mismo beat: fin de la tirada (end_run)
+        track.remaining_beats = 0
+        track.repeats_left = 0
+        if (audio_players[track.curr_file.id].state == "started") {
+          // se corta en el tiempo del beat (donde arranca el loop nuevo), no ya: el callback corre
+          // hasta lookAhead (~0.1 s) antes del beat y cortar ya dejaba ese silencio entre los dos
+          stop_file(track.curr_file.id, time)
         }
-      })
+      } else if (track.fx_tag_end) {
+        // los FX se agendaron hacia un corte que al final no ocurrió (el Tag preseleccionado se
+        // re-sorteó o se editaron los tags del archivo): vuelven a la base y se reevalúan contra el
+        // fin que quede. next_rest se conserva (vale para el fin que llegue)
+        fx_back_to_base(track, time)
+      }
     }
   }
   current_TAG.remaining_beats--
@@ -929,24 +953,43 @@ function roll_rest(track) {
 
 // --- FX de transición (trg.props.fx, ver helpers/fx.js y mixer.js) ---
 
-// beats que faltan hasta el fin natural de la tirada, contando el beat actual (en el último beat de la
-// última repetición da 1). Se llama después de loop_step. En la fase 3 se tomará el mínimo con los
-// beats hasta el corte por cambio de Tag (si el archivo no tiene el Tag siguiente)
+// beats que faltan hasta el fin de la tirada, contando el beat actual: 1 = este es el último beat de
+// lo que suena (el siguiente arranca otra cosa). Se llama después de loop_step (y de que set_next_step
+// descontó current_TAG.remaining_beats). Es el mínimo entre el fin natural y el corte por Tag; by_tag =
+// el fin es el corte por Tag (si los dos caen en el mismo beat cuenta como corte: ahí también cambia el Tag)
 function beats_to_end(track) {
+  let natural = natural_end_beats(track)
+  let tag_cut = tag_cut_beats(track)
+  return { left: Math.min(natural, tag_cut), by_tag: tag_cut <= natural }
+}
+
+// fin natural: en el último beat de la última repetición da 1
+function natural_end_beats(track) {
   let play_beats = Math.max(1, track.curr_file.play_beats)
   return track.repeats_left * play_beats + track.remaining_beats + 1
 }
 
-// ¿se cumple la condición de la instancia para el fin de esta tirada?
-function fx_cond_ok(track, inst) {
+// fin por corte de Tag: beats hasta el cambio si el cambio va a cortar el archivo (misma regla que
+// set_next_step, con el Tag preseleccionado), si no Infinity. El corte ocurre en el beat que empieza
+// con current_TAG.remaining_beats == 1, y acá ya está descontado el del beat actual: faltan
+// exactamente current_TAG.remaining_beats beats. Ejemplo, Tag de 4 beats que empieza en el beat 10:
+// start_tag deja 5; en el 10 se descuenta a 4, en el 11 a 3, en el 12 a 2, en el 13 a 1; en el 14 se
+// ve 1 antes de descontar y se corta en su `time`. En el 10 da 4 (10, 11, 12, 13) y en el 13 da 1
+// (último beat que suena), igual que un loop de 4 beats arrancado en el 10: remaining_beats 3 → 3 + 1 = 4
+function tag_cut_beats(track) {
+  if (!tag_cuts(track.curr_file, current_TAG.tag?.id ?? NO_TAG.id, current_TAG.next_tag)) return Infinity
+  return Math.max(1, current_TAG.remaining_beats)
+}
+
+// ¿se cumple la condición de la instancia para el fin de esta tirada? by_tag = el fin es un corte por Tag
+function fx_cond_ok(track, inst, by_tag) {
   if (inst.cond == "rest") {
     // el dado de descanso se sortea ahora y se guarda: loop_step lo usa en el fin
     if (track.next_rest == null) track.next_rest = roll_rest(track)
     return track.next_rest
   }
-  // "tag" = el fin es un corte por cambio de Tag: llega con la fase 3 (Tag anticipado); por ahora
-  // todos los fines son naturales y nunca se cumple
-  if (inst.cond == "tag") return false
+  // "tag" = el fin de esta tirada es un corte por cambio de Tag (si el natural llega antes, no)
+  if (inst.cond == "tag") return by_tag
   return true
 }
 
@@ -956,14 +999,15 @@ function fx_cond_ok(track, inst) {
 function fx_step(track, time) {
   let list = track.track_group.props?.fx
   if (!Array.isArray(list) || !list.length) return
-  let left = beats_to_end(track)
+  let { left, by_tag } = beats_to_end(track)
   let bpb = parseInt(TrackCtrl.beats_x_bar)
   for (const inst of list) {
     if (!inst?.id || track.fx_fired.includes(inst.id)) continue
     if (lead_beats(inst.lead, bpb) < left) continue
     track.fx_fired.push(inst.id)
+    if (by_tag) track.fx_tag_end = true
     if (!(Math.random() < (inst.prob ?? 1))) continue
-    if (!fx_cond_ok(track, inst)) continue
+    if (!fx_cond_ok(track, inst, by_tag)) continue
     // segundos por beat con el tempo actual (un cambio de tempo en medio de la rampa se tolera)
     let end = time + left * 60 / Tone.Transport.bpm.value
     fx_schedule(track.track_group.id, inst, time, end)
@@ -974,15 +1018,21 @@ function fx_step(track, time) {
   }
 }
 
-// fin de una tirada (en el beat donde arranca otro archivo, empieza un descanso o la pista pasa a
-// one-shot): si algo se evaluó, los FX vuelven a la base exactamente en `time`. Se limpia el estado
+// fin de una tirada (en el beat donde arranca otro archivo, empieza un descanso, la corta el cambio de
+// Tag o la pista pasa a one-shot): si algo se evaluó, los FX vuelven a la base exactamente en `time`. Se limpia el estado
 function end_run(track, time) {
+  fx_back_to_base(track, time)
+  track.next_rest = null
+}
+
+// FX de la pista a la base en `time` (si algo se evaluó) y sin instancias evaluadas
+function fx_back_to_base(track, time) {
   if (track.fx_fired.length) {
     fx_reset(track.track_group.id, time)
     Tone.Draw.schedule(() => { track.fx_active = [] }, time)
   }
   track.fx_fired = []
-  track.next_rest = null
+  track.fx_tag_end = false
 }
 
 // STOP y RESET (los nodos los lleva a la base fx_reset_all)
@@ -990,6 +1040,7 @@ function clear_fx_state(track) {
   track.fx_fired = []
   track.fx_active = []
   track.next_rest = null
+  track.fx_tag_end = false
 }
 
 // paso de una pista one-shot: dispara si empieza un Tag (on_tag_change) o si en el primer downbeat de
