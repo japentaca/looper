@@ -774,8 +774,20 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   highpass) → fx_gain (Tone.Gain) → Tone.Channel` (`route_player` conecta el player a `fx_lp`). Los
   filtros son `Gain → BiquadFilter → Gain` nativos (estéreo, a diferencia del `Panner` del Channel,
   que por eso lleva `channelCount: 2`); en reposo quedan abiertos (20 kHz y 10 Hz, Q 0, −12 dB/oct)
-  y no colorean; `fx_gain` en 1. Los usan solo los FX de transición (ver abajo). `remove_channel`
-  dispone también los tres nodos y los sends (reverb y delay).
+  y no colorean; `fx_gain` en 1. Los usan solo los FX de transición (ver abajo).
+  Cadena completa por pista:
+  ```
+  player → fx_lp → fx_hp → fx_gain → channel → Destination / meter / send (→ reverb) / dly_send (→ delay_in)
+                     fx_hp → throw_ch → throw_send (→ reverb) / throw_dly_send (→ delay_in)
+  ```
+  `throw_ch` es un segundo `Tone.Channel` (`channelCount: 2`, **no** conectado a Destination) que
+  toma la señal de `fx_hp`, o sea **antes de Cut y Fade** (`fx_gain`), con el mismo volumen, mute y
+  solo que el canal principal (`set_volume`, `toggle_mute` y `toggle_solo` actualizan los dos). Solo
+  alimenta los sends de los throws (`throw_send`, `throw_dly_send`, base 0). El solo de Tone es por
+  contexto (`Solo._soloed`: cualquier `Solo` en solo calla a todos los que no lo están); como los dos
+  canales de una pista tienen siempre el mismo estado, el solo entre pistas funciona igual.
+  `remove_channel` pone `solo = false` en ambos antes de disponerlos (`Solo.dispose` no avisa a los
+  demás) y dispone también los tres nodos de FX, los sends (reverb y delay) y los de throw.
 - **Reverb compartida**: un único `Tone.Reverb` (decay 6 s, `wet = 1`: solo la cola) conectado a
   `Destination` (pasa por el limitador). Cada canal tiene un send: un `Tone.Gain` (lineal) colgado de
   la **salida** del canal → reverb. Es lo mismo que hace `Tone.Channel.send()` por dentro, pero no se
@@ -797,19 +809,22 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     cambio de Tag, ver abajo).
   - Tipos: `cut` (silencio: `fx_gain` a 0 con una rampa de 5 ms), `lpf` / `hpf` (`fx_lp` / `fx_hp`
     en rampa exponencial a `to_hz`, con su `q` aplicado al disparo), `fade` (`fx_gain` en rampa lineal
-    a `to_db`; −60 = silencio), `echo` / `verb` (throws: el send al delay / a la reverb sube a `level`
-    dB en 10 ms aunque la pista tenga Dly/Rev en off; si la base ya es más alta, queda en la base).
+    a `to_db`; −60 = silencio), `echo` / `verb` (throws: `throw_dly_send` / `throw_send` suben de 0
+    a `level` dB en 10 ms). Los throws salen de `throw_ch`, **pre-Cut/Fade** (estilo dub throw: con
+    Cut + Echo el delay recibe el último tramo y la cola sigue sobre el corte), y son independientes
+    de los knobs Rev/Dly (suenan con Rev/Dly en off; el knob no los toca).
   - Mixer: `fx_schedule(trg, inst, start, end)` agenda la rampa entre `start` (el `time` del beat
     del disparo) y `end` (fin de la tirada); `fx_reset(trg, time)` vuelve todo a la base en el beat
-    del fin: filtros abiertos con Q 0 y ganancia 1 **exactamente en `time`**, sends a `props.reverb` /
-    `props.delay` con una rampa de 50 ms (la cola del throw cruza al loop siguiente). Las dos
+    del fin: filtros abiertos con Q 0 y ganancia 1 **exactamente en `time`**, sends de throw a 0
+    con una rampa de 50 ms (la cola del throw cruza al loop siguiente). Las dos
     empiezan con `cancelAndHoldAtTime` (de Tone: recorta la rampa en curso en ese punto y borra lo
     posterior) en vez de `cancelScheduledValues` solo, que borraría el punto final de una rampa que
     termina justo en `time` y la desharía de golpe (el callback corre ~0,1 s antes del beat). Así, si
     dos instancias tocan el mismo nodo, la última agendada arranca desde donde iba la anterior.
     Todos los tiempos son de audio (el `time` del callback), nunca `Tone.now()`.
     `fx_reset_all(ramp)` (STOP y RESET) lleva todas las pistas a la base ya, con una rampa corta.
-    Mover Rev o Dly durante un throw: el knob manda (`rampTo` cancela lo agendado).
+    Mover Rev o Dly durante un throw no lo afecta: los knobs mueven los sends normales (`send` /
+    `dly_send`, post-Channel y después de Cut/Fade) y los throws van por sus sends propios.
   - Motor (`Tracks.vue`): las pistas one-shot ignoran `props.fx` (las instancias se conservan). En
     cada beat, después del paso del loop (`loop_step`, que devuelve si la pista está sonando una
     tirada), `fx_step` calcula `beats_to_end(track)`: beats hasta el fin de la tirada contando el

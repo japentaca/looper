@@ -45,27 +45,40 @@ Por tipo (`helpers/fx.js`, `FX_TYPES`: rótulo, letra del chip, defaults y rango
 | `lpf` | Low-pass / L | pasabajos de 20 kHz a `to_hz` (rampa exponencial) | `lead` `"2m"`, `to_hz` 300 (100..5000), `q` 1 (0..12) |
 | `hpf` | High-pass / H | pasaaltos de 10 Hz a `to_hz` (exponencial) | `lead` `"2m"`, `to_hz` 800 (100..5000), `q` 1 (0..12) |
 | `fade` | Fade / F | volumen de 0 dB a `to_db` (rampa lineal en ganancia) | `lead` `"2m"`, `to_db` -60 (-60..-6; -60 = silencio) |
-| `echo` | Echo throw / E | el send al delay global sube a `level` dB; vuelve a la base en el fin y la cola cruza al loop siguiente | `lead` `"1b"`, `level` 0 (-24..0) |
-| `verb` | Reverb throw / R | ídem con el send a la reverb | `lead` `"1b"`, `level` 0 (-24..0) |
+| `echo` | Echo throw / E | el send de throw al delay global (pre-Cut/Fade) sube de 0 a `level` dB; vuelve a 0 en el fin y la cola cruza al loop siguiente | `lead` `"1b"`, `level` 0 (-24..0) |
+| `verb` | Reverb throw / R | ídem con el send de throw a la reverb | `lead` `"1b"`, `level` 0 (-24..0) |
 
-Los throws suben el send aunque la pista tenga Rev/Dly en off (`null`): es justamente el uso típico.
+Los throws tienen sends propios (`throw_send` / `throw_dly_send`, base 0), independientes de los
+knobs Rev/Dly: suenan aunque la pista tenga Rev/Dly en off (`null`) y el knob no los afecta.
+
+**Decisión (dub throw)**: los throws toman la señal **antes** de Cut y Fade. Con Cut + Echo throw en
+la misma pista, el delay recibe el último tramo y la cola sigue sobre el corte (antes, con los throws
+en los sends post-Channel, el delay recibía silencio). Los sends normales de Rev/Dly no cambian:
+siguen post-Channel, después de Cut/Fade (un Fade también baja la reverb normal).
 
 ## Cadena de audio (mixer.js)
 
 ```
 player → fx_lp (Tone.Filter lowpass, abierto 20 kHz) → fx_hp (Tone.Filter highpass, abierto 10 Hz)
        → fx_gain (Tone.Gain 1) → Channel → sends (reverb, delay) / meter
+                          fx_hp → throw_ch (Channel, no va a Destination) → throw_send (→ reverb)
+                                                                          → throw_dly_send (→ delay)
 ```
+
+- `throw_ch` lleva el mismo volumen, mute y solo que el canal principal (los throws respetan fader,
+  mute y solo). El solo de Tone es por contexto; los dos canales de una pista siempre tienen el
+  mismo estado, así que el solo entre pistas no cambia.
 
 - `fx_lp` reemplaza al filtro del drift (que se elimina). En reposo los filtros no colorean (Q 0).
 - Funciones nuevas en `mixer.js` (los nombres son orientativos):
   - `fx_schedule(trg, inst, start, end)`: agenda la rampa del efecto entre `start` y `end` (tiempos
-    de audio de Tone). Cut/LPF/HPF/Fade: rampa del parámetro; throws: `send`/`dly_send` a `level`.
+    de audio de Tone). Cut/LPF/HPF/Fade: rampa del parámetro; throws: `throw_send`/`throw_dly_send` a `level`.
   - `fx_reset(trg, time)`: en el beat del fin, `cancelScheduledValues(time)` y vuelta a la base
-    exactamente en `time` (filtros abiertos con su Q base, ganancia 1, sends a `props.reverb` /
-    `props.delay`; los throws con una rampa corta de ~50 ms para no cortar la cola en seco).
+    exactamente en `time` (filtros abiertos con su Q base, ganancia 1; los sends de throw a 0 con
+    una rampa corta de ~50 ms para no cortar la cola en seco).
   - `fx_reset_all(ramp)`: STOP y RESET dejan todas las pistas neutras ya.
-- Mover Rev/Dly mientras un throw está activo: el knob manda (cancela la rampa, como hoy).
+- Mover Rev/Dly mientras un throw está activo: no interactúan (el knob mueve el send normal; el
+  throw va por su send propio).
 
 ## Motor (Tracks.vue)
 
@@ -133,6 +146,8 @@ player → fx_lp (Tone.Filter lowpass, abierto 20 kHz) → fx_hp (Tone.Filter hi
 - Loop de 1 compás con repetición ×8 y LPF `2m`: solo cierra en las dos últimas pasadas.
 - `cond: rest` con Rest al 50 %: el efecto solo aparece antes de los descansos.
 - Echo throw `1b` con Dly en off: el último beat se repite en el delay sobre lo que sigue.
+- Cut `1b` + Echo throw `1b` en la misma pista: el beat cortado se oye igual en el delay (dub throw).
+- Echo throw con la pista en mute u otra pista en solo: no manda nada al delay.
 - Corte por Tag con `cond: tag` (fase 3): el efecto anticipa el corte.
 - STOP y RESET en medio de una rampa: todo vuelve a neutro; el próximo START suena limpio.
 - Proyecto viejo con `props.drift`: carga y suena sin errores.
