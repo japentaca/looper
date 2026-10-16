@@ -6,7 +6,7 @@ Detalle técnico en `docs/ARCHITECTURE.md`, secciones "Autostart y recuperación
 
 ## Requisitos
 
-- Un proyecto con sus archivos, Tracks y Tags ya configurados (volumen, Rest, modo, Rev, Drift,
+- Un proyecto con sus archivos, Tracks y Tags ya configurados (volumen, Rest, modo, Rev, Dly, FX,
   tempo y compás se guardan en el proyecto y se recuperan al cargar). Se configura desde la app
   (`https://looper.jape.com.ar/`, con sesión), como siempre.
 - Todos los proyectos son públicos; el del kiosko no tiene que estar oculto por el
@@ -117,7 +117,7 @@ frontend locales, ver `AGENTS.md`, "Cómo correr"), se puede usar la app con ses
    del mismo perfil o antes de pasar a kiosko) y anotar la **memoria** de la pestaña de Looper y la
    hora. Anotar también la memoria del proceso de Chrome en el Administrador de tareas de Windows.
 3. Dejarla correr **8 a 12 horas** con todas las funciones en uso (configuradas en el proyecto desde
-   la app): alguna pista con Rest, alguna one-shot, Rev y Drift en algunas pistas, Tags cambiando.
+   la app): alguna pista con Rest, alguna one-shot, Rev, Dly y FX de transición en algunas pistas, Tags cambiando.
 4. Cada tanto (o al final) anotar memoria de nuevo y escuchar: que no haya clics, cortes, desfasajes
    de tempo ni pistas trabadas, y que los LEDs y LCDs sigan moviéndose al ritmo.
 5. Al final comparar: después de estabilizarse (primera media hora) la memoria no debería crecer de

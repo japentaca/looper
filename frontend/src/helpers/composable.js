@@ -89,6 +89,7 @@ import {
   TAG_RANGE_DEFAULT, MASTER_DEFAULT
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
+import { normalize_fx_list } from './fx'
 
 // una respuesta 401/403 "Sin sesión" de cualquier endpoint marca la sesión como perdida. No se
 // desloguea ni se recarga nada: eso cortaría el audio.
@@ -148,11 +149,12 @@ export async function save_file(file) {
 // on_tag_change = al empezar cada Tag, density = probabilidad 0..1 de disparar al empezar cada frase
 // de bars compases (1, 2, 4, 8, 16, 32 o 64).
 // reverb = nivel del send a la reverb compartida en dB (null = nada; no se usa -Infinity porque
-// JSON.stringify lo vuelve null igual); drift = modulación lenta 0..1 de filtro y send (ver mixer.js).
-// delay = nivel del send al delay global en dB (null = nada, igual que reverb).
+// JSON.stringify lo vuelve null igual). delay = nivel del send al delay global en dB (null = nada, igual
+// que reverb). fx = instancias de los FX de transición (ver helpers/fx.js). Un props.drift guardado de
+// antes (el drift se eliminó) se ignora: no se migra ni se borra.
 export function trg_default_props() {
   return { volume: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false, density: 0, bars: 1,
-    reverb: null, drift: 0, delay: null }
+    reverb: null, delay: null, fx: [] }
 }
 // guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
 let save_trg_timer = null
@@ -367,6 +369,7 @@ async function install_project(p, same) {
   for (let t of p.track_groups ?? []) {
     t.props = { ...trg_default_props(), ...(t.props ?? {}) }
     t.props.rest_len = parse_rest_len(t.props.rest_len)
+    t.props.fx = normalize_fx_list(t.props.fx)
     // mute y solo ya no se guardan (viven en memoria en mixer.js): se descartan si quedaron de antes
     delete t.props.mute
     delete t.props.solo

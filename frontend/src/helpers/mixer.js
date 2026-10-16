@@ -2,8 +2,8 @@
 // Los players de los archivos del grupo se enrutan al canal en vez de ir directo a la salida.
 // Además hay un vúmetro estéreo en la salida master. Los Meter solo analizan: no cambian el audio.
 // El volumen y los efectos de cada pista viven en trg.props (se guardan con save_trackGroups); mute y solo, en memoria (mixer).
-// Efectos por pista: player → Filter (lowpass) → Channel, y un send post-fader del canal a una reverb
-// compartida. Con props.drift > 0 una caminata al azar lenta mueve el filtro y el send (start_drift).
+// Efectos por pista: player → fx_lp → fx_hp → fx_gain → Channel (cadena de los FX de transición, ver
+// fx_schedule), y un send post-fader del canal a una reverb compartida.
 // Delay global sincronizado al tempo (config en TrackCtrl.delay) con un send post-fader por pista.
 import * as Tone from "tone"
 import { reactive, watch } from "vue"
@@ -14,11 +14,13 @@ const FLOOR_DB = -48 // nivel que queda en 0 (abajo de esto el medidor está apa
 const PEAK_HOLD_MS = 800 // cuánto se queda quieto el LED de pico antes de caer
 const PEAK_FALL = 0.015 // caída del pico por frame (en escala 0..1)
 
-const FILTER_OPEN_HZ = 20000 // filtro "abierto": no colorea (con Q 0 y -12 dB/oct)
-const FILTER_MIN_HZ = 300 // hasta dónde puede cerrar el drift con drift = 1
+const FILTER_OPEN_HZ = 20000 // pasabajos "abierto": no colorea (con Q 0 y -12 dB/oct)
+const HP_OPEN_HZ = 10 // pasaaltos "abierto"
+const FILTER_BASE_Q = 0 // Q de los filtros en reposo (el del efecto se aplica solo mientras suena)
+const CUT_RAMP = 0.005 // rampa del Cut a silencio (s)
+const THROW_RISE = 0.01 // subida del send en un throw (s)
+const THROW_RETURN = 0.05 // vuelta del send a la base al terminar un throw (s): no corta la cola en seco
 const REV_OFF_DB = -40 // en el knob Rev: este valor (o menos) = sin reverb (props.reverb = null)
-const DRIFT_SEND_DB = 9 // con drift = 1 el send oscila ± estos dB alrededor de props.reverb
-const DRIFT_STEP = 0.2 // tamaño máximo del paso de la caminata al azar (en escala 0..1) por compás
 const DLY_OFF_DB = REV_OFF_DB // en el knob Dly: mismo rango y mismo "off" que Rev (props.delay = null)
 const DELAY_MAX_S = 6 // tiempo máximo del delay (con tempos muy lentos y divisiones largas se recorta)
 const DELAY_TIME_RAMP = 0.1 // rampa al cambiar el tempo o la división (s): evita clics, las colas se "estiran"
@@ -53,8 +55,7 @@ export function vol_db(db, max_db = VOL_MAX_DB) {
   return db == null || db <= VOL_OFF_DB ? VOL_SILENT_DB : Math.min(max_db, db)
 }
 
-// trg id -> { channel, meter, filter, send, dly_send, walk }. walk = estado de la caminata al azar del drift:
-// f 0..1 (0 = filtro abierto, 1 = lo más cerrado que permite drift) y s 0..1 (0.5 = send base)
+// trg id -> { channel, meter, fx_lp, fx_hp, fx_gain, send, dly_send }
 const channels_by_trg = {}
 // player -> track group al que está enrutado (WeakMap: si se recargan los audios, los players nuevos arrancan sin enrutar)
 const trg_of_player = new WeakMap()
@@ -77,7 +78,7 @@ const reverb = new Tone.Reverb({ decay: 6, wet: 1 }).toDestination()
 // sends de las pistas → delay_in → delay activo → fade → delay_out (nivel de retorno) → Destination
 // (pasa por el limitador). Solo devuelve las repeticiones (wet = 1). Hay un único delay armado (el del
 // tipo elegido): al cambiar de tipo se arma el nuevo y el anterior se apaga con un fundido corto y se
-// libera, así nunca quedan procesando delays que no se escuchan. No va a la reverb y el drift no lo modula.
+// libera, así nunca quedan procesando delays que no se escuchan. No va a la reverb.
 const delay_in = new Tone.Gain()
 const delay_out = new Tone.Volume(TrackCtrl.delay.level).toDestination()
 let delay_fx = null
@@ -186,19 +187,13 @@ function trg_props(trg) {
   return store.track_groups.find(t => t.id === trg)?.props ?? {}
 }
 
-// ganancia lineal del send según props.reverb (dB; null = sin reverb) y la caminata del drift
-function send_gain(p, walk) {
-  if (p.reverb == null) return 0
-  let db = p.reverb + (walk.s * 2 - 1) * DRIFT_SEND_DB * (p.drift ?? 0)
-  return Tone.dbToGain(Math.min(0, db))
+// ganancia lineal del send según props.reverb (dB; null = sin reverb)
+function send_gain(p) {
+  return p.reverb == null ? 0 : Tone.dbToGain(Math.min(0, p.reverb))
 }
-// ganancia lineal del send al delay según props.delay (dB; null = sin delay). El drift no lo toca.
+// ganancia lineal del send al delay según props.delay (dB; null = sin delay)
 function dly_send_gain(p) {
   return p.delay == null ? 0 : Tone.dbToGain(Math.min(0, p.delay))
-}
-// frecuencia del filtro según la caminata del drift (escala logarítmica entre abierto y FILTER_MIN_HZ)
-function filter_freq(p, walk) {
-  return FILTER_OPEN_HZ * Math.pow(FILTER_MIN_HZ / FILTER_OPEN_HZ, walk.f * (p.drift ?? 0))
 }
 
 // mute / solo por pista: solo en memoria (no se guardan, a propósito: un solo o un mute olvidado
@@ -213,14 +208,16 @@ function get_strip(trg) {
     let channel = new Tone.Channel({
       channelCount: 2, volume: vol_db(p.volume ?? 0), mute: !!mixer.mute[trg], solo: !!mixer.solo[trg]
     }).toDestination()
-    // filtro de la pista (los players entran acá). Tone.Filter es Gain → BiquadFilter → Gain nativos,
-    // que ya son estéreo (a diferencia del Panner del Channel). Abierto a 20 kHz con Q 0 no colorea.
-    let filter = new Tone.Filter({ type: "lowpass", frequency: FILTER_OPEN_HZ, Q: 0, rolloff: -12 })
-    filter.connect(channel)
-    let walk = { f: 0, s: 0.5 }
+    // cadena de los FX de transición (los players entran en fx_lp): fx_lp → fx_hp → fx_gain → canal.
+    // Tone.Filter es Gain → BiquadFilter → Gain nativos, que ya son estéreo (a diferencia del Panner del
+    // Channel). En reposo los filtros quedan abiertos (20 kHz / 10 Hz, Q 0) y no colorean; ganancia 1.
+    let fx_lp = new Tone.Filter({ type: "lowpass", frequency: FILTER_OPEN_HZ, Q: FILTER_BASE_Q, rolloff: -12 })
+    let fx_hp = new Tone.Filter({ type: "highpass", frequency: HP_OPEN_HZ, Q: FILTER_BASE_Q, rolloff: -12 })
+    let fx_gain = new Tone.Gain(1)
+    fx_lp.chain(fx_hp, fx_gain, channel)
     // send a la reverb, tomado de la salida del canal: post-fader, post-mute y post-solo
     // (una pista muteada o callada por otro solo no manda reverb). Ganancia lineal, 0 = nada.
-    let send = new Tone.Gain(send_gain(p, walk))
+    let send = new Tone.Gain(send_gain(p))
     channel.connect(send)
     send.connect(reverb)
     // send al delay global, igual que el de la reverb: post-fader, post-mute y post-solo
@@ -230,7 +227,7 @@ function get_strip(trg) {
     // vúmetro post-mute: muestra lo que realmente se escucha de la pista
     let meter = new Tone.Meter({ smoothing: 0.8 })
     channel.connect(meter)
-    channels_by_trg[trg] = { channel, meter, filter, send, dly_send, walk }
+    channels_by_trg[trg] = { channel, meter, fx_lp, fx_hp, fx_gain, send, dly_send }
     levels.trgs[trg] = new_level()
   }
   return channels_by_trg[trg]
@@ -244,7 +241,9 @@ function remove_channel(trg) {
   let ch = channels_by_trg[trg]
   if (!ch) return
   ch.channel.solo = false // así los demás canales dejan de quedar callados por este solo
-  ch.filter.dispose()
+  ch.fx_lp.dispose()
+  ch.fx_hp.dispose()
+  ch.fx_gain.dispose()
   ch.send.dispose()
   ch.dly_send.dispose()
   ch.channel.dispose()
@@ -265,14 +264,14 @@ watch(() => store.track_groups.map(t => t.id).join(","), () => {
   for (const trg of ids) get_channel(trg)
 }, { immediate: true })
 
-// enruta el player del archivo al filtro (y de ahí al canal) de su track group (una sola vez; si el archivo cambió
+// enruta el player del archivo al primer nodo de la cadena de FX (y de ahí al canal) de su track group (una sola vez; si el archivo cambió
 // de grupo se pasa al canal nuevo)
 export function route_player(file_id) {
   let trg = files_by_id[file_id]?.track_group
   let player = audio_players[file_id]
   if (!trg || !player || trg_of_player.get(player) === trg) return
   player.disconnect() // sale de Destination (o del canal anterior)
-  player.connect(get_strip(trg).filter)
+  player.connect(get_strip(trg).fx_lp)
   trg_of_player.set(player, trg)
 }
 
@@ -295,13 +294,12 @@ export function set_volume(trg, db) {
   save_trackGroups_debounced()
 }
 
-// nivel del send a la reverb en dB (null = sin reverb). Se aplica ya (rampa corta, sin clics);
-// si hay drift, la caminata sigue alrededor del valor nuevo.
+// nivel del send a la reverb en dB (null = sin reverb). Se aplica ya (rampa corta, sin clics); si hay
+// un throw de reverb sonando, el knob manda (rampTo cancela lo agendado)
 export function set_reverb(trg, db) {
   let p = trg_props(trg)
   p.reverb = db == null || db <= REV_OFF_DB ? null : db
-  let ch = get_strip(trg)
-  ch.send.gain.rampTo(send_gain(p, ch.walk), 0.05)
+  get_strip(trg).send.gain.rampTo(send_gain(p), 0.05)
   save_trackGroups_debounced()
 }
 export { REV_OFF_DB }
@@ -315,65 +313,97 @@ export function set_delay(trg, db) {
 }
 export { DLY_OFF_DB }
 
-// cantidad de modulación lenta 0..1. En 0 la pista vuelve a sus valores base (filtro abierto, send =
-// props.reverb): ya si el transporte está detenido, o en el próximo compás si está corriendo.
-export function set_drift(trg, v) {
+// --- FX de transición (instancias en trg.props.fx, ver helpers/fx.js; las dispara el motor en Tracks.vue) ---
+// Todos los tiempos son de audio (el `time` del callback del transporte), nunca Tone.now().
+
+// congela el parámetro en el valor que tendría en `time` según lo agendado y borra lo posterior
+// (Tone recorta la rampa en curso en ese punto): lo que se agende después arranca desde ahí. Sin
+// nada agendado es el valor base. No se usa cancelScheduledValues(time) solo: borraría el punto
+// final de una rampa que termina en `time` o después, y la rampa en curso se desharía de golpe.
+function hold(param, time) {
+  param.cancelAndHoldAtTime(time)
+}
+function set_at(param, value, time) {
+  hold(param, time)
+  param.setValueAtTime(value, time)
+}
+function ramp_at(param, value, time, ramp) {
+  hold(param, time)
+  param.linearRampToValueAtTime(value, time + ramp)
+}
+
+// agenda el efecto de una instancia entre `start` (disparo) y `end` (fin de la tirada). La vuelta a la
+// base la hace fx_reset en el beat del fin. Si hay varias instancias sobre el mismo parámetro, la
+// última agendada manda (arranca desde el valor que dejó la anterior).
+export function fx_schedule(trg, inst, start, end) {
+  let ch = channels_by_trg[trg]
+  if (!ch || !(end > start)) return
   let p = trg_props(trg)
-  p.drift = v
-  if (!v) {
-    let ch = get_strip(trg)
-    ch.walk.f = 0
-    ch.walk.s = 0.5
-    if (!drift_loop) apply_base(ch, p, 0.5)
+  switch (inst.type) {
+    case "cut": {
+      // silencio desde el disparo hasta el fin, con una rampa corta para no hacer clic
+      hold(ch.fx_gain.gain, start)
+      ch.fx_gain.gain.linearRampToValueAtTime(0, Math.min(end, start + CUT_RAMP))
+      break
+    }
+    case "fade": {
+      let g = inst.to_db <= VOL_OFF_DB ? 0 : Tone.dbToGain(Math.min(0, inst.to_db))
+      hold(ch.fx_gain.gain, start)
+      ch.fx_gain.gain.linearRampToValueAtTime(g, end)
+      break
+    }
+    case "lpf":
+    case "hpf": {
+      let filter = inst.type == "lpf" ? ch.fx_lp : ch.fx_hp
+      hold(filter.frequency, start)
+      filter.frequency.exponentialRampToValueAtTime(inst.to_hz, end)
+      set_at(filter.Q, inst.q ?? FILTER_BASE_Q, start)
+      break
+    }
+    case "echo":
+    case "verb": {
+      // throw: el send sube a `level` aunque la pista tenga Rev/Dly en off (props null). Si la base ya
+      // es más alta que `level`, queda en la base (un throw no baja el send)
+      let send = inst.type == "echo" ? ch.dly_send : ch.send
+      let base = inst.type == "echo" ? dly_send_gain(p) : send_gain(p)
+      let g = Math.max(base, Tone.dbToGain(Math.min(0, inst.level ?? 0)))
+      hold(send.gain, start)
+      send.gain.linearRampToValueAtTime(g, Math.min(end, start + THROW_RISE))
+      break
+    }
   }
-  save_trackGroups_debounced()
 }
 
-function apply_base(ch, p, ramp) {
-  ch.filter.frequency.rampTo(FILTER_OPEN_HZ, ramp)
-  ch.send.gain.rampTo(send_gain(p, ch.walk), ramp)
+// vuelta a la base en el beat del fin (`time`): filtros abiertos con Q base y ganancia 1 exactamente
+// en `time`; los sends a props.reverb / props.delay con una rampa corta (la cola del throw sigue
+// sonando en la reverb / el delay sobre lo que viene)
+export function fx_reset(trg, time) {
+  let ch = channels_by_trg[trg]
+  if (!ch) return
+  let p = trg_props(trg)
+  set_at(ch.fx_lp.frequency, FILTER_OPEN_HZ, time)
+  set_at(ch.fx_lp.Q, FILTER_BASE_Q, time)
+  set_at(ch.fx_hp.frequency, HP_OPEN_HZ, time)
+  set_at(ch.fx_hp.Q, FILTER_BASE_Q, time)
+  set_at(ch.fx_gain.gain, 1, time)
+  ramp_at(ch.send.gain, send_gain(p), time, THROW_RETURN)
+  ramp_at(ch.dly_send.gain, dly_send_gain(p), time, THROW_RETURN)
 }
 
-function clamp01(v) {
-  return Math.min(1, Math.max(0, v))
-}
-
-// --- drift: un solo Tone.Loop (para todas las pistas) que corre con el transporte ---
-let drift_loop = null
-
-// cada compás, en el `time` del callback, da un paso de la caminata al azar en cada pista con drift
-// y agenda una rampa de un compás hacia el valor nuevo (cambios suaves, sin saltos)
-function drift_step(time) {
+// STOP y RESET: todas las pistas vuelven ya a la base (rampa corta desde lo que suene ahora; rampTo
+// cancela lo que quedaba agendado)
+export function fx_reset_all(ramp = 0.05) {
+  let now = Tone.now()
   for (const trg of Object.keys(channels_by_trg)) {
     let ch = channels_by_trg[trg]
     let p = trg_props(trg)
-    if (p.drift > 0) {
-      ch.walk.f = clamp01(ch.walk.f + (Math.random() * 2 - 1) * DRIFT_STEP)
-      ch.walk.s = clamp01(ch.walk.s + (Math.random() * 2 - 1) * DRIFT_STEP)
-    }
-    // con drift 0 walk quedó en la base (set_drift): la rampa la lleva a filtro abierto / send base
-    ch.filter.frequency.rampTo(filter_freq(p, ch.walk), "1m", time)
-    ch.send.gain.rampTo(send_gain(p, ch.walk), "1m", time)
-  }
-}
-
-// se llama en START, antes de Tone.Transport.start(): el loop arranca en el tiempo 0 del transporte
-export function start_drift() {
-  stop_drift()
-  drift_loop = new Tone.Loop(drift_step, "1m").start(0)
-}
-
-// se llama en STOP: elimina el loop (no quedan eventos agendados en el transporte) y lleva todas
-// las pistas a la base con una rampa corta. La caminata se reinicia en la próxima corrida.
-export function stop_drift() {
-  if (!drift_loop) return
-  drift_loop.dispose()
-  drift_loop = null
-  for (const trg of Object.keys(channels_by_trg)) {
-    let ch = channels_by_trg[trg]
-    ch.walk.f = 0
-    ch.walk.s = 0.5
-    apply_base(ch, trg_props(trg), 0.5)
+    ch.fx_lp.frequency.rampTo(FILTER_OPEN_HZ, ramp, now)
+    ch.fx_lp.Q.rampTo(FILTER_BASE_Q, ramp, now)
+    ch.fx_hp.frequency.rampTo(HP_OPEN_HZ, ramp, now)
+    ch.fx_hp.Q.rampTo(FILTER_BASE_Q, ramp, now)
+    ch.fx_gain.gain.rampTo(1, ramp, now)
+    ch.send.gain.rampTo(send_gain(p), ramp, now)
+    ch.dly_send.gain.rampTo(dly_send_gain(p), ramp, now)
   }
 }
 

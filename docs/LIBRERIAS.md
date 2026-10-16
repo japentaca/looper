@@ -122,7 +122,7 @@ El script se niega a seguir si el proyecto ya tiene pistas. Al terminar, el due�
 (los PUT de pistas y tags reemplazan la colección completa).
 
 **Pistas:** se copian las de la plantilla (nombre, color y `props`: volumen, descanso, modo,
-reverb, delay, drift) con ids nuevos, más las que hagan falta. Reparto por nombre del archivo, en
+reverb, delay, FX de transición) con ids nuevos, más las que hagan falta. Reparto por nombre del archivo, en
 este orden (la primera regla que coincide):
 
 | Pista | Loops cuyo nombre dice |

@@ -99,8 +99,9 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   trunca; a 160 BPM son ~115 000 beats en 12 h, lejos de cualquier problema de precisión. No se cambió.
 - ✅ Revisado: el `scheduleRepeat` del beat y el listener `statechange` del contexto se crean una
   vez por montaje del componente (no por START) y se quitan en `onBeforeUnmount` (antes no se
-  quitaban; solo importaba con HMR en desarrollo). El único `Tone.Loop` por START (drift) se elimina
-  en STOP. START/STOP repetidos no acumulan eventos en el transporte.
+  quitaban; solo importaba con HMR en desarrollo). Ya no se crea ningún `Tone.Loop` por START (el del
+  drift se eliminó con el drift; los FX de transición son automatización de nodos agendada desde el
+  callback del beat). START/STOP repetidos no acumulan eventos en el transporte.
 - ✅ Corregido: cada recarga de `store_get_user_info` (después de una subida o un re-login) creaba
   un `Tone.Player` nuevo por archivo y dejaba el anterior (con su buffer) en memoria. Ahora se
   libera el anterior (si está sonando, al terminar).
@@ -108,7 +109,7 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   durante una corrida desatendida): el `bpm` del transporte (`TickParam`, memoria infinita) suma un
   evento por cada cambio de tempo, y el estado del reloj del transporte suma eventos en cada
   START/STOP. Los estados de los players (`memory = 100`) y la automatización de los `Param`
-  (`memory = 1000`, rampas del drift) tienen tope. No medido en una corrida larga.
+  (`memory = 1000`, rampas de los FX de transición) tienen tope. No medido en una corrida larga.
 - 🟡 Una recarga de `store_get_user_info` con el transporte corriendo deja a los tracks apuntando a
   los objetos de archivo viejos y `stop_file` actúa sobre el player nuevo: el loop que sonaba sigue
   hasta terminar su buffer. Es previo a la fase 6; en una instalación no se sube nada.

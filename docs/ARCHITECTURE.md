@@ -383,7 +383,7 @@ Esquema real de `storage/db.sqlite` (oct 2026). Todos los ids son uuid v4 en tex
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded`, `props` (JSON en texto), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` la migración dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin`; también pasa a minúsculas los emails que no lo estén (en cada arranque). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` (**obsoleta** desde la fase 3: `migrate_projects` la copió a `projects.props` del primer proyecto del usuario; queda como respaldo; nada la lee ni la escribe: la config sale de `GET /projects/:id` y se guarda con `PUT /projects/:id`; `save_user_props` se eliminó en la tarea 3.6) = era la config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer) |
 | `files` | `id`, `user_id`, `original_name`, `track_group` (id), `tags` (JSON: array de ids de `user_tags`), `size`, `props` (JSON en texto), `tag` (obsoleto), `duration`, `kind`, `bpm`, `beats`, `music_key`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna `migrate_file_keys` la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `migrate_file_beats` completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos existentes tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: la migración lo copió a `tags` y quedó como respaldo, ya no se lee ni escribe. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: `migrate_projects` las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; `/upload` todavía inserta `tags = "[]"`). Metadatos (`original_name`, `kind`, `beats`, `music_key`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
-| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences`, `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), rest: 0..1 (default 0), rest_len: [min, max] de 4 \| 8 \| 16 \| 32 compases (default [4, 4]), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), bars: 1 \| 2 \| 4 \| 8 \| 16 \| 32 \| 64 (default 1), reverb: dB \| null (default null = sin reverb), drift: 0..1 (default 0), delay: dB \| null (default null = sin delay) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop) y `rest_len` el rango de duración de ese descanso; `on_tag_change`, `density` y `bars` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `drift` (modulación lenta) son de los efectos (ver mixer). `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
+| `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences`, `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), rest: 0..1 (default 0), rest_len: [min, max] de 4 \| 8 \| 16 \| 32 compases (default [4, 4]), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), bars: 1 \| 2 \| 4 \| 8 \| 16 \| 32 \| 64 (default 1), reverb: dB \| null (default null = sin reverb), delay: dB \| null (default null = sin delay), fx: [instancia] (default []) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop) y `rest_len` el rango de duración de ese descanso; `on_tag_change`, `density` y `bars` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `fx` (FX de transición: `{ id, type, lead, prob, cond, ...parámetros }`, ver "FX de transición") son de los efectos (ver mixer). Un `drift` guardado de antes (el drift se eliminó) se ignora: no se migra ni se borra. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice), `weight` | `weight` = peso en el sorteo del próximo Tag (entero 0..32, `NOT NULL DEFAULT 16`: los existentes quedaron en 16; 0 = no sale nunca). `project_id` = proyecto al que pertenece (fase 3; cargado por `migrate_projects` en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
 | `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility` (**obsoleta**: todos los proyectos son públicos), `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files`, y también los archivos del dueño que usaba y que ya no quedan en ningún proyecto (fila de `files`, `bytes_used` y mp3); los ajenos no se tocan. `migrate_projects` creó uno por usuario existente (nombre `My project`). `visibility` = `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay) más `tempo_tol` (tolerancia de tempo en %, 0..12, default 6) y `master` (volumen master en dB, −60 = silencio .. +6, default 0), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
 | `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (`migrate_projects` cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume, weight, repeat? }` (`weight` = peso en el sorteo de su pista, entero 0..32; sin dato = 16, lo completa el front; `repeat` = `[min, max]` de 1, 2, 4, 8, 16, veces seguidas que suena al salir sorteado; sin dato = `[1, 1]`, el front no lo guarda si es `[1, 1]`). Reemplazan a `files.track_group/tags/props` |
@@ -477,7 +477,7 @@ app, con `store.read_only = true`:
   guardados desde `Tracks.vue` y `mixer.js`) quedan solo en memoria y se pierden al recargar.
 - En `Tracks.vue`, con `read_only` se ven START/STOP, RESET, los knobs Tempo y Tol, y por pista el fader de
   volumen y M/S; el botón LOOP/SHOT queda deshabilitado; compás, delay, rango de Tag, Rest,
-  Dens/TAG y Rev/Dly/Drift no se muestran. La vista no monta pads, Files, Uploader, Projects,
+  Dens/TAG y Rev/Dly no se muestran. La vista no monta pads, Files, Uploader, Projects,
   Import, Account ni Admin.
 - Si hay sesión, la vista pide `GET /api/get_user_info` (solo lectura) y, si el proyecto está en la
   lista del visitante, muestra "OPEN IN EDITOR": un `<a href="/">` que antes guarda el id en
@@ -592,7 +592,8 @@ Flujo:
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**. Se
    registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
    sin borrarlo y el próximo START lo reutiliza desde el tiempo 0. Se borra en `onBeforeUnmount`.
-   Lo único que se crea por START es el `Tone.Loop` del drift (`start_drift`), que STOP elimina.
+   No se crea ningún evento ni `Tone.Loop` por START (los FX de transición se agendan como
+   automatización de los nodos desde este mismo callback).
 3. `selectTag()`: Tag sorteado con **peso** (`tag.weight`, ver abajo; puede repetirse el actual; si
    todos pesan 0 no hay Tag y suenan solo los archivos sin tags: START lo avisa); duración = `2^n` con `n` al azar dentro del rango de los pads TAG CHANGE (`hw/RangePads.vue`, `TrackCtrl.tag_range`, guardado en `projects.props`)
    (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por beat).
@@ -755,10 +756,12 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   también al preview. El estado vive fuera de `TrackCtrl.tracks` porque
   los tracks se rearman en cada START. El volumen del canal se suma al `props.volume` de cada
   archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales.
-- **Efectos por pista**: la cadena es `player → Tone.Filter (lowpass) → Tone.Channel`
-  (`route_player` conecta el player al filtro). El filtro es `Gain → BiquadFilter → Gain` nativos
-  (estéreo, a diferencia del `Panner` del Channel, que por eso lleva `channelCount: 2`); en reposo
-  queda abierto a 20 kHz, Q 0, −12 dB/oct, y no colorea. `remove_channel` dispone también filtro y sends (reverb y delay).
+- **Efectos por pista**: la cadena es `player → fx_lp (Tone.Filter lowpass) → fx_hp (Tone.Filter
+  highpass) → fx_gain (Tone.Gain) → Tone.Channel` (`route_player` conecta el player a `fx_lp`). Los
+  filtros son `Gain → BiquadFilter → Gain` nativos (estéreo, a diferencia del `Panner` del Channel,
+  que por eso lleva `channelCount: 2`); en reposo quedan abiertos (20 kHz y 10 Hz, Q 0, −12 dB/oct)
+  y no colorean; `fx_gain` en 1. Los usan solo los FX de transición (ver abajo). `remove_channel`
+  dispone también los tres nodos y los sends (reverb y delay).
 - **Reverb compartida**: un único `Tone.Reverb` (decay 6 s, `wet = 1`: solo la cola) conectado a
   `Destination` (pasa por el limitador). Cada canal tiene un send: un `Tone.Gain` (lineal) colgado de
   la **salida** del canal → reverb. Es lo mismo que hace `Tone.Channel.send()` por dentro, pero no se
@@ -767,23 +770,56 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   es **post-fader, post-mute y post-solo**: una pista muteada o callada por otro solo no manda reverb
   (la cola que ya estaba sonando se apaga sola) y el volumen de la pista también escala el send.
   Nivel en `props.reverb` (dB, `null` = nada). Knob "Rev" en la tira: −40..0 dB, el mínimo = `null`.
-- **Drift (`props.drift`, 0..1)**: modulación lenta del filtro y del send. Un **único** `Tone.Loop`
-  cada `"1m"` (`start_drift()` en `start()`, antes de `Tone.Transport.start()`, arrancando en el
-  tiempo 0; `stop_drift()` en `stop()` lo dispone, así no quedan eventos ni loops colgados entre
-  corridas). En cada compás, con el `time` del callback, cada pista con drift da un paso al azar
-  (±0.2) de una caminata `walk = { f, s }` en 0..1 y agenda `rampTo(valor, "1m", time)`:
-  frecuencia = 20 kHz · (300/20000)^(f·drift) (con drift 1 puede cerrar hasta 300 Hz) y send =
-  `props.reverb` ± 9 dB·drift (tope 0 dB; si `reverb` es `null` el send sigue en nada). Con drift 0
-  la caminata vuelve a la base (`f = 0`, `s = 0.5`) y la rampa siguiente deja filtro abierto y
-  send = `props.reverb` (con el transporte detenido se aplica en el momento). En STOP todas las
-  pistas vuelven a la base con una rampa de 0.5 s. Mover "Rev" aplica el send nuevo con una rampa
-  de 50 ms (cancela la rampa en curso; el drift sigue en el compás siguiente).
-  Los knobs chicos "Rev", "Dly" y "Drift" van en una fila propia de la tira (tres de 36 px con 2 px
-  de separación ocupan justo los 112 px).
+- **FX de transición (`props.fx`)**: efectos de **salida** que se disparan una anticipación antes del
+  fin de la tirada de una pista loop, para suavizar el paso al loop siguiente o a un descanso.
+  Reemplazan al drift (eliminado; un `props.drift` guardado se ignora). Cada pista tiene hasta
+  `MAX_FX_PER_TRACK` (4) **instancias** `{ id, type, lead, prob, cond, ...parámetros }` de un catálogo
+  fijo (`helpers/fx.js`, `FX_TYPES`: rótulo, letra del chip, defaults y rangos). `normalize_fx_list`
+  (al cargar, en `install_project`) acota los valores, descarta tipos desconocidos y deja ids únicos;
+  `new_fx(type)` crea una instancia con defaults (para la UI, que todavía no existe: fase 2 de
+  `docs/PLAN_FX.md`).
+  - `lead`: `"1b"`, `"2b"` (beats) o `"1m"`, `"2m"`, `"4m"`, `"8m"` (compases del compás actual;
+    `lead_beats(lead, beats_x_bar)`). `prob` 0..1: chance de dispararse en cada fin. `cond`: `any`,
+    `rest` (solo si lo que sigue es un descanso) o `tag` (fin por corte de Tag: llega con la fase 3;
+    por ahora nunca se cumple).
+  - Tipos: `cut` (silencio: `fx_gain` a 0 con una rampa de 5 ms), `lpf` / `hpf` (`fx_lp` / `fx_hp`
+    en rampa exponencial a `to_hz`, con su `q` aplicado al disparo), `fade` (`fx_gain` en rampa lineal
+    a `to_db`; −60 = silencio), `echo` / `verb` (throws: el send al delay / a la reverb sube a `level`
+    dB en 10 ms aunque la pista tenga Dly/Rev en off; si la base ya es más alta, queda en la base).
+  - Mixer: `fx_schedule(trg, inst, start, end)` agenda la rampa entre `start` (el `time` del beat
+    del disparo) y `end` (fin de la tirada); `fx_reset(trg, time)` vuelve todo a la base en el beat
+    del fin: filtros abiertos con Q 0 y ganancia 1 **exactamente en `time`**, sends a `props.reverb` /
+    `props.delay` con una rampa de 50 ms (la cola del throw cruza al loop siguiente). Las dos
+    empiezan con `cancelAndHoldAtTime` (de Tone: recorta la rampa en curso en ese punto y borra lo
+    posterior) en vez de `cancelScheduledValues` solo, que borraría el punto final de una rampa que
+    termina justo en `time` y la desharía de golpe (el callback corre ~0,1 s antes del beat). Así, si
+    dos instancias tocan el mismo nodo, la última agendada arranca desde donde iba la anterior.
+    Todos los tiempos son de audio (el `time` del callback), nunca `Tone.now()`.
+    `fx_reset_all(ramp)` (STOP y RESET) lleva todas las pistas a la base ya, con una rampa corta.
+    Mover Rev o Dly durante un throw: el knob manda (`rampTo` cancela lo agendado).
+  - Motor (`Tracks.vue`): las pistas one-shot ignoran `props.fx` (las instancias se conservan). En
+    cada beat, después del paso del loop (`loop_step`, que devuelve si la pista está sonando una
+    tirada), `fx_step` calcula `beats_to_end(track)` = `repeats_left · play_beats + remaining_beats + 1`
+    (beats hasta el fin natural contando el actual; en el último beat de la última repetición da 1;
+    en la fase 3 se tomará el mínimo con el corte por Tag). Cada instancia se evalúa **una vez por
+    tirada** (ids en `track.fx_fired`), en el primer beat en que `lead_beats ≥ beats_to_end` (≥ y no
+    ==: una tirada más corta que la anticipación dispara igual, recortada): se tira `prob`, se chequea
+    `cond` y se agenda `fx_schedule(trg, inst, time, time + beats_to_end · 60 / bpm)`.
+  - **Fin = de la tirada**: una repetición del mismo archivo no es fin. El fin es el beat en que la
+    pista arranca otro archivo, empieza un descanso, queda sin candidatos, la corta el cambio de Tag
+    o pasa a one-shot: ahí `end_run` hace `fx_reset` (si algo se evaluó en la tirada) y limpia
+    `fx_fired` y `next_rest`.
+  - `next_rest`: para `cond: "rest"` el dado de descanso se tira **antes** (al evaluar la instancia)
+    y se guarda en `track.next_rest`; en el fin `loop_step` usa ese resultado en vez de tirar otra vez.
+    `null` = sin sortear (se tira en el fin, como siempre).
+  - `track.fx_active`: ids de las instancias sonando (para los chips de la fase 2), actualizado con
+    `Tone.Draw` (se agregan en el beat del disparo y se vacía en el del fin). STOP y RESET llaman a
+    `fx_reset_all` y limpian `fx_fired`, `fx_active` y `next_rest`.
+  Los knobs chicos "Rev" y "Dly" van en una fila propia de la tira.
 - **Delay global** (config en `TrackCtrl.delay`, guardada en `projects.props.delay`): un único bus como
   la reverb: sends → `delay_in` → delay activo → `fade` → `delay_out` (`Tone.Volume`, nivel de retorno
   `delay.level` en dB) → `Destination` (pasa por el limitador). Solo devuelve las repeticiones (wet = 1).
-  No va a la reverb y el drift no lo modula. Tipos (`delay.type`):
+  No va a la reverb. Tipos (`delay.type`):
   - `pingpong` (default): `Tone.PingPongDelay`, las repeticiones alternan L/R.
   - `stereo`: `Tone.FeedbackDelay`, la misma repetición en los dos canales.
   - `dotted`: `Tone.Split` → un `FeedbackDelay` por canal → `Tone.Merge`; L con la división y R con
