@@ -664,7 +664,8 @@ Flujo:
    alimenta el LCD de posición "compás.tiempo" (`bar_position`; `start()` reinicia `beat.n`). Las
    tiras de canal muestran el beat del loop (`play_beats - remaining_beats`) en un medidor de LEDs y un LCD.
    En descanso (`curr_file` null) el LED de actividad y los LEDs de paso quedan apagados y el LCD
-   en blanco con el rótulo `REST`.
+   muestra, con el rótulo `REST`, los compases que faltan para el próximo sorteo
+   (`ceil((remaining_beats + 1) / beats_x_bar)`, cuenta regresiva hasta 1; `rest_bars_left`).
    El TAG actual se muestra en un LCD con `current_TAG.remaining_beats` como cuenta regresiva
    (de `duration` a 1) y un LED que destella en los últimos 4 beats antes del cambio.
    `current_TAG` y `tracks` viven en `TrackCtrl` (los escribe solo `Tracks.vue`): así los pads de la

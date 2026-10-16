@@ -125,10 +125,10 @@
           <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
           <!-- one-shot: el LCD muestra cada cuántos compases se tira el dado (no hay posición de loop) -->
           <Lcd v-if="is_oneshot(trg)" small :digits="2" :value="shot_bars(trg)" unit="SHOT" :caption="NBSP" />
-          <!-- en descanso no hay archivo: el LCD queda en blanco con el rótulo REST -->
+          <!-- en descanso no hay archivo: el LCD cuenta los compases que faltan para el próximo loop, con el rótulo REST -->
           <!-- con repetición, el caption muestra la pasada actual sobre el total (p. ej. 2/4); sin ella queda un
             espacio duro para que el LCD (y la tira) no cambie de alto. El LCD one-shot lleva el mismo espacio -->
-          <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : ''" :caption="repeat_caption(track)"
+          <Lcd v-else small :digits="2" :value="track?.curr_file ? track_beat(track) : rest_bars_left(track)" :caption="repeat_caption(track)"
             :unit="track?.curr_file ? '/' + track.curr_file.play_beats : (track?.resting && TrackCtrl.isPlaying ? 'REST' : '')" />
           <!-- posición dentro del loop (no aplica a one-shot: queda invisible para que las tiras de los dos
             modos tengan el mismo alto y los faders queden alineados) -->
@@ -532,6 +532,12 @@ function repeat_caption(track) {
 // beat actual (1..beats) del loop que suena en la pista
 function track_beat(track) {
   return track.curr_file.play_beats - track.remaining_beats
+}
+// compases que faltan para que termine el descanso (cuenta regresiva: el último compás muestra 1).
+// Incluye el beat actual: con remaining_beats == 0 el próximo beat ya sortea un loop
+function rest_bars_left(track) {
+  if (!track?.resting || !TrackCtrl.isPlaying) return ''
+  return Math.ceil((track.remaining_beats + 1) / parseInt(TrackCtrl.beats_x_bar))
 }
 
 function start_file(id, time) {
