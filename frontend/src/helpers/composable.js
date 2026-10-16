@@ -143,6 +143,7 @@ export async function save_trackGroups() {
 }
 // pista, tags y volumen de un archivo dentro del proyecto activo (project_files)
 export async function save_file(file) {
+  cancel_save_file_debounced(file.id) // este guardado ya lleva todo lo pendiente del archivo
   if (!can_save()) return
   let data = { id: file.id, track_group: file.track_group ?? null, tags: file.tags ?? [], props: {} }
   let volume = Number(file.props?.volume)
@@ -166,6 +167,20 @@ export async function save_file(file) {
 export function trg_default_props() {
   return { volume: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false, density: 0, bars: 1,
     reverb: null, delay: null, fx: [] }
+}
+// guardado diferido de un archivo (fader de volumen, knob de peso, Repeat del diálogo de edición): con la
+// rueda o las flechas cada paso dispara @change, y sin esto salía un pedido por paso (que además podían
+// llegar desordenados). Un timer por archivo: file_id -> { timer, file }
+const save_file_timers = new Map()
+export function save_file_debounced(file, ms = 500) {
+  if (store.read_only) return
+  clearTimeout(save_file_timers.get(file.id)?.timer)
+  let timer = setTimeout(() => save_file(file), ms)
+  save_file_timers.set(file.id, { timer, file })
+}
+function cancel_save_file_debounced(id) {
+  clearTimeout(save_file_timers.get(id)?.timer)
+  save_file_timers.delete(id)
 }
 // guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
 let save_trg_timer = null
@@ -211,6 +226,7 @@ export async function flush_pending_saves() {
     save_project_props_timer = null
     jobs.push(save_project_props())
   }
+  for (const { file } of [...save_file_timers.values()]) jobs.push(save_file(file))
   await Promise.all(jobs)
 }
 function clamp(v, min, max, def) {

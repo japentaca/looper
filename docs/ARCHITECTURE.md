@@ -432,7 +432,10 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   (`TrackCtrl`) son siempre los del proyecto activo, y todos los guardados van contra él:
   `save_trackGroups()` / `save_tags()` (colección completa → `PUT /projects/:id/track_groups` y
   `/tags`), `save_file(file)` (pista, tags y volumen del archivo → `PUT /projects/:id/files`
-  `{ update }`), `save_project_props_debounced()` (tempo, tolerancia, compás, rango de Tag y delay →
+  `{ update }`; `save_file_debounced(file)` es la versión diferida, 500 ms con un timer por archivo, que usan
+  el fader Volume, el knob Weight y Repeat del diálogo de edición: con la rueda o las flechas cada paso
+  dispara `@change`; un `save_file` directo cancela el diferido pendiente de ese archivo),
+  `save_project_props_debounced()` (tempo, tolerancia, compás, rango de Tag, delay, reverb y master →
   `PUT /projects/:id` `{ props }`, 500 ms) y `delete_project_file(file)` (propio: `DELETE /files/:id`,
   en cascada; importado: lo quita del proyecto con `{ remove }`). `load_project(id)` abre otro
   proyecto; antes manda los guardados diferidos pendientes (`flush_pending_saves()`, exportada) para
@@ -479,7 +482,7 @@ app, con `store.read_only = true`:
 - **Ningún request de escritura**: todos los guardados del store pasan por `can_save()` (`store.project`
   y no `read_only`): `save_tags`, `save_trackGroups`, `save_file`, `save_project_props` y
   `delete_project_file`, más `save_collection` como red de seguridad. Los diferidos
-  (`save_trackGroups_debounced`, `save_project_props_debounced`) ni arman el timer, así que
+  (`save_trackGroups_debounced`, `save_project_props_debounced`, `save_file_debounced`) ni arman el timer, así que
   `flush_pending_saves` no tiene nada que mandar. Los cambios de tempo y del mixer (que llaman a esos
   guardados desde `Tracks.vue` y `mixer.js`) quedan solo en memoria y se pierden al recargar.
 - En `Tracks.vue`, con `read_only` se ven START/STOP, RESET, los knobs Tempo y Tol, y por pista el fader de

@@ -275,7 +275,7 @@
 
 import { ref, watch, computed } from "vue"
 import {
-  store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file, WEIGHT_MAX,
+  store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, save_file_debounced, delete_project_file, WEIGHT_MAX,
   REPEAT_OPTIONS, file_anchor
 } from "../helpers/composable"
 import LedButton from "./hw/LedButton.vue"
@@ -417,9 +417,9 @@ function repeat_label(r) {
   return r[0] == r[1] ? "×" + r[0] : "×" + r[0] + "–" + r[1]
 }
 
-async function onChange(file) {
-  console.log("change,file", file)
-  await save_file(file)
+// volumen, peso y Repeat del diálogo: guardado diferido (con la rueda o las flechas cambian de a pasos)
+function onChange(file) {
+  save_file_debounced(file)
 }
 
 async function ondrop(e, file) {
