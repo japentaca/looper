@@ -201,7 +201,8 @@ export function update_project(id, data) {
   })
 }
 
-// borra el proyecto con sus pistas, tags y archivos asociados (los archivos del catálogo quedan)
+// borra el proyecto con sus pistas, tags y archivos asociados; también los archivos propios que no
+// usa ningún otro proyecto. Responde { deleted_files: n }
 export function delete_project(id) {
   return request({
     url: '/api/projects/' + encodeURIComponent(id),

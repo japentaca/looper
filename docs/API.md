@@ -175,8 +175,11 @@ fuera del sorteo (tarea 3.8) y no se puede importar. Ver `projects/:id/files`.
 (`{ type: "pingpong" | "stereo" | "dotted" | "tape", division: "16n" | "8t" | "8n" | "8n." | "4n" | "4n." | "2n", feedback: 0..0.9, level: dB }`). `hidden` no se
   puede cambiar desde acá (lo modera el admin) y se ignora si viene.
 - `DELETE /projects/:id`: en una transacción borra las filas de `project_files`, `user_track_groups`
-  y `user_tags` del proyecto y el proyecto. Los archivos no se tocan (siguen en el catálogo y en otros
-  proyectos). Se puede borrar el último proyecto: el usuario queda con la lista vacía.
+  y `user_tags` del proyecto y el proyecto. Además borra los archivos **propios** que usaba el proyecto
+  y que ya no están en ningún otro proyecto (de ningún usuario): su fila de `files`, su tamaño de
+  `users.bytes_used` (sin bajar de 0) y, después de la transacción, el mp3 (como `DELETE /files/:id`).
+  Los archivos ajenos importados y los que siguen en otro proyecto no se tocan. Responde
+  `{ deleted_files: n }`. Se puede borrar el último proyecto: el usuario queda con la lista vacía.
 
 ### `projects/:id/track_groups` / `projects/:id/tags`
 

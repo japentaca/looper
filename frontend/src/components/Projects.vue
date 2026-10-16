@@ -181,7 +181,7 @@ async function do_delete(row) {
   let active = is_active(row)
   try {
     await ElMessageBox.confirm(
-      `Delete project "${row.name}"? Its tracks, tags and file list are removed; the audio files stay in the catalog.`
+      `Delete project "${row.name}"? Its tracks, tags and file list are removed, and so are your audio files that no other project uses.`
       + (active ? " Playback will stop." : ""),
       "Delete project", { confirmButtonText: "Delete", cancelButtonText: "Cancel", type: "warning" })
   } catch {
@@ -201,7 +201,8 @@ async function do_delete(row) {
     } else {
       await refresh_projects()
     }
-    set_msg("success", `Proyecto "${row.name}" borrado`)
+    let n = res.data?.deleted_files || 0
+    set_msg("success", `Proyecto "${row.name}" borrado` + (n ? ` (y ${n} archivo${n == 1 ? "" : "s"} sin uso)` : ""))
   })
 }
 

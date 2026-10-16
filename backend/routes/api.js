@@ -691,20 +691,42 @@ router.put("/projects/:id", require_session, async (req, res) => {
   }
 })
 
-// borra el proyecto con sus pistas, tags y filas de project_files. Los archivos (catálogo) quedan
+// borra el proyecto con sus pistas, tags y filas de project_files. Los archivos propios que usaba y
+// que no quedan en ningún otro proyecto (de nadie) se borran también: fila de `files`, bytes_used
+// y, ya fuera de la transacción, el mp3. Los ajenos y los que siguen en otro proyecto quedan.
+// Responde { deleted_files: n }
 router.delete("/projects/:id", require_session, async (req, res) => {
+  let user_id = req.user.id
   try {
-    let found = await global.knex.transaction(async trx => {
-      let p = await own_project(trx, req.params.id, req.user.id)
-      if (!p) return false
+    let orphans = await global.knex.transaction(async trx => {
+      let p = await own_project(trx, req.params.id, user_id)
+      if (!p) return null
+      let file_ids = (await trx("project_files").select("file_id").where({ project_id: p.id })).map(r => r.file_id)
       await trx("project_files").delete().where({ project_id: p.id })
       await trx("user_track_groups").delete().where({ project_id: p.id })
       await trx("user_tags").delete().where({ project_id: p.id })
-      await trx("projects").delete().where({ id: p.id, user_id: req.user.id })
-      return true
+      await trx("projects").delete().where({ id: p.id, user_id: user_id })
+      if (!file_ids.length) return []
+      let files = await trx("files").select("id", "size").where({ user_id: user_id }).whereIn("id", file_ids)
+        .whereNotExists(q => q.select(trx.raw(1)).from("project_files as pf").whereRaw("pf.file_id = files.id"))
+      if (!files.length) return []
+      await trx("files").delete().where({ user_id: user_id }).whereIn("id", files.map(f => f.id))
+      let size = files.reduce((t, f) => t + (f.size || 0), 0)
+      // se descuenta el tamaño de los archivos, sin bajar de 0 (como DELETE /files/:id)
+      await trx("users").where({ id: user_id }).update({
+        bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [size])
+      })
+      return files.map(f => f.id)
     })
-    if (!found) return res.status(404).send(PROJECT_NOT_FOUND)
-    return res.send({ stat: true })
+    if (orphans === null) return res.status(404).send(PROJECT_NOT_FOUND)
+    // los mp3 se borran con las filas ya borradas (si falla, queda un mp3 huérfano en disco, inofensivo)
+    for (let id of orphans) {
+      if (!UUID_RE.test(id)) continue
+      await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
+        if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
+      })
+    }
+    return res.send({ stat: true, data: { deleted_files: orphans.length } })
   } catch (e) {
     console.log("Error DELETE projects/:id", e)
     return res.status(500).send({ stat: false, text: "Error interno" })
