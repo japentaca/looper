@@ -13,8 +13,10 @@ script `backend/import_manifest.js` y el procedimiento de respaldo de `docs/DEPL
 1. Relevar la librería y lo que ya está cargado.
 2. Acordar con el dueño qué entra, a qué proyecto y qué proyecto sirve de plantilla.
 3. Armar en local una carpeta con los audios renombrados y un `manifest.json`.
-4. Probar la importación en local sobre una copia de la base.
-5. En el servidor: respaldar la base, copiar la carpeta, dry-run, importar, borrar la carpeta.
+4. Probar la importación en local sobre una copia de la base. **La conversión a mp3 se hace acá,
+   en la máquina de desarrollo**: de esa prueba salen los mp3 finales y un manifiesto `"converted": true`.
+5. En el servidor: respaldar la base, copiar la carpeta **de mp3** (nunca los wav), dry-run, importar,
+   borrar la carpeta.
 6. Armar pistas y tags del proyecto (respaldo y dry-run otra vez).
 7. Verificar e informar.
 
@@ -115,7 +117,8 @@ node <repo>/backend/import_manifest.js --user=<email> --project="<proyecto>" <ca
 Revisar en la copia: cantidades por `kind` y `music_key`, `beats`/`bpm` de algunos loops, filas en
 `project_files`. Correrlo una segunda vez tiene que saltear todo (es repetible).
 
-**Subir los mp3 ya convertidos, no los wav.** La prueba local deja en su `audio/` los mp3 finales
+**Subir los mp3 ya convertidos, no los wav** (es el procedimiento habitual desde Curve: el servidor
+no convierte nada en una importación en lote). La prueba local deja en su `audio/` los mp3 finales
 (misma `utils.convert`: V0, normalizados) y en la copia de la base la `duration` de cada original.
 Con eso se arma una carpeta con esos mp3 y un manifiesto con `"converted": true` y `"duration"` por
 entrada (más `original_name`, `kind`, `beats`, `music_key` tal cual); el script los copia sin
@@ -162,6 +165,9 @@ tonalidad.
 - Bombos → el tag de la tonalidad de su kit aunque sean `atonal` (en psytrance el kick está afinado
   con el bajo).
 - Atonales → **sin tags**: el motor los considera compatibles con cualquier Tag.
+- Muchas tonalidades con poco material cada una (caso Ocean: 24): **un tag por tonalidad exacta, sin
+  juntar relativas** (lo prefiere el dueño), con el peso del tag según cuántos loops con nota tiene
+  (las de 1–3 loops salen poco, como interludio). Así todo lo que tiene nota puede ir a una pista.
 
 **Configuración del proyecto:** se copian las `props` de la plantilla (tempo, tolerancia, compás,
 rango de cambio de Tag, delay). Con kits de distinto BPM, conviene un tempo dentro de la tolerancia
