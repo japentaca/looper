@@ -155,7 +155,7 @@
                 title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
             </div>
             <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) y rango
-              de su duración (props.rest_len: L = lo que dura el loop sorteado, o 1/4/8/32 compases) -->
+              de su duración (props.rest_len: 1, 2, 4, 8, 16 o 32 compases) -->
             <div class="rest_ctrls" :class="{ ghost: is_oneshot(trg) }">
               <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
                 :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
@@ -340,13 +340,13 @@ function set_rest(trg, v) {
   save_trackGroups_debounced()
 }
 // rango de duración del descanso (RangePads ya entrega [min, max] ordenado)
-const rest_len_options = REST_LEN_OPTIONS.map(v => ({ value: v, label: v == "loop" ? "L" : v }))
+const rest_len_options = REST_LEN_OPTIONS
 function set_rest_len(trg, v) {
   trg.props.rest_len = v
   save_trackGroups_debounced()
 }
 function rest_len_label(trg) {
-  let txt = (v) => v == "loop" ? "loop" : v + " bar" + (v > 1 ? "s" : "")
+  let txt = (v) => v + " bar" + (v > 1 ? "s" : "")
   let [lo, hi] = parse_rest_len(trg.props.rest_len)
   return lo === hi ? txt(lo) : txt(lo) + " – " + txt(hi)
 }
@@ -442,11 +442,11 @@ function draw_repeat(file) {
   return REPEAT_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
 }
 // beats de un descanso: un valor al azar (uniforme) de REST_LEN_OPTIONS dentro de props.rest_len de la
-// pista; "loop" = lo que dura el loop sorteado `f`, los números son compases del compás actual
-function draw_rest_beats(track, f) {
+// pista, en compases del compás actual
+function draw_rest_beats(track) {
   let [lo, hi] = parse_rest_len(track.track_group.props?.rest_len).map(v => REST_LEN_OPTIONS.indexOf(v))
   let v = REST_LEN_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
-  return v == "loop" ? Math.max(1, files_by_id[f].play_beats) : v * parseInt(TrackCtrl.beats_x_bar)
+  return v * parseInt(TrackCtrl.beats_x_bar)
 }
 function file_weight(id) {
   return files_by_id[id]?.props?.weight ?? 0
@@ -810,15 +810,14 @@ function set_next_step(time, n, downbeat) {
       let f = pick_weighted(candidates, file_weight)
       //console.log("vvv", f, files_by_id[f])
 
-      // descanso: con probabilidad props.rest la pista calla durante lo que dura el loop sorteado o una
-      // cantidad de compases, según props.rest_len (beats enteros desde este beat, así al volver sigue
-      // alineada al compás como un loop más)
+      // descanso: con probabilidad props.rest la pista calla una cantidad de compases sorteada en
+      // props.rest_len (beats enteros desde este beat, así al volver sigue alineada al compás)
       if (Math.random() < (track.track_group.props?.rest ?? 0)) {
         // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
         if (track.curr_file) stop_file(track.curr_file.id, time)
         track.curr_file = null
         track.resting = true
-        track.remaining_beats = draw_rest_beats(track, f) - 1
+        track.remaining_beats = draw_rest_beats(track) - 1
         track.percentage = 0
         track.repeat_n = 1
         track.repeats_left = 0
