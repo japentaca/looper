@@ -907,21 +907,15 @@ function loop_step(track, time) {
     // (cond "rest", ver fx_step): se usa ese resultado
     let next_rest = track.next_rest
     end_run(track, time)
+    let was_resting = track.resting
     track.resting = false
-    // pista sin archivos sorteables (ninguno disponible, compatible con el Tag y dentro de la
-    // tolerancia de tempo): queda en silencio
-    let candidates = draw_candidates(track)
-    if (!candidates.length) return false
-    //player[track.track_group.id].buffer=
-    //if (track.curr_file) {
-    // audio_players[track.curr_file.id].stop(time)
-    //}
-    let f = pick_weighted(candidates, file_weight)
-    //console.log("vvv", f, files_by_id[f])
 
     // descanso: con probabilidad props.rest la pista calla una cantidad de compases sorteada en
-    // props.rest_len (beats enteros desde este beat, así al volver sigue alineada al compás)
-    if (next_rest ?? roll_rest(track)) {
+    // props.rest_len (beats enteros desde este beat, así al volver sigue alineada al compás). Al fin de
+    // un loop o de otro descanso (una pista en silencio por falta de candidatos no tira el dado), y
+    // antes de mirar los candidatos: no los necesita, y si el Tag nuevo no tiene archivos para la
+    // pista el descanso sorteado (p. ej. por un FX "before rest") igual se cumple y se cuenta en el LCD
+    if ((track.curr_file || was_resting) && (next_rest ?? roll_rest(track))) {
       // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
       if (track.curr_file) stop_file(track.curr_file.id, time)
       track.curr_file = null
@@ -932,6 +926,20 @@ function loop_step(track, time) {
       track.repeats_left = 0
       return false
     }
+
+    // pista sin archivos sorteables (ninguno disponible, compatible con el Tag y dentro de la
+    // tolerancia de tempo): queda en silencio. El loop que terminó se suelta (si no, el LCD quedaba
+    // congelado en su último beat)
+    let candidates = draw_candidates(track)
+    if (!candidates.length) {
+      if (track.curr_file) stop_file(track.curr_file.id, time)
+      track.curr_file = null
+      track.percentage = 0
+      track.repeat_n = 1
+      track.repeats_left = 0
+      return false
+    }
+    let f = pick_weighted(candidates, file_weight)
 
     start_file(f, time)
     track.curr_file = files_by_id[f]

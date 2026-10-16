@@ -624,8 +624,9 @@ Flujo:
      mismo beat en que arranca el loop nuevo: el callback corre hasta `lookAhead` (~0,1 s) antes de
      `time`, así que cortar "ya" deja un silencio entre los dos. Si el callback llega después de
      `time` (hilo principal ocupado) se avisa por consola (`agendado N ms tarde`).
-   - Por cada track con `remaining_beats == 0`: si no tiene archivos disponibles para el Tag, no
-     hace nada (silencio); si no, sortea con peso (`props.weight` del archivo en el proyecto) un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
+   - Por cada track con `remaining_beats == 0`: primero el dado de descanso (ver abajo); si no
+     descansa y no tiene archivos disponibles para el Tag, queda en silencio (suelta el loop que
+     terminó: `curr_file = null`, LCD vacío); si no, sortea con peso (`props.weight` del archivo en el proyecto) un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
      `remaining_beats = play_beats - 1`. Si no, decrementa (en descanso solo cuenta) y actualiza el progreso.
    - **Repetición (`props.repeat` del archivo en el proyecto, `[min, max]` de 1, 2, 4, 8, 16)**: al
      sortear y arrancar un archivo, `draw_repeat` elige al azar (uniforme) un valor del rango:
@@ -636,8 +637,11 @@ Flujo:
      `repeats_left = 0`; un loop que tiene también el Tag nuevo sigue con sus repeticiones. El
      descanso no se repite: dura lo que salga de `rest_len`. La tira muestra la pasada en el
      caption del LCD (`2/4`) cuando `repeat_n > 1`.
-   - **Descanso (`trg.props.rest`, 0..1)**: después de sortear el archivo, con probabilidad `rest`
-     la pista **descansa** en vez de arrancarlo: `resting = true`, `curr_file = null` y
+   - **Descanso (`trg.props.rest`, 0..1)**: al terminar un loop (o un descanso), con probabilidad `rest`
+     (o el resultado anticipado `next_rest` de un FX `cond: rest`) la pista **descansa** en vez de
+     sortear otro archivo. Se decide antes de mirar los candidatos: si el Tag nuevo no tiene archivos
+     para la pista, el descanso igual se cumple (antes se salteaba y el FX "before rest" quedaba sin
+     descanso y el LCD vacío). Una pista callada por falta de candidatos no tira el dado. Al descansar: `resting = true`, `curr_file = null` y
      `remaining_beats = draw_rest_beats(track) - 1`: un valor al azar (uniforme) del rango
      `trg.props.rest_len` (`[min, max]` de `REST_LEN_OPTIONS = [4, 8, 16, 32]` compases, en
      `composable.js`; sin dato `[4, 4]`), o sea `n * beats_x_bar` beats. Son beats enteros contados desde un beat del
