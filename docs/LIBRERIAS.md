@@ -108,10 +108,19 @@ node <repo>/backend/import_manifest.js --user=<email> --project="<proyecto>" <ca
 Revisar en la copia: cantidades por `kind` y `music_key`, `beats`/`bpm` de algunos loops, filas en
 `project_files`. Correrlo una segunda vez tiene que saltear todo (es repetible).
 
+**Subir los mp3 ya convertidos, no los wav.** La prueba local deja en su `audio/` los mp3 finales
+(misma `utils.convert`: V0, normalizados) y en la copia de la base la `duration` de cada original.
+Con eso se arma una carpeta con esos mp3 y un manifiesto con `"converted": true` y `"duration"` por
+entrada (más `original_name`, `kind`, `beats`, `music_key` tal cual); el script los copia sin
+recodificar. Pesan ~10 veces menos que los wav (Curve: 115 MB contra 1,1 GB) y no hay una segunda
+compresión. La `duration` tiene que ser la del original: el mp3 mide 25–55 ms más por el relleno del
+encoder y el bpm de los loops quedaría corrido.
+
 **Servidor** (`docs/DEPLOY.md`, "Importar audios en lote"): si hubo cambios de código, desplegar
-antes. Después: respaldar la base, copiar la carpeta (`tar -cf - carpeta | ssh jape-pruebas 'tar -xf - -C /tmp'`,
-`chmod -R a+rX`), dry-run, importación real como `looper` con `nice`, revisar el resumen (errores 0)
-y borrar la carpeta de `/tmp`.
+antes. Después: respaldar la base, copiar la carpeta a **`/var/tmp`** (`tar -cf - carpeta | ssh jape-pruebas 'tar -xf - -C /var/tmp'`,
+`chmod -R a+rX`; **no a `/tmp`**: en el servidor es un tmpfs de ~1 GB en RAM, se llena y le quita
+memoria a la app), dry-run, importación real como `looper` con `nice`, revisar el resumen (errores 0)
+y borrar la carpeta.
 
 ## 6. Pistas y tags del proyecto
 

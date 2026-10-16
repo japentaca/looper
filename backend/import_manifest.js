@@ -9,6 +9,10 @@
 // un loop manda `beats`; si no, beats = round(duración × bpm / 60); sin ninguno de los dos, el
 // archivo se saltea. El bpm guardado se deduce de los beats, como en /upload. music_key: si no viene,
 // se sugiere por original_name (utils.suggest_key); "" = sin dato.
+// Ya convertidos: con `"converted": true` el archivo tiene que ser un mp3 salido de utils.convert (por
+// ejemplo, de una importación de prueba en local) y se copia tal cual, sin recodificar. Lleva
+// `"duration"`: la del original en segundos (el mp3 mide ~25-55 ms más por el relleno del encoder y
+// correría el bpm); se rechaza si el mp3 se aleja de ella más de CONVERTED_MAX_DIFF.
 // Chequeos como en /upload: es audio, dura hasta 60 s, bpm en 20..400 y la cuota del usuario (salvo
 // --ignore-quota). Con --project, los archivos se agregan a ese proyecto del usuario (sin pista ni
 // tags); si no existe un proyecto con ese nombre, se crea.
@@ -28,6 +32,7 @@ const BPM_MIN = 20
 const BPM_MAX = 400
 const BEATS_MAX = 1024
 const DEFAULT_MAX_SECONDS = 1200
+const CONVERTED_MAX_DIFF = 0.1
 
 let config = dotenv.config()
 global.config = config.parsed || {}
@@ -124,6 +129,14 @@ async function main() {
       }
       let info = await utils.probe(file)
       if (!info.is_audio) throw new Error("no es audio")
+      let converted = entry.converted === true
+      if (converted) {
+        if (utils.get_file_extension(file) != "mp3") throw new Error("converted: no es mp3")
+        let d = Number(entry.duration)
+        if (!Number.isFinite(d) || d <= 0) throw new Error("converted: falta duration")
+        if (Math.abs(info.duration - d) > CONVERTED_MAX_DIFF) throw new Error(`converted: el mp3 dura ${info.duration.toFixed(3)} s y duration dice ${d}`)
+        info.duration = d
+      }
       if (info.duration > MAX_SECONDS + SECONDS_MARGIN) throw new Error(`dura ${info.duration.toFixed(1)} s`)
       let t = timing(entry, info.duration)
       if (t.error) throw new Error(t.error)
@@ -131,14 +144,15 @@ async function main() {
         : (String(entry.music_key).trim() === "" ? null : utils.normalize_key(entry.music_key))
       if (music_key === null && entry.music_key) throw new Error(`tonalidad inválida: ${entry.music_key}`)
       if (!ignore_quota && used + info.duration > max) throw new Error("no alcanza la cuota")
-      let desc = `${t.kind} ${t.beats ?? ""}${t.beats ? " beats " + t.bpm + " BPM" : ""} key=${music_key ?? "-"} ${info.duration.toFixed(2)} s`
+      let desc = `${t.kind} ${t.beats ?? ""}${t.beats ? " beats " + t.bpm + " BPM" : ""} key=${music_key ?? "-"} ${info.duration.toFixed(2)} s${converted ? " (ya mp3)" : ""}`
       if (dry_run) {
         console.log(label, desc, "→ se importaría")
       } else {
         let id = uuid()
         let out_file = dir + "/" + id + ".mp3"
         try {
-          await utils.convert(file, out_file)
+          if (converted) await fs.copyFile(file, out_file)
+          else await utils.convert(file, out_file)
           let size = (await fs.stat(out_file)).size
           await knex.transaction(async trx => {
             await trx("files").insert({

@@ -265,13 +265,18 @@ audios y un `manifest.json` (formato en la cabecera de `backend/import_manifest.
 la misma conversión y normalización que `/upload`, respeta la cuota (salvo `--ignore-quota`) y con
 `--project=<nombre>` agrega todo a ese proyecto del usuario (lo crea si no existe). Es repetible:
 saltea los que el usuario ya tiene con el mismo nombre. Respaldar la base antes (ver arriba).
+Conviene subir mp3 ya convertidos en una importación de prueba local (`"converted": true` con la
+`duration` del original, ver `docs/LIBRERIAS.md`): se copian sin recodificar y pesan ~10 veces menos.
+
+La carpeta va a **`/var/tmp`** (disco), no a `/tmp`: en el servidor `/tmp` es un tmpfs de ~1 GB en
+RAM; una librería en wav lo llenó ("No space left on device") y mientras tanto ocupa memoria.
 
 ```bash
-scp -r carpeta jape-pruebas:/tmp/import && ssh jape-pruebas
-chmod -R a+rX /tmp/import && cd /var/lib/looper/looper/backend
-sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" --dry-run /tmp/import/manifest.json
-sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" /tmp/import/manifest.json
-rm -rf /tmp/import
+scp -r carpeta jape-pruebas:/var/tmp/import && ssh jape-pruebas
+chmod -R a+rX /var/tmp/import && cd /var/lib/looper/looper/backend
+sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" --dry-run /var/tmp/import/manifest.json
+sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" /var/tmp/import/manifest.json
+rm -rf /var/tmp/import
 ```
 
 ### Normalizar los audios ya subidos (una vez)
