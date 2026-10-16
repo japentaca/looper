@@ -162,6 +162,20 @@ tocados juntos a 115, quedan ~1,5 semitonos desafinados entre sí. Criterio:
 - Tags solo para las tonalidades con material suficiente para una sección (bajo + synth/voz); las
   que tienen 1–2 archivos quedan sin pista.
 
+**Repetición de los loops** (`project_files.props.repeat`, `[min, max]` de 1, 2, 4, 8, 16; ver
+`docs/ARCHITECTURE.md`): cuántas veces seguidas suena un loop al salir sorteado. Sin dato = `[1, 1]`,
+y una pista de loops cortos (1–2 compases) cambia de loop en cada vuelta y suena nerviosa. Criterio:
+
+- Loops de 4–8 beats en pistas en modo loop → `[4, 16]` (se asientan antes de cambiar). Se aplicó a
+  todos los loops de Deep Organic Percussion.
+- Loops largos (16 beats o más, full mix, frases) → `[1, 4]` o sin dato.
+- Archivos de pistas one-shot (fills, golpes) → sin `repeat`: esas pistas disparan un archivo por vez
+  y no lo usan.
+- Revisar contra el rango de Tag: beats del loop × repetición máxima conviene que no supere mucho
+  `2^n` del rango, porque el cambio de Tag corta las repeticiones (4 beats × 16 = 64 beats contra
+  escenas de 32–128 beats: muchas quedan cortadas). Si se quieren enteras, subir el rango de Tag.
+- Se escribe junto con el volumen, en el mismo script de pistas y tags (`props: { volume, repeat }`).
+
 ## 7. Verificación e informe
 
 - En el servidor: conteos por pista y tags del proyecto, y que `GET /api/file/<id>` de un archivo
