@@ -4,11 +4,12 @@
 //   node import_manifest.js --user=<email> [--project=<nombre>] [--ignore-quota] [--dry-run] <manifest.json>
 // El manifiesto es un array JSON; las rutas son relativas a su directorio:
 //   [{ "file": "kit01/loop.wav", "original_name": "loop.wav", "kind": "loop" | "shot",
-//      "bpm": 140, "beats": 16, "music_key": "C#" | "atonal" | "" }]
+//      "bpm": 140, "beats": 16, "music_key": "C#" | "atonal" | "", "anchor": "start" | "end" }]
 // Solo `file` es obligatorio. original_name: default el nombre del archivo. kind: default "loop". En
 // un loop manda `beats`; si no, beats = round(duración × bpm / 60); sin ninguno de los dos, el
 // archivo se saltea. El bpm guardado se deduce de los beats, como en /upload. music_key: si no viene,
-// se sugiere por original_name (utils.suggest_key); "" = sin dato.
+// se sugiere por original_name (utils.suggest_key); "" = sin dato. anchor (anclaje de un one-shot: "end" =
+// termina en el punto de disparo, p. ej. un riser): default "start".
 // Ya convertidos: con `"converted": true` el archivo tiene que ser un mp3 salido de utils.convert (por
 // ejemplo, de una importación de prueba en local) y se copia tal cual, sin recodificar. Lleva
 // `"duration"`: la del original en segundos (el mp3 mide ~25-55 ms más por el relleno del encoder y
@@ -143,8 +144,10 @@ async function main() {
       let music_key = entry.music_key === undefined ? utils.suggest_key(name)
         : (String(entry.music_key).trim() === "" ? null : utils.normalize_key(entry.music_key))
       if (music_key === null && entry.music_key) throw new Error(`tonalidad inválida: ${entry.music_key}`)
+      let anchor = entry.anchor ?? "start"
+      if (anchor != "start" && anchor != "end") throw new Error(`anchor inválido: ${entry.anchor}`)
       if (!ignore_quota && used + info.duration > max) throw new Error("no alcanza la cuota")
-      let desc = `${t.kind} ${t.beats ?? ""}${t.beats ? " beats " + t.bpm + " BPM" : ""} key=${music_key ?? "-"} ${info.duration.toFixed(2)} s${converted ? " (ya mp3)" : ""}`
+      let desc = `${t.kind} ${t.beats ?? ""}${t.beats ? " beats " + t.bpm + " BPM" : ""} key=${music_key ?? "-"}${anchor == "end" ? " anchor=end" : ""} ${info.duration.toFixed(2)} s${converted ? " (ya mp3)" : ""}`
       if (dry_run) {
         console.log(label, desc, "→ se importaría")
       } else {
@@ -157,7 +160,7 @@ async function main() {
           await knex.transaction(async trx => {
             await trx("files").insert({
               id: id, user_id: user.id, original_name: name, size: size, tags: "[]", duration: info.duration,
-              kind: t.kind, bpm: t.bpm, beats: t.beats, music_key: music_key, ts: now(),
+              kind: t.kind, bpm: t.bpm, beats: t.beats, music_key: music_key, anchor: anchor, ts: now(),
             })
             await trx("users").where({ id: user.id }).update({ bytes_used: trx.raw("coalesce(bytes_used, 0) + ?", [size]) })
           })

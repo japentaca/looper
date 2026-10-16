@@ -29,6 +29,7 @@
       <span class="num">Type</span>
       <span class="num">Beats</span>
       <span class="num">Key</span>
+      <span class="num">Anchor</span>
       <span class="state"></span>
     </div>
     <div v-for="item in items" :key="item.uid" class="row" :class="item.status">
@@ -63,6 +64,10 @@
         <small v-if="item.music_key && item.music_key === item.key_auto" class="meta auto"
           title="Sugerida por el nombre del archivo">auto</small>
       </span>
+      <el-select v-model="item.anchor" class="num" size="small" :disabled="busy || item.status == 'done'">
+        <el-option label="Start" value="start" />
+        <el-option label="End" value="end" />
+      </el-select>
       <span class="state">
         <template v-if="item.status == 'uploading'">{{ item.progress < 100 ? item.progress + '%' : 'MP3…' }}</template>
         <template v-else-if="item.status == 'done'">OK</template>
@@ -73,6 +78,7 @@
       Loop: se ajusta al tempo del proyecto; poné cuántos beats dura (el BPM sale de ahí). Viene una
       sugerencia según la duración o, si se detecta el pulso en el audio, marcada "auto". Shot: sample suelto, suena a su velocidad original (solo en pistas one-shot).
       Key: tonalidad (sirve para filtrar); "atonal" para percusión o ruidos. Si el nombre la trae, viene marcada "auto".
+      Anchor (pistas one-shot): Start = el archivo empieza en el punto de disparo; End = termina en él (riser, crash invertido).
     </div>
   </div>
 
@@ -99,10 +105,10 @@ const FORMATS_TEXT = "mp3 / wav / ogg / flac / m4a / aiff"
 
 const uploader = ref(null)
 // archivos elegidos: { uid, raw, name, size, duration, kind, beats, beats_auto, detected, music_key, key_auto,
-// status, progress, error }
+// anchor, status, progress, error }
 // beats_auto = los beats que sugirió la app (si beats sigue igual, el usuario no los tocó);
 // detected = { beats, bpm, confidence } de detect_beats; music_key = tonalidad ("" = sin dato) y key_auto
-// la que sugirió el nombre (suggest_key)
+// la que sugirió el nombre (suggest_key); anchor = "start" | "end" (anclaje de los disparos one-shot)
 // status: "ready" | "uploading" | "done" | "error"
 const items = ref([])
 const busy = ref(false)
@@ -142,7 +148,7 @@ function onFileChosen(upload_file_item) {
   let key = suggest_key(name) ?? ""
   items.value.push({
     uid: upload_file_item.uid, raw: raw, name: name, size: raw.size, duration: null,
-    kind: "loop", beats: null, beats_auto: null, detected: null, music_key: key, key_auto: key,
+    kind: "loop", beats: null, beats_auto: null, detected: null, music_key: key, key_auto: key, anchor: "start",
     status: "ready", progress: 0, error: ""
   })
   // la reactividad pasa por el elemento del array (no por el objeto suelto)
@@ -220,7 +226,7 @@ async function doUpload() {
       try {
         let res = await upload_file(item.raw, {
           kind: item.kind, beats: item.kind == "loop" ? item.beats : null, music_key: item.music_key ?? "",
-          project_id: store.project?.id
+          anchor: item.anchor ?? "start", project_id: store.project?.id
         }, p => { item.progress = p })
         if (res?.stat) {
           item.status = "done"
@@ -275,7 +281,7 @@ async function doUpload() {
 
 .row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px 84px 84px 52px;
+  grid-template-columns: minmax(0, 1fr) 84px 84px 84px 76px 52px;
   gap: 8px;
   align-items: center;
   padding: 4px 0;
@@ -344,7 +350,7 @@ async function doUpload() {
 
 @media (max-width: 600px) {
   .row {
-    grid-template-columns: minmax(0, 1fr) 64px 64px 64px 40px;
+    grid-template-columns: minmax(0, 1fr) 64px 64px 64px 64px 40px;
     gap: 6px;
   }
 }

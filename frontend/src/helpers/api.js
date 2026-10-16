@@ -59,13 +59,14 @@ export function get_user_info(data) {
 // tonalidad ("" = sin dato); si es undefined no se manda y el backend la sugiere por el nombre.
 // Sin timeout: un archivo grande más la conversión pueden tardar más que el default de request.js.
 // on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión)
-export function upload_file(file, { kind, bpm, beats, music_key, project_id } = {}, on_progress) {
+export function upload_file(file, { kind, bpm, beats, music_key, anchor, project_id } = {}, on_progress) {
   let data = new FormData()
   data.append("file", file, file.name)
   if (kind) data.append("kind", String(kind))
   if (bpm != null && bpm !== "") data.append("bpm", String(bpm))
   if (beats != null && beats !== "") data.append("beats", String(beats))
   if (music_key !== undefined) data.append("music_key", music_key ?? "")
+  if (anchor) data.append("anchor", String(anchor))
   if (project_id) data.append("project_id", String(project_id))
   return request({
     url: '/api/upload',

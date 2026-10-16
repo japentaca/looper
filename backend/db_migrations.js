@@ -29,6 +29,8 @@ export default async function do_migrations() {
   await create_column_float("files", "bpm") // deducido: beats × 60 / duración (solo loops)
   await create_column_number("files", "beats") // largo del loop en beats; lo carga el creador (solo loops)
   await create_column_string("files", "kind", 8, "loop") // "loop" (se ajusta al tempo) | "shot" (sample suelto)
+  // anclaje de un disparo one-shot: "start" (empieza en el punto) | "end" (termina en el punto)
+  await create_column_string("files", "anchor", 8, "start")
   await migrate_file_keys() // files.music_key: tonalidad ("G", "C#m"...), "atonal" o null (sin dato)
   await migrate_file_ts()
   await migrate_file_durations()
@@ -69,7 +71,7 @@ export default async function do_migrations() {
   await create_column_string("project_files", "file_id", 36)
   await create_column_string("project_files", "track_group", 36) // id de user_track_groups del mismo proyecto
   await create_column_string("project_files", "tags", 4096) // JSON: array de ids de user_tags del mismo proyecto
-  await create_column_string("project_files", "props", 4096) // JSON: { volume, weight } (weight sin dato = 16)
+  await create_column_string("project_files", "props", 4096) // JSON: { volume, weight, repeat, anchor } (weight sin dato = 16; anchor sin dato = el del archivo)
   await create_index("project_files", "project_id")
   await create_index("project_files", "file_id")
   await migrate_projects()

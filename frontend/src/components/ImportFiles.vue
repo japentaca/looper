@@ -53,7 +53,8 @@
         </template>
       </el-table-column>
       <el-table-column label="BPM" width="70" align="right">
-        <template #default="{ row }">{{ row.kind == "shot" ? "shot" : row.bpm ?? "–" }}</template>
+        <template #default="{ row }">{{ row.kind == "shot" ? "shot" : row.bpm ?? "–" }}<span v-if="row.anchor == 'end'"
+            class="anchor_mark" title="Anchor END: in one-shot tracks the file ends at the trigger point"> ⇥</span></template>
       </el-table-column>
       <el-table-column label="Beats" width="64" align="right">
         <template #default="{ row }">{{ row.beats ?? "–" }}</template>
@@ -365,6 +366,12 @@ function fmt_date(ts) {
 
 .mark {
   margin-left: 6px;
+}
+
+/* anclaje "end" (ver file_anchor en composable.js) */
+.anchor_mark {
+  font-weight: 700;
+  cursor: help;
 }
 
 .creator {

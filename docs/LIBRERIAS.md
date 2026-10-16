@@ -89,9 +89,13 @@ formato de la cabecera de `backend/import_manifest.js`:
 [
  { "file": "FL_CPS_KIT03_140_Bb_Bass Loop.wav", "kind": "loop", "bpm": 140 },
  { "file": "FL_CPS_KIT03_140_Bb_Zap Loop.wav", "kind": "loop", "bpm": 140, "music_key": "atonal" },
- { "file": "FL_CPS_KIT03_140_Bb_Kick One-Shot.wav", "kind": "shot" }
+ { "file": "FL_CPS_KIT03_140_Bb_Kick One-Shot.wav", "kind": "shot" },
+ { "file": "FL_CPS_KIT03_140_Riser FX.wav", "kind": "shot", "music_key": "atonal", "anchor": "end" }
 ]
 ```
+
+`anchor` (opcional, default `"start"`): `"end"` para los one-shots que tienen que **terminar** en el
+punto de disparo (risers, crashes invertidos, redobles que desembocan en el cambio de Tag).
 
 Se arma con un script de una sola vez (no va al repo) que recorre los kits, saca kit/tonalidad/BPM
 del nombre de la carpeta, copia y renombra, y aplica las excepciones de tonalidad. Comprobar que la

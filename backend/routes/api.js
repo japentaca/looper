@@ -583,11 +583,11 @@ router.post("/projects", require_session, async (req, res) => {
 
 // columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`)
 const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
-  "f.beats", "f.music_key", "f.ts", "f.hidden", "u.status as owner_status"]
+  "f.beats", "f.music_key", "f.anchor", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
 const FILE_ID_MAX = 36
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
-const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat"]
+const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat", "anchor"]
 // peso en el sorteo (de un archivo en el proyecto o de un Tag): entero 0..WEIGHT_MAX; 0 = no sale nunca
 const WEIGHT_MAX = 32
 function valid_weight(v) {
@@ -598,6 +598,10 @@ const REPEAT_OPTIONS = [1, 2, 4, 8, 16]
 function valid_repeat(v) {
   return Array.isArray(v) && v.length == 2 && v.every(n => REPEAT_OPTIONS.includes(n)) && v[0] <= v[1]
 }
+// anclaje de un disparo one-shot (files.anchor y override en project_files.props.anchor):
+// "start" = el archivo empieza en el punto de disparo; "end" = termina en él. Las pistas de loops lo ignoran
+const FILE_ANCHORS = ["start", "end"]
+const ANCHOR_ERROR = `Anclaje inválido: tiene que ser ${FILE_ANCHORS.join(" o ")}`
 const FILE_NOT_FOUND = { stat: false, text: "Archivo inexistente" }
 
 function file_available(r) {
@@ -608,8 +612,8 @@ function file_available(r) {
 function file_out(r, user_id) {
   return {
     id: r.id, original_name: r.original_name, size: r.size, duration: r.duration, kind: r.kind ?? "loop",
-    bpm: r.bpm, beats: r.beats, music_key: r.music_key ?? null, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id,
-    available: file_available(r),
+    bpm: r.bpm, beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start", ts: r.ts, name: r.id + ".mp3",
+    own: r.user_id === user_id, available: file_available(r),
   }
 }
 
@@ -846,6 +850,7 @@ function parse_project_file_fields(o, file_id) {
     if (props.volume !== undefined && !Number.isFinite(props.volume)) throw new RowsError("Volumen inválido para " + file_id)
     if (props.weight !== undefined && !valid_weight(props.weight)) throw new RowsError("Peso inválido para " + file_id)
     if (props.repeat !== undefined && !valid_repeat(props.repeat)) throw new RowsError("Repetición inválida para " + file_id)
+    if (props.anchor !== undefined && !FILE_ANCHORS.includes(props.anchor)) throw new RowsError("Anclaje inválido para " + file_id)
     out.props = props
   }
   return out
@@ -960,9 +965,9 @@ router.put('/logout', async (req, res) => {
 
 })
 
-// metadatos de un archivo propio: body { original_name?, kind?, beats?, bpm?, music_key? } (solo lo que
-// venga). kind / beats / bpm siguen las reglas de parse_timing (bpm se deduce de beats y la duración);
-// music_key, las de parse_music_key.
+// metadatos de un archivo propio: body { original_name?, kind?, beats?, bpm?, music_key?, anchor? } (solo
+// lo que venga). kind / beats / bpm siguen las reglas de parse_timing (bpm se deduce de beats y la duración);
+// music_key, las de parse_music_key; anchor: "start" | "end" (FILE_ANCHORS).
 // Solo el dueño: un archivo ajeno o inexistente responde 404.
 // Pista, tags y volumen son de cada proyecto (PUT /projects/:id/files). Responde el archivo
 // (forma del catálogo). Reemplaza a save_fileData
@@ -979,6 +984,10 @@ router.put('/files/:id', require_session, async (req, res) => {
   if (body.music_key !== undefined) {
     upd.music_key = parse_music_key(body.music_key)
     if (upd.music_key === undefined) return res.send({ stat: false, text: MUSIC_KEY_ERROR })
+  }
+  if (body.anchor !== undefined) {
+    if (!FILE_ANCHORS.includes(body.anchor)) return res.send({ stat: false, text: ANCHOR_ERROR })
+    upd.anchor = body.anchor
   }
   let user_id = req.user.id
   try {
@@ -1130,16 +1139,16 @@ router.get('/catalog', require_session, async (req, res) => {
   try {
     let { total } = await catalog_query(global.knex, f).count({ total: "*" }).first()
     let rows = await catalog_query(global.knex, f)
-      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.ts",
-        "u.name as creator_name", "u.bio as creator_bio",
+      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.anchor",
+        "f.ts", "u.name as creator_name", "u.bio as creator_bio",
         global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
       // los más nuevos primero; los migrados sin ts al final
       .orderByRaw("f.ts is null, f.ts desc, f.id")
       .limit(f.per_page).offset((f.page - 1) * f.per_page)
     let items = rows.map(r => ({
       id: r.id, original_name: r.original_name, duration: r.duration, kind: r.kind ?? "loop", bpm: r.bpm,
-      beats: r.beats, music_key: r.music_key ?? null, ts: r.ts, name: r.id + ".mp3", own: r.user_id === user_id,
-      uses: Number(r.uses) || 0,
+      beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start", ts: r.ts, name: r.id + ".mp3",
+      own: r.user_id === user_id, uses: Number(r.uses) || 0,
       creator: { name: r.creator_name, bio: r.creator_bio ?? null },
     }))
     return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
@@ -1380,8 +1389,9 @@ function count_traffic(req, res) {
 }
 
 // ---------- subida de archivos ----------
-// Un archivo por request (con su `kind`, `beats` y/o `bpm`, ver parse_timing, y `music_key`: si no viene
-// el campo, se sugiere por el nombre con utils.suggest_key; vacío = sin dato). Orden de los chequeos:
+// Un archivo por request (con su `kind`, `beats` y/o `bpm`, ver parse_timing, `music_key`: si no viene
+// el campo, se sugiere por el nombre con utils.suggest_key; vacío = sin dato; y `anchor` opcional:
+// "start" | "end", vacío o sin el campo = "start"). Orden de los chequeos:
 //  1. antes de recibir el cuerpo (upload_precheck): sesión activa (require_session), una subida en
 //     curso por usuario, disco libre y cuota no agotada. Así un rechazo no obliga a recibir el archivo.
 //  2. con el archivo en un temporal: formato por extensión, ffprobe (¿es audio?, duración <= 60 s),
@@ -1590,6 +1600,8 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     if (timing.error) return fail(400, timing.error)
     let music_key = body.music_key === undefined ? utils.suggest_key(file.name) : parse_music_key(body.music_key)
     if (music_key === undefined) return fail(400, MUSIC_KEY_ERROR)
+    let anchor = body.anchor === undefined || body.anchor === "" ? "start" : body.anchor
+    if (!FILE_ANCHORS.includes(anchor)) return fail(400, ANCHOR_ERROR)
 
     let q = await user_quota(global.knex, user_id)
     if (q.used + duration > q.max) {
@@ -1623,6 +1635,7 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       bpm: timing.bpm,
       beats: timing.beats,
       music_key: music_key,
+      anchor: anchor,
       ts: new Date().toISOString().slice(0, 19),
     }
     try {

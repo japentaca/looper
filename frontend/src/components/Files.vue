@@ -39,6 +39,7 @@
             <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ timing_text(file) }}<template
                 v-if="file.music_key"> · {{ file.music_key }}</template></template>
             <template v-else>loading…</template>
+            <span v-if="file_anchor(file) == 'end'" class="anchor_mark" :title="anchor_title(file)"> · ⇥end</span>
             <span v-if="file.available === false" class="unavailable_mark"> · unavailable</span>
             <span v-else-if="out_of_tempo(file)" class="unavailable_mark"> · out of tempo</span>
           </p>
@@ -99,6 +100,12 @@
               <span v-for="tag in scope.row.tag_objs" :key="tag.id" class="chip" :style="{ background: tag.color }">{{
                 tag.name }}</span>
             </span>
+          </template>
+        </el-table-column>
+        <!-- anclaje efectivo de los disparos one-shot: solo se marca "end" (start es lo normal) -->
+        <el-table-column label="Anchor" sortable :sort-by="(row) => file_anchor(row)" width="90">
+          <template #default="scope">
+            <span v-if="file_anchor(scope.row) == 'end'" class="anchor_mark" :title="anchor_title(scope.row)">⇥END</span>
           </template>
         </el-table-column>
         <!-- sin v-if en la columna: el-table mezcla las celdas si una columna aparece después -->
@@ -174,6 +181,18 @@
           </span>
           <span v-else>{{ key_label(curr_edit_file.music_key) }}</span>
 
+          <!-- anclaje de los disparos one-shot (dato del archivo): solo el dueño lo cambia (PUT /files/:id).
+            Cada proyecto lo puede pisar con la placa Anchor -->
+          <span class="info_label" :title="ANCHOR_HELP">Anchor</span>
+          <span v-if="curr_edit_file.own && !store.read_only">
+            <el-radio-group :model-value="curr_edit_file.anchor ?? 'start'" size="small" :disabled="saving_timing"
+              @change="v => save_timing(curr_edit_file, { anchor: v })">
+              <el-radio-button label="start" :title="ANCHOR_TEXT.start">Start</el-radio-button>
+              <el-radio-button label="end" :title="ANCHOR_TEXT.end">End</el-radio-button>
+            </el-radio-group>
+          </span>
+          <span v-else :title="ANCHOR_HELP">{{ curr_edit_file.anchor == 'end' ? 'End' : 'Start' }}</span>
+
           <span class="info_label">Track group</span>
           <span>
             <span v-if="curr_edit_file.track_group_obj" class="chip"
@@ -220,6 +239,18 @@
           <RangePads v-model="curr_edit_file.props.repeat" :options="REPEAT_OPTIONS" @change="onChange(curr_edit_file)" />
           <span class="silk">{{ repeat_label(curr_edit_file.props.repeat) }}</span>
         </div>
+        <!-- anclaje en este proyecto: FILE = hereda el del archivo; START / END lo pisan (props.anchor).
+          Abajo, el valor efectivo. En modo lectura solo se muestra -->
+        <div class="hw_plate anchor" :title="ANCHOR_HELP">
+          <span class="silk">Anchor</span>
+          <div class="anchor_btns">
+            <LedButton v-for="o in ANCHOR_OVERRIDES" :key="o.value" size="small" led="green" :text="o.label"
+              :lit="(curr_edit_file.props.anchor ?? '') === o.value" :disabled="store.read_only" :title="o.title"
+              @click="set_anchor_override(curr_edit_file, o.value)" />
+          </div>
+          <span class="silk" :title="anchor_title(curr_edit_file)">→ {{ file_anchor(curr_edit_file).toUpperCase() }}<template
+              v-if="curr_edit_file.props.anchor == null"> (file)</template></span>
+        </div>
       </div>
     </div>
 
@@ -245,8 +276,9 @@
 import { ref, watch, computed } from "vue"
 import {
   store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, delete_project_file, WEIGHT_MAX,
-  REPEAT_OPTIONS
+  REPEAT_OPTIONS, file_anchor
 } from "../helpers/composable"
+import LedButton from "./hw/LedButton.vue"
 import Fader from "./hw/Fader.vue"
 import RangePads from "./hw/RangePads.vue"
 import Knob from "./hw/Knob.vue"
@@ -302,7 +334,7 @@ function timing_text(file) {
   if (file.kind == "shot") return "shot"
   return `${file.beats ?? "?"} beats · ${fmt_bpm(file.bpm)} BPM`
 }
-// cambia tipo, beats o tonalidad de un archivo propio. El backend recalcula el bpm; con la respuesta se
+// cambia tipo, beats, tonalidad o anclaje de un archivo propio. El backend recalcula el bpm; con la respuesta se
 // actualiza el archivo y se recalcula su playbackRate (vale para el próximo sorteo)
 const saving_timing = ref(false)
 async function save_timing(file, data) {
@@ -314,6 +346,7 @@ async function save_timing(file, data) {
     file.beats = res.data.beats
     file.bpm = res.data.bpm
     file.music_key = res.data.music_key
+    file.anchor = res.data.anchor ?? "start"
     calculate_timing()
   } catch (e) {
     ElMessage({ type: 'error', message: error_text(e) })
@@ -353,6 +386,30 @@ function weight_title(file) {
   let w = file.props.weight
   return w == 0 ? "Weight 0: never drawn"
     : `Chance of being drawn, relative to the other files of its track (0 = never, ${WEIGHT_MAX} = max)`
+}
+
+// --- anclaje de los disparos one-shot (ver file_anchor en composable.js) ---
+const ANCHOR_TEXT = {
+  start: "Start: the file starts at the trigger point",
+  end: "End: the file ends at the trigger point (riser, reverse crash)",
+}
+const ANCHOR_HELP = "Where a one-shot track places the file relative to its trigger point (Tag change or phrase "
+  + "start). Loop tracks ignore it."
+// override del proyecto: "" = hereda el del archivo (no se guarda props.anchor)
+const ANCHOR_OVERRIDES = [
+  { value: "", label: "FILE", title: "Use the file's own anchor" },
+  { value: "start", label: "START", title: ANCHOR_TEXT.start + " (in this project)" },
+  { value: "end", label: "END", title: ANCHOR_TEXT.end + " (in this project)" },
+]
+function anchor_title(file) {
+  let a = file_anchor(file)
+  return `Anchor: ${a.toUpperCase()}${file.props?.anchor == null ? " (file)" : " (this project)"}. ${ANCHOR_TEXT[a]}`
+}
+async function set_anchor_override(file, v) {
+  if (store.read_only || (file.props.anchor ?? "") === v) return
+  if (v) file.props.anchor = v
+  else delete file.props.anchor
+  await save_file(file)
 }
 
 function repeat_label(r) {
@@ -766,6 +823,21 @@ const iconSize = ref(18)
 
 .weight {
   justify-self: start;
+}
+
+/* anclaje: fila de abajo, a lo ancho de las dos columnas */
+.anchor {
+  grid-column: 1 / 3;
+}
+
+.anchor_btns {
+  display: flex;
+  gap: 6px;
+}
+
+.anchor_mark {
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
 

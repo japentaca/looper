@@ -30,6 +30,15 @@ export function parse_rest_len(v) {
   let i = Array.isArray(v) && v.length == 2 ? v.map(x => REST_LEN_OPTIONS.indexOf(x)) : [-1, -1]
   return i[0] >= 0 && i[1] >= i[0] ? [v[0], v[1]] : [4, 4]
 }
+// --- anclaje de los disparos one-shot ---
+// "start" = el archivo empieza en el punto de disparo; "end" = termina en él (riser, crash invertido).
+// Es dato del archivo (files.anchor, lo cambia el dueño) y el proyecto lo puede pisar con props.anchor
+// (ausente = hereda). Las pistas de loops lo ignoran.
+export const ANCHORS = ["start", "end"]
+// anclaje efectivo de un archivo del proyecto
+export function file_anchor(file) {
+  return file.props?.anchor ?? file.anchor ?? "start"
+}
 // elige un elemento de `items` con chance proporcional a weight_of(item); null si la suma es 0
 export function pick_weighted(items, weight_of) {
   let total = 0
@@ -141,6 +150,8 @@ export async function save_file(file) {
   data.props.weight = parse_weight(file.props?.weight)
   let repeat = parse_repeat(file.props?.repeat)
   if (repeat[1] > 1) data.props.repeat = repeat
+  // el anclaje solo se guarda si el proyecto pisa el del archivo
+  if (ANCHORS.includes(file.props?.anchor)) data.props.anchor = file.props.anchor
   await save_collection(() => api.save_project_files(store.project.id, { update: [data] }), null, "los datos del archivo")
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
@@ -418,6 +429,9 @@ async function install_project(p, same) {
     if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
     f.props.weight = parse_weight(f.props.weight)
     f.props.repeat = parse_repeat(f.props.repeat)
+    // override del anclaje: solo "start" | "end"; cualquier otra cosa = hereda el del archivo
+    if (!ANCHORS.includes(f.props.anchor)) delete f.props.anchor
+    if (!ANCHORS.includes(f.anchor)) f.anchor = "start"
     let url = api.file_url(f.id)
     //console.log(url)
     f.isLoaded = false
