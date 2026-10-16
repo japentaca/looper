@@ -155,7 +155,7 @@
                 title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
             </div>
             <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) y rango
-              de su duración (props.rest_len: 1, 2, 4, 8, 16 o 32 compases) -->
+              de su duración (props.rest_len: 4, 8, 16 o 32 compases) -->
             <div class="rest_ctrls" :class="{ ghost: is_oneshot(trg) }">
               <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
                 :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
@@ -346,7 +346,7 @@ function set_rest_len(trg, v) {
   save_trackGroups_debounced()
 }
 function rest_len_label(trg) {
-  let txt = (v) => v + " bar" + (v > 1 ? "s" : "")
+  let txt = (v) => v + " bars"
   let [lo, hi] = parse_rest_len(trg.props.rest_len)
   return lo === hi ? txt(lo) : txt(lo) + " – " + txt(hi)
 }

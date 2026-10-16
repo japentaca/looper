@@ -161,7 +161,7 @@ function on_key(e, i) {
 
 .small .pad {
   min-width: 0;
-  width: 13px;
+  width: 16px;
   height: 28px;
   padding: 0;
   gap: 3px;

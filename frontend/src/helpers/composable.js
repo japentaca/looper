@@ -24,11 +24,11 @@ export function parse_repeat(v) {
 }
 // --- duración de los descansos ---
 // Cada pista tiene un rango [min, max] de REST_LEN_OPTIONS (props.rest_len): al descansar, el motor
-// elige al azar un valor del rango, en compases. Sin dato vale [1, 1].
-export const REST_LEN_OPTIONS = [1, 2, 4, 8, 16, 32]
+// elige al azar un valor del rango, en compases. Sin dato vale [4, 4].
+export const REST_LEN_OPTIONS = [4, 8, 16, 32]
 export function parse_rest_len(v) {
   let i = Array.isArray(v) && v.length == 2 ? v.map(x => REST_LEN_OPTIONS.indexOf(x)) : [-1, -1]
-  return i[0] >= 0 && i[1] >= i[0] ? [v[0], v[1]] : [1, 1]
+  return i[0] >= 0 && i[1] >= i[0] ? [v[0], v[1]] : [4, 4]
 }
 // elige un elemento de `items` con chance proporcional a weight_of(item); null si la suma es 0
 export function pick_weighted(items, weight_of) {
@@ -151,7 +151,7 @@ export async function save_file(file) {
 // JSON.stringify lo vuelve null igual); drift = modulación lenta 0..1 de filtro y send (ver mixer.js).
 // delay = nivel del send al delay global en dB (null = nada, igual que reverb).
 export function trg_default_props() {
-  return { volume: 0, rest: 0, rest_len: [1, 1], mode: "loop", on_tag_change: false, density: 0, bars: 1,
+  return { volume: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false, density: 0, bars: 1,
     reverb: null, drift: 0, delay: null }
 }
 // guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
