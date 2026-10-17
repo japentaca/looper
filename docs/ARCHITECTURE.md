@@ -831,7 +831,8 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   `VOL_OFF_DB` (−60) o menos = silencio (al nodo se le aplica −120 dB, no `-Infinity`).
   **Master**: knob en el panel Transport con la misma curva (−∞..+6 dB); `TrackCtrl.master` (dB,
   guardado en `projects.props.master`, default 0; en modo lectura solo en memoria) va al `volume` de
-  `Destination`, que está antes del limitador (pasar de 0 dB empuja contra el limitador). Afecta
+  `Destination`, que está antes de la dinámica del master (pasar de 0 dB empuja contra el limitador;
+  con COMP prendido también cambia cuánto comprime). Afecta
   también al preview. El estado vive fuera de `TrackCtrl.tracks` porque
   los tracks se rearman en cada START. El volumen del canal se suma al `props.volume` de cada
   archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales.
@@ -856,7 +857,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 - **Reverb compartida** (config en `TrackCtrl.reverb`, guardada en `projects.props.reverb`): un único bus
   por convolución con impulsos reales: sends → `reverb_in` → `Tone.Convolver` activo (`normalize`) →
   `ir_gain` → `reverb_out` (`Tone.Volume`, nivel de retorno `reverb.level`, −24..+6 dB, default 0) →
-  `Destination` (pasa por el limitador). Solo devuelve la cola.
+  `Destination` (pasa por la dinámica del master). Solo devuelve la cola.
   Impulsos: 17 mp3 estéreo en `frontend/public/impulses/` (estáticos, servidos con el build; vienen
   del proyecto carrilion, licencia sin confirmar). Catálogo `REVERB_IRS` en `TrackCtrl.js` (clave =
   nombre del archivo, rótulo del LCD, `gain` y `rt60`); `reverb.ir` default `RoomHuge` (RT60 ≈ 3,1 s),
@@ -971,7 +972,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   Los knobs chicos "Rev" y "Dly" van en una fila propia de la tira, y debajo la de los chips de FX.
 - **Delay global** (config en `TrackCtrl.delay`, guardada en `projects.props.delay`): un único bus como
   la reverb: sends → `delay_in` → delay activo → `fade` → `delay_out` (`Tone.Volume`, nivel de retorno
-  `delay.level` en dB) → `Destination` (pasa por el limitador). Solo devuelve las repeticiones (wet = 1).
+  `delay.level` en dB) → `Destination` (pasa por la dinámica del master). Solo devuelve las repeticiones (wet = 1).
   No va a la reverb. Tipos (`delay.type`):
   - `pingpong` (default): `Tone.PingPongDelay`, las repeticiones alternan L/R.
   - `stereo`: `Tone.FeedbackDelay`, la misma repetición en los dos canales.
@@ -997,17 +998,61 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   (post-fader, post-mute y post-solo, igual que la reverb). Knob "Dly" en la tira: −40..0 dB, el mínimo = `null`.
   Controles globales en el panel Transport: LCD con tipo y división, botones TYPE y TIME (ciclan) y
   knobs Feedback y Level. Cambios de tempo, compás, rango de cambio de Tag, delay y reverb se guardan en el proyecto con `save_project_props_debounced()` (500 ms).
-- **Limitador master**: `Tone.Limiter(-1)` insertado con `Tone.getDestination().chain(limiter)`
-  (input de Destination → limiter → output). Todo lo que entra a Destination (canales y preview)
-  pasa por él, así la salida no clipea aunque coincidan varios loops fuertes.
-  **Indicador GR**: en el mismo loop de `requestAnimationFrame` de los vúmetros se lee
-  `master_limiter.reduction` (el `reduction` del `DynamicsCompressorNode` nativo, dB ≤ 0, expuesto
-  por `Tone.Limiter` en 14.7) y se guarda positivo en `levels.gr`. En la barra superior, junto al
-  vúmetro master, un `Led` rotulado LIM se enciende amarillo con más de 1 dB de reducción y rojo con
-  más de 3 dB (el `title` muestra el valor). Como el resto de los medidores, solo se actualiza
-  mientras suena el transporte o un preview; al cortarse el loop queda en 0.
+- **Dinámica del master** (`mixer.js` + `helpers/master_dsp.worklet.js` + `helpers/master_dsp.js`;
+  plan completo en `docs/PLAN_MASTER.md`). Cadena, armada a mano en vez de con
+  `Destination.chain()` porque hay dos caminos en paralelo:
+
+  ```
+  canales, reverb_out, delay_out, preview
+    → Destination.input (Tone.Volume, knob Master)
+    → master_in (Tone.Gain)
+         ├→ master_limiter (Tone.Limiter(-1)) → lim_gain (1 → 0 al pasar al worklet)
+         └→ dsp_node (AudioWorkletNode "looper-master") → dsp_gain (0 → 1)
+    → master_out (Tone.Gain) → Destination.output → salida
+                                                 └→ master_meter (post-dinámica)
+  ```
+
+  - **Worklet** (`master_dsp.worklet.js`): adapta `MasterDsp` (DSP puro y testeado en
+    `master_dsp.js`) a `AudioWorkletProcessor`: crossover Linkwitz-Riley de 4.º orden de 3 bandas
+    (120 Hz / 3 kHz, suma plana: con COMP apagado solo cambia la fase) → compresor por banda con
+    bypass (`comp.on`, rampa de 30 ms) → limitador brickwall con lookahead de 3 ms y techo −1 dBFS
+    (garantizado por muestra; latencia ≈ 3 ms en todo el master). Entrada ausente (`inputs[0]` vacío,
+    p. ej. sin señal activa) → procesa silencio; mono → mismo canal en L y R; siempre devuelve `true`.
+    Si `process` lanza, avisa `{ t: "error" }` una vez y desde ahí deja pasar la entrada recortada
+    al techo. `{ t: "dispose" }` lo apaga.
+  - **Carga** (`load_master_dsp()`, al importar `mixer.js`, sin esperar a START): solo en contexto
+    seguro (`window.isSecureContext`: https o localhost); `Tone.getContext().addAudioWorkletModule(url,
+    "looper-master")` y `createAudioWorkletNode(...)` (nodo de standardized-audio-context, conectable
+    con los de Tone; `outputChannelCount: [2]`, `channelCount: 2` explícito). La URL sale de
+    `import ... from "./master_dsp.worklet.js?worker&url"`: en build es un único archivo iife
+    `assets/master_dsp.worklet-[hash].js` con `master_dsp.js` adentro (`worker.format: "iife"` en
+    `vite.config.js`); en dev es el fuente con sus `import`, que standardized-audio-context separa
+    con una regex: por eso el `import` es la **primera línea** del worklet (antes de los comentarios).
+  - **Cambio**: cuando cargó, fundido de 50 ms (`lim_gain` → 0, `dsp_gain` → 1) y `levels.dsp = true`.
+    Mientras carga, si no carga (contexto no seguro, sin AudioWorklet, error) o si falla en marcha
+    (`onprocessorerror` o `{ t: "error" }`), suena el `Tone.Limiter(-1)` de antes, que queda
+    **conectado siempre** como reserva caliente: fundido inverso, `levels.dsp = false`, el nodo se
+    desconecta y no se reintenta hasta recargar. En la consola (solo dev; el build quita `console`)
+    queda "Master: dinámica en AudioWorklet" o el motivo del respaldo.
+  - **Parámetros**: `TrackCtrl.comp` (`{ on, amount, low, mid, high }`, default `comp_default()` =
+    `COMP_DEFAULT` de `master_dsp.js`, COMP apagado). Se mandan por `port` como objeto plano
+    (`{ t: "params", comp: { ...TrackCtrl.comp } }`, nunca el reactive: no es clonable) desde un
+    `watch` de `mixer.js`, y al crear el nodo en `processorOptions`. El worklet suaviza los cambios
+    (sin clics). Por ahora no hay controles ni se guarda en el proyecto (fase F4 del plan).
+  - **Indicadores**: el worklet manda `{ t: "gr", comp: [low, mid, high], lim }` (GR máxima en dB
+    desde el envío anterior) cada `ceil(sampleRate / 128 / 30)` bloques (~30/s); en silencio no
+    manda nada (siempre sale un último 0). `mixer.js` guarda el último en una variable y en el loop
+    de `requestAnimationFrame` de los vúmetros lo pasa a `levels.gr` (limitador) y
+    `levels.comp_gr` (por banda); sin worklet, `levels.gr` sale de `master_limiter.reduction` (el
+    `reduction` del `DynamicsCompressorNode` nativo, dB ≤ 0) y `comp_gr` queda en 0. En la barra
+    superior, junto al vúmetro master, un `Led` rotulado LIM se enciende amarillo con más de 1 dB de
+    reducción y rojo con más de 3 dB (el `title` muestra el valor). Como el resto de los medidores,
+    solo se actualiza mientras suena el transporte o un preview; al cortarse el loop queda en 0.
+  - Respecto del `Tone.Limiter` de antes (hoy solo el respaldo): es un `DynamicsCompressorNode` con
+    ratio 20 y knee de 30 dB (el default de Tone) más el makeup automático de Chrome, así que dejaba
+    pasar picos por encima de −1 dBFS comprimidos suave. El del worklet no los deja pasar.
 - Un `Tone.Meter` por canal, **post-mute** (muestra lo que se escucha), y uno estéreo colgado del
-  output de `Tone.getDestination()` (o sea **post-limitador**) para el master de la barra superior
+  output de `Tone.getDestination()` (o sea **post-dinámica**) para el master de la barra superior
   (incluye el preview).
 - `levels` (reactive) tiene `level` y `peak` 0..1 (−48 dB → 0, 0 dB → 1) con pico retenido 800 ms.
   Se actualiza con `requestAnimationFrame` solo mientras suena el transporte o un preview, y al

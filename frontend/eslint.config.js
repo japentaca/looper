@@ -26,4 +26,9 @@ export default [
       "vue/multi-word-component-names": "off",
     },
   },
+  // AudioWorkletGlobalScope (sampleRate, currentTime, registerProcessor, AudioWorkletProcessor...)
+  {
+    files: ["**/*.worklet.js"],
+    languageOptions: { globals: { ...globals.audioWorklet } },
+  },
 ]

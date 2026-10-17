@@ -125,6 +125,11 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
 
 ## Frontend — general
 
+- 🟡 Dinámica del master (`master_dsp.worklet.js`, ver "Dinámica del master" en `ARCHITECTURE.md`):
+  el limitador no mide true-peak (el techo de −1 dBFS es por muestra; entre muestras puede pasarse por
+  décimas de dB). En contexto no seguro (`http://` que no sea localhost) no hay AudioWorklet y suena el
+  `Tone.Limiter` de respaldo, que deja pasar picos sobre −1 dBFS (knee de 30 dB). Un cuelgue del
+  worklet sin error (`onprocessorerror` / `{ t: "error" }`) no se detecta: el master quedaría mudo.
 - 🟡 Modo lectura (`/p/:id`, tarea 4.3): si el `:id` cambia mientras el proyecto anterior todavía
   se está cargando (dos navegaciones seguidas dentro de la vista), las dos cargas escriben el store
   en paralelo; la vista descarta el resultado viejo (`load_n`), pero los players y pistas del store

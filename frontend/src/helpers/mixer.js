@@ -11,6 +11,8 @@ import * as Tone from "tone"
 import { reactive, watch } from "vue"
 import { store, audio_players, files_by_id, save_trackGroups_debounced } from "./composable"
 import { TrackCtrl, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, REVERB_IRS } from "./TrackCtrl"
+// URL del worklet del master: en build, un solo archivo iife con master_dsp.js adentro (vite.config.js)
+import worklet_url from "./master_dsp.worklet.js?worker&url"
 
 const FLOOR_DB = -48 // nivel que queda en 0 (abajo de esto el medidor está apagado)
 const PEAK_HOLD_MS = 800 // cuánto se queda quieto el LED de pico antes de caer
@@ -61,11 +63,32 @@ export function vol_db(db, max_db = VOL_MAX_DB) {
 const channels_by_trg = {}
 // player -> track group al que está enrutado (WeakMap: si se recargan los audios, los players nuevos arrancan sin enrutar)
 const trg_of_player = new WeakMap()
-// limitador en el master para que la salida no clipee aunque coincidan varios loops fuertes.
-// chain() solo rearma input → limiter → output de Destination: lo que entra (canales, preview) sigue igual.
+// --- dinámica del master (ver "Dinámica del master" en docs/ARCHITECTURE.md) ---
+// Destination.input (volumen Master) → master_in ─┬→ master_limiter → lim_gain ─┬→ master_out → Destination.output
+//                                                 └→ dsp_node (worklet) → dsp_gain ┘
+// dsp_node = AudioWorklet "looper-master" (master_dsp.worklet.js: crossover de 3 bandas, compresor por
+// banda y limitador con lookahead, techo −1 dBFS). Mientras carga, si no carga (contexto no seguro,
+// navegador sin AudioWorklet, error) o si falla en marcha, suena el Tone.Limiter(-1) de siempre: queda
+// conectado como reserva caliente y se pasa de un camino al otro con un fundido (lim_gain / dsp_gain).
+// Se arma a mano en vez de con Destination.chain() porque son dos caminos en paralelo; lo que entra a
+// Destination (canales, reverb, delay, preview) sigue igual.
+const MASTER_FADE = 0.05 // fundido entre el limitador de Tone y el worklet (s)
+const master_dest = Tone.getDestination()
+const master_in = new Tone.Gain(1)
 const master_limiter = new Tone.Limiter(-1)
-Tone.getDestination().chain(master_limiter)
-// volumen master (TrackCtrl.master, dB): el volume de Destination está antes del limitador, así que
+const lim_gain = new Tone.Gain(1)
+const dsp_gain = new Tone.Gain(0)
+const master_out = new Tone.Gain(1)
+master_dest.input.disconnect()
+master_dest.input.connect(master_in)
+master_in.connect(master_limiter)
+master_limiter.connect(lim_gain)
+lim_gain.connect(master_out)
+dsp_gain.connect(master_out)
+master_out.connect(master_dest.output)
+let dsp_node = null // AudioWorkletNode mientras suena el worklet (null = limitador de Tone)
+let dsp_meters = { comp: [0, 0, 0], lim: 0 } // último { t: "gr" } del worklet (se pasa a levels en frame())
+// volumen master (TrackCtrl.master, dB): el volume de Destination está antes de la dinámica, así que
 // subirlo de 0 dB empuja contra el limitador en vez de clipear. Afecta también al preview.
 Tone.getDestination().volume.value = vol_db(TrackCtrl.master)
 watch(() => TrackCtrl.master, (db) => Tone.getDestination().volume.rampTo(vol_db(db), 0.05))
@@ -223,8 +246,84 @@ function new_level() {
 }
 
 // niveles 0..1 para los LedMeter: levels.trgs[trg_id] y levels.master[0|1] (L/R).
-// levels.gr = reducción de ganancia del limitador master en dB (positiva; 0 = no está limitando)
-export const levels = reactive({ trgs: {}, master: [new_level(), new_level()], gr: 0 })
+// levels.gr = reducción de ganancia del limitador master en dB (positiva; 0 = no está limitando),
+// levels.comp_gr = la del compresor por banda [low, mid, high] (dB; 0 sin worklet o con COMP apagado),
+// levels.dsp = true si el master suena por el worklet (false = Tone.Limiter de respaldo)
+export const levels = reactive({
+  trgs: {}, master: [new_level(), new_level()], gr: 0, comp_gr: [0, 0, 0], dsp: false
+})
+
+// carga el worklet del master y, si anduvo, pasa la salida a él con un fundido. Se llama una sola vez
+// al importar mixer.js (addModule funciona con el contexto suspendido; el contexto de Tone nunca se
+// reemplaza). Ante cualquier error queda el Tone.Limiter. No se reintenta hasta recargar la página.
+async function load_master_dsp() {
+  // AudioWorklet solo existe en contexto seguro (https o localhost)
+  if (!window.isSecureContext) {
+    console.log("Master: contexto no seguro, sin AudioWorklet (queda el Tone.Limiter)")
+    return
+  }
+  let ctx = Tone.getContext()
+  let node
+  try {
+    await ctx.addAudioWorkletModule(worklet_url, "looper-master")
+    // createAudioWorkletNode de Tone usa standardized-audio-context sobre el rawContext (un
+    // AudioWorkletNode nativo no se podría conectar con los nodos de Tone)
+    node = ctx.createAudioWorkletNode("looper-master", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: "explicit",
+      channelInterpretation: "speakers",
+      // objeto plano: un reactive de Vue no se puede clonar (DataCloneError)
+      processorOptions: { comp: { ...TrackCtrl.comp } },
+    })
+  } catch (e) {
+    console.log("Master: no cargó el AudioWorklet (queda el Tone.Limiter)", e)
+    return
+  }
+  dsp_node = node
+  node.port.onmessage = (e) => {
+    let m = e.data
+    if (m?.t === "gr") dsp_meters = m
+    else if (m?.t === "error") dsp_fail(m.text)
+  }
+  node.onprocessorerror = (e) => dsp_fail(e)
+  master_in.connect(node)
+  node.connect(dsp_gain.input)
+  lim_gain.gain.rampTo(0, MASTER_FADE)
+  dsp_gain.gain.rampTo(1, MASTER_FADE)
+  levels.dsp = true
+  console.log("Master: dinámica en AudioWorklet")
+}
+
+// el worklet falló en marcha: vuelta al Tone.Limiter con el fundido inverso; el nodo se desconecta
+// después del fundido
+function dsp_fail(why) {
+  let node = dsp_node
+  if (!node) return
+  dsp_node = null
+  console.log("Master: falló el AudioWorklet, vuelve el Tone.Limiter", why)
+  lim_gain.gain.rampTo(1, MASTER_FADE)
+  dsp_gain.gain.rampTo(0, MASTER_FADE)
+  levels.dsp = false
+  dsp_meters = { comp: [0, 0, 0], lim: 0 }
+  for (let i = 0; i < 3; i++) levels.comp_gr[i] = 0
+  Tone.getContext().setTimeout(() => {
+    try {
+      master_in.disconnect(node)
+      node.disconnect()
+      node.port.postMessage({ t: "dispose" })
+    } catch (e) {
+      console.log("Master: error al desconectar el worklet", e)
+    }
+  }, MASTER_FADE + 0.1)
+}
+
+load_master_dsp()
+// config del compresor (TrackCtrl.comp; la UI y el guardado son de la fase F4 del plan): se manda
+// como objeto plano, no el reactive
+watch(() => ({ ...TrackCtrl.comp }), (comp) => dsp_node?.port.postMessage({ t: "params", comp }))
 
 // props de la pista (track group); {} si no existe. Se busca en store.track_groups (y no en el índice)
 // para no depender de que rebuildIndexes() ya haya corrido, y para que sea reactivo.
@@ -492,12 +591,21 @@ function frame(now) {
   let master = master_meter.getValue()
   showing = update(levels.master[0], master[0], now) || showing
   showing = update(levels.master[1], master[1], now) || showing
-  // reduction es del DynamicsCompressorNode nativo (dB, ≤ 0); sin señal vuelve sola a 0 con el release
-  levels.gr = Math.max(0, -master_limiter.reduction)
-  showing = levels.gr > 0.05 || showing
+  if (levels.dsp) {
+    // GR que mandó el worklet (~30/s; en silencio su último envío es 0)
+    levels.gr = dsp_meters.lim
+    for (let i = 0; i < 3; i++) levels.comp_gr[i] = dsp_meters.comp[i]
+  } else {
+    // reduction es del DynamicsCompressorNode nativo (dB, ≤ 0); sin señal vuelve sola a 0 con el release
+    levels.gr = Math.max(0, -master_limiter.reduction)
+  }
+  showing = levels.gr > 0.05 || levels.comp_gr.some(v => v > 0.05) || showing
   // al detenerse se sigue midiendo hasta que los medidores caen solos a cero
   raf = active || showing ? requestAnimationFrame(frame) : null
-  if (raf === null) levels.gr = 0
+  if (raf === null) {
+    levels.gr = 0
+    for (let i = 0; i < 3; i++) levels.comp_gr[i] = 0
+  }
 }
 
 // el loop de animación corre solo mientras algo suena (transporte o preview)
