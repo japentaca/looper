@@ -1010,3 +1010,6 @@ que no está en el proyecto (`ImportFiles.vue`), `playUrl(file, url)` descarga y
 archivo en un `Tone.ToneAudioBuffer` (volumen fijo de −6 dB, el default de un archivo); mientras
 carga marca `file.isPreviewLoading`. Solo queda referenciado el buffer del último preview, y cada
 pedido (`playFile`, `playUrl`, `playerStop`) invalida al que siga cargando, así no arranca tarde.
+Los diálogos usan los atajos `previewing(id)` / `preview_loading(id)` (estado del botón),
+`toggle_preview(file)` (play/stop: buffer del proyecto si está cargado, si no `playUrl`) y
+`stop_foreign_preview()` (al cerrar, corta un preview de un archivo que no es del proyecto).

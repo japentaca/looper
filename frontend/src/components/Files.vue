@@ -450,7 +450,7 @@ function ondrop_table(e) {
 
 // el archivo es el que está sonando en el preview
 function is_previewing(file) {
-  return store.curr_file.isPreviewing && store.curr_file.id == file.id
+  return toneLib.previewing(file.id)
 }
 
 // el botón de preview es play o stop según si ese archivo ya suena en el preview

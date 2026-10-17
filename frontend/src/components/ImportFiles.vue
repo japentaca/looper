@@ -2,7 +2,7 @@
   <!-- importar archivos del catálogo al proyecto activo (se abre desde la barra superior). Chasis del aparato
     (hw_dialog); el catálogo no trae los archivos que ya están en el proyecto (exclude_project) -->
   <el-dialog v-model="visible" title="Import from catalog" width="min(960px, 96vw)" class="hw_dialog" align-center
-    @open="on_open" @closed="on_closed">
+    @open="on_open" @closed="toneLib.stop_foreign_preview()">
     <div class="filters">
       <el-input v-model="filters.q" class="f_text" maxlength="64" clearable placeholder="Name contains…"
         @keyup.enter="search(1)" @clear="search(1)" />
@@ -44,11 +44,11 @@
       </el-table-column>
       <el-table-column label="" width="40">
         <template #default="{ row }">
-          <el-icon :size="18" class="icons" :class="{ is_loading: is_preview_loading(row) }"
-            :title="is_previewing(row) || is_preview_loading(row) ? 'Stop preview' : 'Preview'"
+          <el-icon :size="18" class="icons" :class="{ is_loading: toneLib.preview_loading(row.id) }"
+            :title="toneLib.previewing(row.id) || toneLib.preview_loading(row.id) ? 'Stop preview' : 'Preview'"
             @click="toggle_preview(row)">
-            <Loading v-if="is_preview_loading(row)" />
-            <VideoPause v-else-if="is_previewing(row)" />
+            <Loading v-if="toneLib.preview_loading(row.id)" />
+            <VideoPause v-else-if="toneLib.previewing(row.id)" />
             <VideoPlay v-else />
           </el-icon>
         </template>
@@ -134,10 +134,10 @@
 import { reactive, ref, computed, watch } from "vue"
 import { ElMessageBox } from "element-plus"
 import {
-  store, files_by_id, audio_players, load_project, estimate_files_memory, memory_warning_limit
+  store, load_project, estimate_files_memory, memory_warning_limit
 } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
-import { get_catalog, save_project_files, error_text, file_url } from "../helpers/api"
+import { get_catalog, save_project_files, error_text } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
 import ReportDialog from "./ReportDialog.vue"
 import LedButton from "./hw/LedButton.vue"
@@ -241,26 +241,11 @@ function filter_creator(row) {
 async function on_open() {
   await search(page.value)
 }
-// al cerrar se corta el preview si es de un archivo del catálogo que no está cargado en el proyecto
-function on_closed() {
-  let cf = store.curr_file
-  if (cf.isPreviewLoading || (cf.isPreviewing && !files_by_id[cf.id])) toneLib.playerStop()
-}
-
 // --- preview (toneLib.js): si el archivo ya está cargado en el proyecto se usa su buffer; si no,
 // se descarga solo ese archivo ---
-function is_previewing(row) {
-  return store.curr_file.isPreviewing == true && store.curr_file.id == row.id
-}
-function is_preview_loading(row) {
-  return store.curr_file.isPreviewLoading == true && store.curr_file.id == row.id
-}
 async function toggle_preview(row) {
-  if (is_previewing(row) || is_preview_loading(row)) return toneLib.playerStop()
-  let loaded = files_by_id[row.id]
   try {
-    if (loaded?.isLoaded && audio_players[row.id]) await toneLib.playFile(loaded)
-    else await toneLib.playUrl(row, file_url(row.id))
+    await toneLib.toggle_preview(row)
   } catch {
     set_msg("error", `No se pudo escuchar "${row.original_name}"`)
   }

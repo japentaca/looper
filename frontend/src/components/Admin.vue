@@ -2,7 +2,7 @@
   <!-- admin (solo role = admin; App.vue no lo monta para los demás): usuarios, denuncias y
     estadísticas. El backend vuelve a chequear el rol en cada request con require_admin.
     El admin modera, no edita (política 4): admite/bloquea, oculta un archivo o proyecto puntual -->
-  <el-dialog v-model="visible" title="Admin" width="1080px" align-center @open="load" @closed="on_closed">
+  <el-dialog v-model="visible" title="Admin" width="1080px" align-center @open="load" @closed="toneLib.stop_foreign_preview()">
     <el-tabs v-model="tab">
       <el-tab-pane :label="`Pending (${pending.length})`" name="pending">
         <el-table :data="pending" size="small" max-height="420" v-loading="busy" empty-text="No pending requests">
@@ -71,11 +71,11 @@
                   :title="project_link_title(row.target)">{{ row.target.name }}</a>
               </template>
               <template v-else>
-                <el-icon :size="16" class="icons" :class="{ is_loading: is_preview_loading(row) }"
-                  :title="is_previewing(row) || is_preview_loading(row) ? 'Stop preview' : 'Preview'"
+                <el-icon :size="16" class="icons" :class="{ is_loading: toneLib.preview_loading(row.target_id) }"
+                  :title="toneLib.previewing(row.target_id) || toneLib.preview_loading(row.target_id) ? 'Stop preview' : 'Preview'"
                   @click="toggle_preview(row)">
-                  <Loading v-if="is_preview_loading(row)" />
-                  <VideoPause v-else-if="is_previewing(row)" />
+                  <Loading v-if="toneLib.preview_loading(row.target_id)" />
+                  <VideoPause v-else-if="toneLib.previewing(row.target_id)" />
                   <VideoPlay v-else />
                 </el-icon>
                 <span class="target_name">{{ row.target.name }}</span>
@@ -165,9 +165,8 @@ import { useRouter } from "vue-router"
 import { ElMessageBox } from "element-plus"
 import {
   admin_get_users, admin_update_user, admin_get_reports, admin_update_report, admin_set_file_hidden,
-  admin_set_project_hidden, admin_get_stats, error_text, file_url
+  admin_set_project_hidden, admin_get_stats, error_text
 } from "../helpers/api"
-import { store, files_by_id, audio_players } from "../helpers/composable"
 import * as toneLib from "../helpers/toneLib"
 
 const visible = defineModel({ type: Boolean, default: false })
@@ -317,30 +316,12 @@ function project_link_title(target) {
 // --- preview del archivo denunciado (toneLib.js, como en el catálogo): si está cargado en el
 // proyecto activo se usa su buffer; si no, se descarga solo ese archivo (GET /file/:id sirve
 // también los ocultos) ---
-function is_previewing(row) {
-  return store.curr_file.isPreviewing == true && store.curr_file.id == row.target_id
-}
-function is_preview_loading(row) {
-  return store.curr_file.isPreviewLoading == true && store.curr_file.id == row.target_id
-}
 async function toggle_preview(row) {
-  if (is_previewing(row) || is_preview_loading(row)) return toneLib.playerStop()
-  let loaded = files_by_id[row.target_id]
   try {
-    if (loaded?.isLoaded && audio_players[row.target_id]) await toneLib.playFile(loaded)
-    else {
-      let file = { id: row.target_id, original_name: row.target.name }
-      await toneLib.playUrl(file, file_url(row.target_id))
-    }
+    await toneLib.toggle_preview({ id: row.target_id, original_name: row.target.name })
   } catch {
     set_msg("error", `No se pudo escuchar "${row.target.name}"`)
   }
-}
-
-// al cerrar se corta el preview si es de un archivo que no está cargado en el proyecto
-function on_closed() {
-  let cf = store.curr_file
-  if (cf.isPreviewLoading || (cf.isPreviewing && !files_by_id[cf.id])) toneLib.playerStop()
 }
 
 // bytes → MB o GB (base 1024)

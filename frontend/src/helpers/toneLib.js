@@ -1,5 +1,6 @@
 import * as Tone from 'tone'
-import { store, audio_players } from "../helpers/composable"
+import { store, audio_players, files_by_id } from "../helpers/composable"
+import { file_url } from "./api"
 import { vol_db, FILE_VOL_MAX_DB } from "./mixer"
 
 
@@ -69,4 +70,28 @@ export async function playUrl(file, url) {
   mainPlayer.start()
   started++
   store.curr_file.isPreviewing = true
+}
+
+// --- preview desde la UI (Files, catálogo, admin). Leen store.curr_file, así que son reactivas
+// usadas en un template ---
+// el archivo con ese id es el que suena en el preview
+export function previewing(id) {
+  return store.curr_file.isPreviewing == true && store.curr_file.id == id
+}
+// el archivo con ese id se está descargando para el preview
+export function preview_loading(id) {
+  return store.curr_file.isPreviewLoading == true && store.curr_file.id == id
+}
+// play o stop de un archivo ({ id, original_name }): si está cargado en el proyecto se usa su
+// buffer; si no, se descarga solo ese archivo. Si falla la carga, tira el error
+export async function toggle_preview(file) {
+  if (previewing(file.id) || preview_loading(file.id)) return playerStop()
+  let loaded = files_by_id[file.id]
+  if (loaded?.isLoaded && audio_players[file.id]) await playFile(loaded)
+  else await playUrl(file, file_url(file.id))
+}
+// corta el preview si es de un archivo que no está cargado en el proyecto (al cerrar un diálogo)
+export function stop_foreign_preview() {
+  let cf = store.curr_file
+  if (cf.isPreviewLoading || (cf.isPreviewing && !files_by_id[cf.id])) playerStop()
 }
