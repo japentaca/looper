@@ -369,27 +369,30 @@ router.put('/admin/reports/:id', require_admin, route("Error admin/reports/:id",
   return res.send({ stat: true, data: admin_report_out(r) })
 }))
 
-// oculta (true) o desoculta (false) un archivo o un proyecto: body { hidden: bool }. Responde
-// { id, name, hidden } (y para archivos `available`, ya con el cambio)
-router.put('/admin/files/:id/hidden', require_admin, route("Error admin/files/:id/hidden", async (req, res) => {
-  let hidden = (req.body || {}).hidden
-  if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
-  let id = String(req.params.id)
-  let n = await global.knex("files").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
-  if (n == 0) return res.status(404).send(FILE_NOT_FOUND)
-  let [f] = await get_catalog_files(global.knex, [id])
-  return res.send({ stat: true, data: { id: f.id, name: f.original_name, hidden: !!f.hidden, available: file_available(f) } })
-}))
+// oculta (true) o desoculta (false) un archivo o un proyecto (`table`): body { hidden: bool }.
+// Responde lo que arma `out(id)` ya con el cambio: { id, name, hidden } (y para archivos `available`)
+function set_hidden_handler(table, out) {
+  return async (req, res) => {
+    let hidden = (req.body || {}).hidden
+    if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
+    let id = String(req.params.id)
+    let n = await global.knex(table).update({ hidden: hidden ? 1 : 0 }).where({ id: id })
+    if (n == 0) return res.status(404).send(table == "files" ? FILE_NOT_FOUND : PROJECT_NOT_FOUND)
+    return res.send({ stat: true, data: await out(id) })
+  }
+}
 
-router.put('/admin/projects/:id/hidden', require_admin, route("Error admin/projects/:id/hidden", async (req, res) => {
-  let hidden = (req.body || {}).hidden
-  if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
-  let id = String(req.params.id)
-  let n = await global.knex("projects").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
-  if (n == 0) return res.status(404).send(PROJECT_NOT_FOUND)
-  let p = await global.knex("projects").select("id", "name", "hidden").where({ id: id }).first()
-  return res.send({ stat: true, data: { id: p.id, name: p.name, hidden: !!p.hidden } })
-}))
+router.put('/admin/files/:id/hidden', require_admin, route("Error admin/files/:id/hidden",
+  set_hidden_handler("files", async id => {
+    let [f] = await get_catalog_files(global.knex, [id])
+    return { id: f.id, name: f.original_name, hidden: !!f.hidden, available: file_available(f) }
+  })))
+
+router.put('/admin/projects/:id/hidden', require_admin, route("Error admin/projects/:id/hidden",
+  set_hidden_handler("projects", async id => {
+    let p = await global.knex("projects").select("id", "name", "hidden").where({ id: id }).first()
+    return { id: p.id, name: p.name, hidden: !!p.hidden }
+  })))
 
 // estadísticas: tráfico de audio del mes UTC en curso (tabla `traffic`), disco de storage_path,
 // usuarios por estado, archivos, proyectos y denuncias abiertas
@@ -398,9 +401,7 @@ router.get('/admin/stats', require_admin, route("Error admin/stats", async (req,
   let t = await global.knex("traffic").sum({ bytes: "bytes" }).sum({ requests: "requests" })
     .where("id", "like", month + "-%").first()
 
-  let s = await fs.statfs(global.config.storage_path)
-  let min_free_gb = config_number("disk_min_free_gb", DEFAULT_DISK_MIN_FREE_GB)
-  let free_bytes = s.bavail * s.bsize
+  let disk = await disk_status()
 
   let users = { pending: 0, active: 0, blocked: 0 }
   for (let r of await global.knex("users").select("status").count({ n: "*" }).groupBy("status")) {
@@ -415,10 +416,7 @@ router.get('/admin/stats', require_admin, route("Error admin/stats", async (req,
     stat: true,
     data: {
       traffic: { month: month, bytes: Number(t?.bytes) || 0, requests: Number(t?.requests) || 0 },
-      disk: {
-        free_bytes: free_bytes, total_bytes: s.blocks * s.bsize, min_free_gb: min_free_gb,
-        uploads_allowed: free_bytes >= min_free_gb * 1024 * 1024 * 1024,
-      },
+      disk: { free_bytes: disk.free, total_bytes: disk.total, min_free_gb: disk.min_gb, uploads_allowed: disk.ok },
       users: users,
       files: { total: await count("files"), hidden: await count("files", { hidden: 1 }) },
       projects: {
@@ -1351,11 +1349,13 @@ async function user_quota(db, user_id) {
   return { max: max, used: Number(r?.s) || 0 }
 }
 
-// ¿queda al menos disk_min_free_gb libre en el disco de storage_path?
-async function disk_free_ok() {
+// disco de storage_path: bytes libres y totales, mínimo libre de .env (disk_min_free_gb) y `ok` si
+// queda al menos ese mínimo (si no, las subidas se rechazan)
+async function disk_status() {
   let min_gb = config_number("disk_min_free_gb", DEFAULT_DISK_MIN_FREE_GB)
   let s = await fs.statfs(global.config.storage_path)
-  return s.bavail * s.bsize >= min_gb * 1024 * 1024 * 1024
+  let free = s.bavail * s.bsize
+  return { free: free, total: s.blocks * s.bsize, min_gb: min_gb, ok: free >= min_gb * 1024 * 1024 * 1024 }
 }
 
 const DISK_FULL_TEXT = "El servidor está sin espacio: las subidas están suspendidas por ahora"
@@ -1376,7 +1376,7 @@ async function upload_precheck(req, res, next) {
   }
   res.once("close", () => { if (!req.upload_started) req.upload_release() })
   try {
-    if (!await disk_free_ok()) return res.status(507).send({ stat: false, text: DISK_FULL_TEXT })
+    if (!(await disk_status()).ok) return res.status(507).send({ stat: false, text: DISK_FULL_TEXT })
     let q = await user_quota(global.knex, user_id)
     if (q.used >= q.max) {
       return res.status(403).send({ stat: false, text: `Llegaste a tu cuota de ${fmt_seconds(q.max)} de audio` })
@@ -1498,7 +1498,7 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     if (q.used + duration > q.max) {
       return fail(403, `No te alcanza la cuota: te quedan ${fmt_seconds(q.max - q.used)} y ${file.name} dura ${fmt_seconds(duration)}`)
     }
-    if (!await disk_free_ok()) return fail(507, DISK_FULL_TEXT)
+    if (!(await disk_status()).ok) return fail(507, DISK_FULL_TEXT)
 
     let dir = global.config.storage_path + user_id
     await fs.mkdir(dir, { recursive: true })
