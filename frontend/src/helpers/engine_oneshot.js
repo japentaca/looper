@@ -23,9 +23,20 @@ export function shot_bars(trg) {
   return SHOT_BARS.includes(b) ? b : 1
 }
 
+// negra de la frase (0 = la primera) en la que cae un disparo de density: con probabilidad props.scatter
+// (0..1, default 0) una al azar entre las `bars × beats_x_bar` de la frase (puede volver a salir la
+// primera); si no, la primera. Con scatter 1 el reparto es parejo
+function shot_offset(trg) {
+  let scatter = trg.props?.scatter ?? 0
+  if (!(Math.random() < scatter)) return 0
+  return Math.floor(Math.random() * parseInt(TrackCtrl.beats_x_bar) * shot_bars(trg))
+}
+
 // paso de una pista one-shot: dispara si empieza un Tag (on_tag_change) o si en el primer downbeat de
 // cada frase de props.bars compases (contados desde el inicio del transporte, como los loops) sale el
-// dado de density. Si el Tag cambió en este beat, available_files_per_TRG ya es la del Tag nuevo.
+// dado de density; en ese caso cae en la negra de la frase que elige shot_offset (si no es la primera,
+// queda en track.pending_shot = número de beat absoluto y dispara al llegar ahí). Si el Tag cambió en
+// este beat, available_files_per_TRG ya es la del Tag nuevo (el archivo se sortea al disparar).
 export function oneshot_step(track, time, n, tag_start, downbeat) {
   let p = track.track_group.props ?? {}
   // si la pista venía de modo loop, su loop se corta en este beat y deja de contar (fin de la tirada)
@@ -39,7 +50,20 @@ export function oneshot_step(track, time, n, tag_start, downbeat) {
   end_step(track, time, n)
 
   let phrase_start = downbeat && Math.round(n / parseInt(TrackCtrl.beats_x_bar)) % shot_bars(track.track_group) == 0
-  let fire = (p.on_tag_change && tag_start) || (phrase_start && Math.random() < (p.density ?? 0))
+  let fire = p.on_tag_change && tag_start
+  if (phrase_start) {
+    // un pendiente de la frase anterior que no llegó (se achicó bars a mitad de frase) se descarta
+    track.pending_shot = null
+    if (Math.random() < (p.density ?? 0)) {
+      let k = shot_offset(track.track_group)
+      if (k == 0) fire = true
+      else track.pending_shot = n + k
+    }
+  }
+  if (track.pending_shot == n) {
+    track.pending_shot = null
+    fire = true
+  }
   if (!fire) return
   let files = draw_candidates(track).filter(id => file_anchor(files_by_id[id]) != "end")
   if (!files.length) return

@@ -185,7 +185,9 @@
             toma el alto del más alto y el fader de todas las tiras queda a la misma altura -->
           <div v-if="!store.read_only" class="mode_ctrls">
             <!-- one-shot: cada cuántos compases se tira el dado (props.bars), densidad (probabilidad de
-              disparo en cada tirada, props.density) y disparo al empezar cada Tag (props.on_tag_change) -->
+              disparo en cada tirada, props.density), dispersión (probabilidad de que el disparo caiga en una
+              negra al azar de la frase en vez de la primera, props.scatter) y disparo al empezar cada Tag
+              (props.on_tag_change) -->
             <div class="oneshot_ctrls" :class="{ ghost: !is_oneshot(trg) }">
               <Knob :model-value="SHOT_BARS.indexOf(shot_bars(trg))" :min="0" :max="SHOT_BARS.length - 1" :step="1"
                 :size="36" label="Bars" :title="'Tirar el dado cada ' + shot_bars(trg) + ' compás(es)'"
@@ -193,6 +195,9 @@
               <Knob :model-value="trg.props.density ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Dens"
                 :title="'Density ' + Math.round((trg.props.density ?? 0) * 100) + '% cada ' + shot_bars(trg) + ' compás(es)'"
                 @update:model-value="v => set_density(trg, v)" />
+              <Knob :model-value="trg.props.scatter ?? 0" :min="0" :max="1" :step="0.05" :size="36" label="Scat"
+                :title="'Scatter ' + Math.round((trg.props.scatter ?? 0) * 100) + '%: negra al azar dentro de ' + shot_bars(trg) + ' compás(es)'"
+                @update:model-value="v => set_scatter(trg, v)" />
               <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
                 title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
             </div>
@@ -466,6 +471,9 @@ function is_oneshot(trg) {
 // el motor toma el modo nuevo en el próximo beat (ver set_next_step)
 function toggle_mode(trg) {
   trg.props.mode = is_oneshot(trg) ? "loop" : "oneshot"
+  // un disparo pendiente (props.scatter) no sobrevive al cambio de modo
+  let track = tracks.find(t => t.track_group?.id === trg.id)
+  if (track) track.pending_shot = null
   save_trackGroups_debounced()
 }
 // el knob da el índice dentro de SHOT_BARS
@@ -476,6 +484,11 @@ function set_bars(trg, i) {
 // probabilidad de disparo en cada tirada (0..1)
 function set_density(trg, v) {
   trg.props.density = Math.round(v * 100) / 100
+  save_trackGroups_debounced()
+}
+// probabilidad de que el disparo caiga en una negra al azar de la frase (0..1; ver shot_offset)
+function set_scatter(trg, v) {
+  trg.props.scatter = Math.round(v * 100) / 100
   save_trackGroups_debounced()
 }
 function toggle_on_tag_change(trg) {
@@ -614,6 +627,7 @@ function stop() {
     track.resting = false
     clear_fx_state(track)
     track.end_points = []
+    track.pending_shot = null
     // one-shot: se cortan los disparos que sigan sonando (pueden ser varios archivos superpuestos) y los
     // agendados que todavía no arrancaron: state mira el presente (no ve un start apenas futuro) y
     // Player.stop no hace nada si no hay ni uno ni otro, así que se llama para todos
@@ -759,6 +773,7 @@ function start() {
       last_shot: null, // one-shot: último archivo disparado (para la tira)
       shot_n: null, // one-shot: cuenta de disparos (cada cambio hace destellar el LED de la tira)
       end_points: [], // one-shot: puntos ya decididos para los disparos "end" ({ at, tag }, ver end_step)
+      pending_shot: null, // one-shot: beat absoluto del disparo de density corrido por props.scatter
       // FX de transición (ver fx_step): dado de descanso anticipado (null = sin sortear), ids de las
       // instancias ya evaluadas en la tirada actual e ids sonando (para los chips; vía Tone.Draw)
       next_rest: null,
