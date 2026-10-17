@@ -1,5 +1,31 @@
 # Plan: dinámica del master (multibanda + limitador) con AudioWorklet
 
+> **Estado: implementado** (F1–F4 commiteadas; F5 = revisión, calibración y docs). La descripción
+> vigente de lo que hay es "Dinámica del master" en `docs/ARCHITECTURE.md`; este documento queda como
+> registro del diseño y sus fundamentos. Faltan solo las pruebas manuales a oído del final.
+>
+> Desvíos respecto de lo planeado:
+>
+> - `COMP_DEFAULT`, `normalize_comp` (el acotado de `{ on, amount, low, mid, high }`), `GLUE_THR_DB`
+>   (18) y `COMP_TRIM_MAX_DB` (6) viven en `master_dsp.js`; `TrackCtrl.js` los reusa
+>   (`comp_default()` copia `COMP_DEFAULT`, `COMP_BAND_MIN/MAX = ∓COMP_TRIM_MAX_DB`). `apply_project_props`
+>   además redondea GLUE a 0.01.
+> - Worklet: el `import` de `master_dsp.js` tiene que ser la **primera línea** del archivo (en dev,
+>   standardized-audio-context separa los `import` del principio con una regex). Si `process` lanza, el
+>   procesador no vuelve a llamar al DSP: desde ahí deja pasar la entrada recortada a ±c (y `mixer.js`
+>   vuelve al `Tone.Limiter` con el fundido).
+> - UI: la grilla ancha del Transport con el compresor arranca en **1480 px** de ancho del panel (no
+>   entraba en 1300); en modo lectura sigue desde 1300. `App.vue` no cambió (su `title` ya era
+>   "Limiter GR: x dB").
+> - Calibración (F5): umbral base de HIGH **−14 → −9 dB**. Con loops reales sumados a −10 dBFS RMS y
+>   GLUE 0.5, la banda alta se llevaba 3.6 dB de GR media (p95 7.4 dB, más que la baja); con −9 queda
+>   en 0.8–2.1 dB (LOW 2.2–2.6, MID 1.2–1.7). El test 8 sube el seno de 8 kHz de 0.1 a 0.15 para que la
+>   banda alta siga comprimiendo más de 3 dB. Los demás valores de `COMP_BANDS` y `GLUE_MAKEUP_DB` no
+>   cambiaron.
+> - Tests: además de los 10 grupos, bloques de tamaño variable, estado interno corrupto y un test de
+>   rendimiento (~0.7 % de un núcleo con COMP apagado, ~1.4 % prendido); el del worklet cubre también
+>   el error y `dispose`.
+
 Reemplazar el `Tone.Limiter(-1)` del master por un procesador propio en un **AudioWorklet**:
 crossover Linkwitz-Riley de 4.º orden (LR4) de 3 bandas con suma plana → compresor por banda →
 limitador final con lookahead y techo −1 dBFS. El núcleo DSP es JS puro (sin APIs del navegador)
@@ -160,7 +186,7 @@ export const GLUE_MAKEUP_DB = 4             // makeup fijo con amount = 1 (se es
 export const COMP_BANDS = [                 // por banda: umbral base, ratio máx, rodilla, tiempos, detector
   { thr: -6,  ratio_max: 4, knee: 6, attack_ms: 30, release_ms: 200, rms_ms: 25 }, // low
   { thr: -8,  ratio_max: 3, knee: 6, attack_ms: 15, release_ms: 150, rms_ms: 10 }, // mid
-  { thr: -14, ratio_max: 3, knee: 6, attack_ms: 5,  release_ms: 100, rms_ms: 5 },  // high
+  { thr: -9,  ratio_max: 3, knee: 6, attack_ms: 5,  release_ms: 100, rms_ms: 5 },  // high (era −14, F5)
 ]
 ```
 
@@ -218,7 +244,7 @@ actualizan acá y en `ARCHITECTURE.md`.
   el volumen)
 - `trim = comp.low | comp.mid | comp.high` (dB, −6..+6): ganancia de la banda **después** del
   compresor (no cambia cuánto comprime). Es un "tilt" de 3 bandas; solo actúa con COMP prendido.
-- Ejemplo con el default `amount = 0.5`: low T −15 / R 2.5, mid T −17 / R 2, high T −23 / R 2, makeup +2 dB.
+- Ejemplo con el default `amount = 0.5`: low T −15 / R 2.5, mid T −17 / R 2, high T −18 / R 2 (−23 antes de la calibración de F5), makeup +2 dB.
 
 ### Limitador (`Limiter`)
 

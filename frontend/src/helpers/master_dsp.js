@@ -18,10 +18,14 @@ export const BYPASS_FADE_MS = 30            // on/off del compresor
 export const GLUE_MAKEUP_DB = 4             // makeup fijo con amount = 1 (se escala con amount)
 export const GLUE_THR_DB = 18               // cuánto baja el umbral con amount = 1
 export const COMP_TRIM_MAX_DB = 6           // los trims LOW/MID/HIGH se acotan a ±este valor
-export const COMP_BANDS = [                 // por banda: umbral base, ratio máx, rodilla, tiempos, detector
-  { thr: -6,  ratio_max: 4, knee: 6, attack_ms: 30, release_ms: 200, rms_ms: 25 }, // low
-  { thr: -8,  ratio_max: 3, knee: 6, attack_ms: 15, release_ms: 150, rms_ms: 10 }, // mid
-  { thr: -14, ratio_max: 3, knee: 6, attack_ms: 5,  release_ms: 100, rms_ms: 5 },  // high
+// por banda: umbral base (dBFS, nivel RMS de la banda), ratio máx, rodilla, tiempos, detector.
+// Calibración (F5, ver "Dinámica del master" en docs/ARCHITECTURE.md): con GLUE 0.5 y una mezcla de
+// loops a −10 dBFS RMS, GR media ≈ 2–2.6 dB en LOW, 1.2–1.7 en MID y 0.8–2.1 en HIGH. El umbral de
+// HIGH era −14: los hats, con el detector de 5 ms, se llevaban 3.6 dB de media (picos de 8 dB)
+export const COMP_BANDS = [
+  { thr: -6, ratio_max: 4, knee: 6, attack_ms: 30, release_ms: 200, rms_ms: 25 }, // low
+  { thr: -8, ratio_max: 3, knee: 6, attack_ms: 15, release_ms: 150, rms_ms: 10 }, // mid
+  { thr: -9, ratio_max: 3, knee: 6, attack_ms: 5,  release_ms: 100, rms_ms: 5 },  // high
 ]
 const BAND_KEYS = ["low", "mid", "high"]
 

@@ -130,6 +130,14 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   décimas de dB). En contexto no seguro (`http://` que no sea localhost) no hay AudioWorklet y suena el
   `Tone.Limiter` de respaldo, que deja pasar picos sobre −1 dBFS (knee de 30 dB). Un cuelgue del
   worklet sin error (`onprocessorerror` / `{ t: "error" }`) no se detecta: el master quedaría mudo.
+  Otras limitaciones aceptadas: el lookahead suma ~3 ms de latencia a todo el master; el knob Master
+  está antes de la dinámica, así que con COMP prendido también cambia cuánto comprime; el makeup de
+  GLUE es fijo (`4 dB·amount`), así que en un proyecto de nivel bajo (~−20 dBFS RMS en el bus, lo
+  normal con archivos a −6 dB) COMP prendido casi no comprime pero suena ~2 dB más fuerte (sesga la
+  comparación on/off); sin worklet (respaldo) el botón COMP queda deshabilitado aunque el proyecto lo
+  tenga prendido (no tiene efecto: el compresor no existe en ese camino) y el `title` del grupo dice
+  "Requires a secure context (https)" también mientras carga o si falló. En el build de producción
+  `esbuild.drop` quita los `console.log`: el mensaje "Master: dinámica en AudioWorklet" solo se ve en dev.
 - 🟡 Modo lectura (`/p/:id`, tarea 4.3): si el `:id` cambia mientras el proyecto anterior todavía
   se está cargando (dos navegaciones seguidas dentro de la vista), las dos cargas escriben el store
   en paralelo; la vista descarta el resultado viejo (`load_n`), pero los players y pistas del store

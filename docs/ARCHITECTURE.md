@@ -1020,6 +1020,25 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     p. ej. sin señal activa) → procesa silencio; mono → mismo canal en L y R; siempre devuelve `true`.
     Si `process` lanza, avisa `{ t: "error" }` una vez y desde ahí deja pasar la entrada recortada
     al techo. `{ t: "dispose" }` lo apaga.
+  - **DSP** (`master_dsp.js`, tests en `master_dsp.test.js` y `master_dsp.worklet.test.js`, `npm test`):
+    biquads RBJ en doble precisión; bandas `low = AP(3k)·LP4(120)`, `mid = LP4(3k)·HP4(120)`,
+    `high = HP4(3k)·HP4(120)` (suma = allpass, plana). Compresor por banda con link estéreo total
+    (detector `max(L², R²)` promediado en RMS), rodilla suave de 6 dB y balística en dB; por banda
+    (`COMP_BANDS`): umbral base −6 / −8 / −9 dBFS (nivel RMS de la banda), ratio máx 4 / 3 / 3,
+    attack 30 / 15 / 5 ms, release 200 / 150 / 100 ms, ventana RMS 25 / 10 / 5 ms. GLUE (`amount`)
+    → umbral `base − 18·amount`, ratio `1 + (máx − 1)·amount` (con 0 no comprime) y makeup fijo
+    `4 dB·amount` (sin makeup automático). Los trims LOW/MID/HIGH son ganancia **después** del
+    compresor (no cambian cuánto comprime) y, como todo el compresor, solo actúan con COMP prendido
+    (bypass con rampa de 30 ms; makeup y trims se suavizan con 20 ms). Limitador: mínimo deslizante
+    de la ganancia pedida en una ventana de N = 3 ms, release de 80 ms y promedio de N muestras
+    (ataque en rampa; garantiza `|y| ≤ −1 dBFS` por muestra), más un clip de seguridad. Entradas
+    NaN/∞ → 0; estados por debajo de 1e-15 → 0 al final de cada bloque (anti-denormales). CPU medida
+    en Node: ~0.7 % de un núcleo con COMP apagado y ~1.4 % prendido (48 kHz).
+    Calibración (F5, con loops reales de "My project" sumados y normalizados a −10 dBFS RMS): con
+    GLUE 0.5, GR media ≈ 2.2–2.6 dB en LOW, 1.2–1.7 en MID y 0.8–2.1 en HIGH; con GLUE 1,
+    ≈ 9–10 / 6–7 / 4–7 dB. Ojo: esa mezcla, tal como suena en el proyecto (archivos a −6 dB, master
+    0 dB), está a ~−20 dBFS RMS, y ahí GLUE 0.5 casi no comprime (< 0.2 dB) y GLUE 1 da ≈ 2.4 /
+    1.4 / 0.9–2.6 dB: cuánto comprime depende del nivel del bus (y del knob Master, que está antes).
   - **Carga** (`load_master_dsp()`, al importar `mixer.js`, sin esperar a START): solo en contexto
     seguro (`window.isSecureContext`: https o localhost); `Tone.getContext().addAudioWorkletModule(url,
     "looper-master")` y `createAudioWorkletNode(...)` (nodo de standardized-audio-context, conectable

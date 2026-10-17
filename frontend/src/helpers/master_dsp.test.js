@@ -518,12 +518,13 @@ describe.each(FS_LIST)("8. cambios de parámetros sin saltos (fs %i)", fs => {
   it("on false→true, amount 0→1, trims −6→+6 y vuelta: ganancia de banda ≤ 0.5 % por muestra", () => {
     const secs = 2
     const n = secs * fs
-    // contenido en las tres bandas: 60 Hz, 1 kHz y 8 kHz
+    // contenido en las tres bandas: 60 Hz, 1 kHz y 8 kHz (pico 0.8, bajo el techo; cada banda supera su
+    // umbral con amount 1 por varios dB)
     const x = new Float32Array(n)
     for (let i = 0; i < n; i++) {
       const t = i / fs
       x[i] = 0.3 * Math.sin(2 * Math.PI * 60 * t) + 0.35 * Math.sin(2 * Math.PI * 1000 * t) +
-        0.1 * Math.sin(2 * Math.PI * 8000 * t)
+        0.15 * Math.sin(2 * Math.PI * 8000 * t)
     }
     const events = {
       [Math.round(0.2 * fs)]: { on: true, amount: 0, low: -6, mid: -6, high: -6 },
@@ -719,7 +720,7 @@ describe("10. map_comp", () => {
       for (const b of map_comp({ on: true, amount })) expect(b.makeup).toBeCloseTo(GLUE_MAKEUP_DB * amount, 12)
     }
     const p = map_comp({ on: true, amount: 0.5 })
-    expect(p.map(b => [b.thr, b.ratio])).toEqual([[-15, 2.5], [-17, 2], [-23, 2]])
+    expect(p.map(b => [b.thr, b.ratio])).toEqual([[-15, 2.5], [-17, 2], [-18, 2]])
     expect(p[0].makeup).toBe(2)
   })
 

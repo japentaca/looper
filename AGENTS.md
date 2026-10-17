@@ -56,12 +56,14 @@ frontend/src/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
     toneLib.js       # reproductor de preview (un archivo suelto, del proyecto o del catálogo por url)
-    mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición
+    mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición + dinámica del master (worklet, con Tone.Limiter de respaldo)
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
     engine_oneshot.js # motor (parte de Tracks.vue): pistas one-shot (oneshot_step, disparos "end", cancelaciones en STOP/RESET)
     engine_fx.js     # motor (parte de Tracks.vue): agenda de los FX de transición hacia el fin de cada tirada (fx_step, end_run)
     master_dsp.js    # DSP puro del master (crossover LR4 de 3 bandas, compresor por banda, limitador con lookahead); sin Tone ni window, ver docs/PLAN_MASTER.md
     master_dsp.test.js # tests Vitest del DSP del master (npm test)
+    master_dsp.worklet.js # AudioWorkletProcessor "looper-master" (adapta master_dsp.js; lo carga mixer.js con ?worker&url; el import va en la 1.ª línea)
+    master_dsp.worklet.test.js # humo del worklet con el AudioWorkletGlobalScope simulado (npm test)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos)
@@ -86,6 +88,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
   `deploy/deploy.sh`, respaldo de la base, rollback, verificación y lecciones (pm2, nginx, Cloudflare).
 - `docs/LIBRERIAS.md` — cómo incorporar una librería de loops entera en producción (manifiesto,
   `import_manifest.js`, tonalidad, pistas y tags del proyecto). Seguirla cuando el dueño traiga una.
+- `docs/PLAN_MASTER.md` — diseño (ya implementado) de la dinámica del master en AudioWorklet: fundamentos
+  del DSP, tests y desvíos. Lo vigente está en "Dinámica del master" de `ARCHITECTURE.md`.
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes
   o Tracks.vue**; muchos comportamientos raros ya están explicados ahí.
 
@@ -129,8 +133,8 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora solo `src/helpers/master_dsp.test.js`) deben pasar todos.
-3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`):
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js` y `master_dsp.worklet.test.js`) deben pasar todos.
+3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 
