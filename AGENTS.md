@@ -60,6 +60,7 @@ frontend/src/
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
+    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos)
 deploy/
   deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
   .env.deploy.example # datos de conexión (copiar a .env.deploy, gitignored; sin IPs ni secretos en git)

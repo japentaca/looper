@@ -160,7 +160,7 @@
 
 <script setup>
 
-import { computed, reactive, ref } from "vue"
+import { computed, ref } from "vue"
 import { useRouter } from "vue-router"
 import { ElMessageBox } from "element-plus"
 import {
@@ -168,6 +168,7 @@ import {
   admin_set_project_hidden, admin_get_stats, error_text
 } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
+import { fmt_date, use_msg } from "../helpers/utils"
 
 const visible = defineModel({ type: Boolean, default: false })
 const router = useRouter()
@@ -175,7 +176,7 @@ const router = useRouter()
 const tab = ref("pending")
 const users = ref([])
 const busy = ref(false)
-const msg = reactive({ type: "success", text: "" })
+const { msg, set_msg } = use_msg()
 
 const pending = computed(() => users.value.filter(u => u.status == "pending"))
 const others = computed(() => users.value.filter(u => u.status != "pending"))
@@ -197,10 +198,6 @@ const stats = ref(null)
 const stats_busy = ref(false)
 
 const reports_label = computed(() => stats.value ? `Reports (${stats.value.reports.open})` : "Reports")
-
-function set_msg(type, text) {
-  Object.assign(msg, { type, text })
-}
 
 // trae usuarios, denuncias y estadísticas en paralelo
 async function load() {
@@ -400,9 +397,6 @@ function fmt_quota(s) {
   return r ? `${m}:${String(r).padStart(2, "0")}` : `${m} min`
 }
 
-function fmt_date(ts) {
-  return ts ? String(ts).slice(0, 10) : ""
-}
 
 </script>
 

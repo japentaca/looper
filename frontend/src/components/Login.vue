@@ -61,6 +61,7 @@
 import { reactive, ref } from "vue"
 import { store, store_get_user_info } from "../helpers/composable"
 import { login, register, error_text } from "../helpers/api"
+import { use_msg } from "../helpers/utils"
 const form = reactive({
   email: "",
   password: ""
@@ -75,12 +76,8 @@ const reg = reactive({
 })
 const mode = ref("login") // "login" | "register"
 const busy = ref(false)
-const msg = reactive({ type: "error", text: "" })
+const { msg, set_msg } = use_msg("error")
 
-function show_msg(type, text) {
-  msg.type = type
-  msg.text = text
-}
 function reset_messages() {
   msg.text = ""
 }
@@ -103,10 +100,10 @@ async function doLogin() {
       await store_get_user_info()
     } else {
       // cuenta pendiente: aviso, no error (la clave era correcta)
-      show_msg(/pendiente/i.test(res.text ?? "") ? "warning" : "error", res.text)
+      set_msg(/pendiente/i.test(res.text ?? "") ? "warning" : "error", res.text)
     }
   } catch (e) {
-    show_msg("error", error_text(e))
+    set_msg("error", error_text(e))
   } finally {
     busy.value = false
   }
@@ -115,7 +112,7 @@ async function doLogin() {
 async function doRegister() {
   if (busy.value) return
   reset_messages()
-  if (reg.password !== reg.password2) return show_msg("error", "Las claves no coinciden")
+  if (reg.password !== reg.password2) return set_msg("error", "Las claves no coinciden")
   busy.value = true
   try {
     let res = await register({
@@ -131,12 +128,12 @@ async function doRegister() {
       form.password = ""
       Object.assign(reg, { email: "", name: "", password: "", password2: "", bio: "", accept_license: false })
       mode.value = "login"
-      show_msg("success", res.text)
+      set_msg("success", res.text)
     } else {
-      show_msg("error", res.text)
+      set_msg("error", res.text)
     }
   } catch (e) {
-    show_msg("error", error_text(e))
+    set_msg("error", error_text(e))
   } finally {
     busy.value = false
   }

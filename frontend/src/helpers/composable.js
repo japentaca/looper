@@ -97,6 +97,7 @@ import {
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
 import { normalize_fx_list } from './fx'
+import { mb, url_autostart } from './utils'
 
 // una respuesta 401/403 "Sin sesión" de cualquier endpoint marca la sesión como perdida. No se
 // desloguea ni se recarga nada: eso cortaría el audio.
@@ -493,7 +494,7 @@ const MEMORY_FRACTION = 1 / 4
 // del mp3 suponiendo 128 kbps, que da más segundos que el V0 real (estimación por lo alto)
 const FALLBACK_BYTES_X_SECOND = 128000 / 8
 // en modo instalación (?autostart=1) no hay nadie para contestar: se carga sin preguntar
-const AUTOSTART = new URLSearchParams(window.location.search).get("autostart") == "1"
+const AUTOSTART = url_autostart()
 
 // memoria estimada (bytes) de `seconds` segundos de audio decodificado (las listas de proyectos
 // traen `audio_seconds`, calculado en el backend con el mismo criterio que estimate_files_memory)
@@ -516,14 +517,23 @@ export function fmt_memory(bytes) {
   let n = mb(bytes)
   return n < 1 ? "<1 MB" : `~${n} MB`
 }
+// memoria estimada de un proyecto de una lista (Projects, galería: traen `audio_seconds`), si
+// supera el límite del aviso "Large project" (se muestra en amarillo) y su tooltip; `what` = qué se carga
+export function project_memory(p) {
+  return estimate_seconds_memory(p.audio_seconds)
+}
+export function project_memory_warn(p) {
+  return project_memory(p) > memory_warning_limit()
+}
+export function project_memory_title(p, what = "this project") {
+  return `Estimated memory to load ${what}`
+    + (project_memory_warn(p) ? " (more than recommended for this device)" : "")
+}
 // límite (bytes) a partir del cual se avisa
 export function memory_warning_limit() {
   let gb = Number(navigator.deviceMemory)
   if (!Number.isFinite(gb) || gb <= 0) gb = DEVICE_MEMORY_FALLBACK_GB
   return gb * 1024 ** 3 * MEMORY_FRACTION
-}
-function mb(bytes) {
-  return Math.round(bytes / 1024 ** 2)
 }
 // true si se puede cargar el proyecto (no supera el límite, o el usuario eligió cargarlo igual)
 async function confirm_project_memory(p) {

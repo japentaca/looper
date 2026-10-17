@@ -139,6 +139,7 @@ import {
 import { TrackCtrl } from "../helpers/TrackCtrl"
 import { get_catalog, save_project_files, error_text } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
+import { fmt_date, mb, use_msg } from "../helpers/utils"
 import ReportDialog from "./ReportDialog.vue"
 import LedButton from "./hw/LedButton.vue"
 import LedMeter from "./hw/LedMeter.vue"
@@ -160,13 +161,9 @@ const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
 const busy = ref(false)
-const msg = reactive({ type: "success", text: "" })
+const { msg, set_msg } = use_msg()
 // archivos elegidos para importar (id → item del catálogo); se mantienen al cambiar de página o de filtro
 const selected = reactive(new Map())
-
-function set_msg(type, text) {
-  Object.assign(msg, { type, text })
-}
 
 // ya está en el proyecto activo (no se puede volver a importar: va una sola vez por proyecto)
 const project_ids = computed(() => new Set(store.files.map(f => f.id)))
@@ -258,9 +255,6 @@ const memory = computed(() => {
   return { current, selected: sel, total: current + sel, limit: memory_warning_limit() }
 })
 const over_limit = computed(() => memory.value.total > memory.value.limit)
-function mb(bytes) {
-  return Math.round(bytes / 1024 ** 2)
-}
 
 const can_import = computed(() => !busy.value && selected.size > 0 && !!store.project && TrackCtrl.isReady)
 
@@ -309,9 +303,6 @@ function open_report(row) {
 function fmt_seconds(s) {
   let n = Number(s)
   return Number.isFinite(n) && n > 0 ? n.toFixed(1) + " s" : "–"
-}
-function fmt_date(ts) {
-  return ts ? String(ts).slice(0, 10) : ""
 }
 
 </script>

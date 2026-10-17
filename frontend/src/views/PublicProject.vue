@@ -60,6 +60,7 @@ import {
   store, load_public_project, unload_public_project, remember_project
 } from "../helpers/composable"
 import { TrackCtrl, stop_transport } from "../helpers/TrackCtrl"
+import { url_autostart } from "../helpers/utils"
 
 const route = useRoute()
 
@@ -77,7 +78,7 @@ let load_n = 0
 // instalación (?autostart=1, docs/INSTALACION.md): si la carga falla por algo pasajero (sin red,
 // backend caído o reiniciando, 429) se reintenta sola con backoff (5 s, 10 s, 20 s... tope 60 s, sin
 // límite), porque en un kiosko no hay nadie para recargar. Un 404 (privado, oculto, borrado) no se reintenta.
-const AUTOSTART = new URLSearchParams(window.location.search).get("autostart") == "1"
+const AUTOSTART = url_autostart()
 const RETRY_MAX_DELAY_MS = 60000
 let retry_timer = null
 let retry_tries = 0

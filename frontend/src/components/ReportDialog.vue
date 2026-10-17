@@ -18,8 +18,9 @@
 </template>
 
 <script setup>
-import { ref, reactive } from "vue"
+import { ref } from "vue"
 import { report, error_text } from "../helpers/api"
+import { use_msg } from "../helpers/utils"
 
 const visible = defineModel({ type: Boolean, default: false })
 const props = defineProps({
@@ -33,30 +34,27 @@ const REASON_MAX = 500
 const reason = ref("")
 const busy = ref(false)
 const sent = ref(false)
-const msg = reactive({ type: "success", text: "" })
+const { msg, set_msg } = use_msg()
 
 function on_open() {
   reason.value = ""
   sent.value = false
-  Object.assign(msg, { type: "success", text: "" })
+  set_msg("success", "")
 }
 
 async function send() {
   if (!props.target || !reason.value.trim()) return
   busy.value = true
-  Object.assign(msg, { type: "success", text: "" })
+  set_msg("success", "")
   try {
     let res = await report({ target_type: props.target.type, target_id: props.target.id, reason: reason.value.trim() })
-    if (!res.stat) return Object.assign(msg, { type: "error", text: res.text })
+    if (!res.stat) return set_msg("error", res.text)
     sent.value = true
-    Object.assign(msg, {
-      type: "success",
-      text: res.data?.duplicate ? "You already reported this: it is pending review." : "Report sent: an admin will review it.",
-    })
+    set_msg("success", res.data?.duplicate ? "You already reported this: it is pending review." : "Report sent: an admin will review it.")
   } catch (e) {
     let status = e?.response?.status
     let text = status == 401 ? "You need to log in to report." : error_text(e)
-    Object.assign(msg, { type: "error", text })
+    set_msg("error", text)
   } finally {
     busy.value = false
   }

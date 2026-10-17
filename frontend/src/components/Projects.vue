@@ -23,8 +23,8 @@
               title="Oculto por el admin: no aparece en la galería pública">hidden</el-tag>
           </p>
           <p class="specs">
-            <span :class="{ mem_warn: memory(row) > memory_limit }" :title="memory_title(row)">
-              {{ fmt_memory(memory(row)) }}</span>
+            <span :class="{ mem_warn: project_memory_warn(row) }" :title="memory_title(row)">
+              {{ fmt_memory(project_memory(row)) }}</span>
             · {{ row.files_count ?? 0 }} {{ row.files_count == 1 ? "file" : "files" }}
             <template v-if="row.ts"> · {{ fmt_date(row.ts) }}</template>
           </p>
@@ -53,14 +53,15 @@
 
 <script setup>
 
-import { reactive, ref } from "vue"
+import { ref } from "vue"
 import { ElMessageBox } from "element-plus"
 import Led from "./hw/Led.vue"
 import LedButton from "./hw/LedButton.vue"
 import {
   store, refresh_projects, switch_project, flush_pending_saves, store_get_user_info,
-  estimate_seconds_memory, memory_warning_limit, fmt_memory
+  project_memory, project_memory_warn, project_memory_title, fmt_memory
 } from "../helpers/composable"
+import { fmt_date, use_msg } from "../helpers/utils"
 import { TrackCtrl, stop_transport } from "../helpers/TrackCtrl"
 import { create_project, update_project, delete_project, error_text } from "../helpers/api"
 
@@ -68,28 +69,16 @@ const visible = defineModel({ type: Boolean, default: false })
 
 const new_name = ref("")
 const busy = ref(false)
-const msg = reactive({ type: "success", text: "" })
+const { msg, set_msg } = use_msg()
 
-function set_msg(type, text) {
-  Object.assign(msg, { type, text })
-}
 function is_active(row) {
   return row.id === store.project?.id
 }
-function fmt_date(ts) {
-  return ts ? String(ts).slice(0, 10) : ""
-}
 
-// memoria estimada al abrir el proyecto (audio decodificado de todos sus archivos); en amarillo si
-// supera el límite del aviso "Large project"
-const memory_limit = memory_warning_limit()
-function memory(row) {
-  return estimate_seconds_memory(row.audio_seconds)
-}
+// memoria estimada al abrir el proyecto (audio decodificado de todos sus archivos)
 function memory_title(row) {
   let n = row.files_count ?? 0
-  return `Estimated memory to load ${n} ${n == 1 ? "file" : "files"}`
-    + (memory(row) > memory_limit ? " (more than recommended for this device)" : "")
+  return project_memory_title(row, `${n} ${n == 1 ? "file" : "files"}`)
 }
 
 async function on_open() {

@@ -263,6 +263,7 @@ import { lead_beats, new_fx, FX_TYPES, MAX_FX_PER_TRACK } from "../helpers/fx"
 import FxDialog from "./FxDialog.vue"
 import Fader from "./hw/Fader.vue"
 import RangePads from "./hw/RangePads.vue"
+import { url_autostart } from "../helpers/utils"
 
 function reset() {
 
@@ -785,7 +786,7 @@ async function gesture_start() {
 
 // autostart: con ?autostart=1 en la URL se hace START solo, una vez por carga de página, cuando
 // terminan de cargar los audios (TrackCtrl.isReady). Una recarga posterior (subida, re-login) no rearranca.
-const autostart = new URLSearchParams(window.location.search).get("autostart") == "1"
+const autostart = url_autostart()
 let autostarted = false
 watch(() => TrackCtrl.isReady, (ready) => {
   if (!ready || !autostart || autostarted) return

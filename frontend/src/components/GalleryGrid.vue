@@ -18,8 +18,8 @@
           </div>
           <div class="meta">
             <span class="silk">{{ p.files }} {{ p.files == 1 ? 'loop' : 'loops' }}
-              · <span :class="{ mem_warn: memory(p) > memory_limit }" :title="memory_title(p)">{{
-                fmt_memory(memory(p)) }}</span></span>
+              · <span :class="{ mem_warn: project_memory_warn(p) }" :title="project_memory_title(p)">{{
+                fmt_memory(project_memory(p)) }}</span></span>
             <span class="silk">{{ fmt_date(p.ts) }}</span>
           </div>
         </component>
@@ -42,7 +42,9 @@ import { RouterLink } from "vue-router"
 import Lcd from "./hw/Lcd.vue"
 import ReportDialog from "./ReportDialog.vue"
 import { get_public_projects, get_user_info, error_text } from "../helpers/api"
-import { estimate_seconds_memory, memory_warning_limit, fmt_memory } from "../helpers/composable"
+// memoria estimada al abrir el proyecto: audio decodificado de sus loops disponibles
+import { project_memory, project_memory_warn, project_memory_title, fmt_memory } from "../helpers/composable"
+import { fmt_date } from "../helpers/utils"
 
 const props = defineProps({
   reload: { type: Boolean, default: false },
@@ -76,21 +78,6 @@ async function load(p = 1) {
 function link_props(p) {
   let path = "p/" + encodeURIComponent(p.id)
   return props.reload ? { href: import.meta.env.BASE_URL + path } : { to: "/" + path }
-}
-
-function fmt_date(ts) {
-  return ts ? String(ts).slice(0, 10) : ""
-}
-
-// memoria estimada al abrir el proyecto (audio decodificado de sus loops disponibles); en amarillo si
-// supera el límite del aviso "Large project"
-const memory_limit = memory_warning_limit()
-function memory(p) {
-  return estimate_seconds_memory(p.audio_seconds)
-}
-function memory_title(p) {
-  return "Estimated memory to load this project"
-    + (memory(p) > memory_limit ? " (more than recommended for this device)" : "")
 }
 
 // sesión del visitante (opcional): con sesión se puede denunciar un proyecto ajeno. Solo lectura

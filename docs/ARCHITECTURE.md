@@ -530,7 +530,9 @@ app, con `store.read_only = true`:
    quedarían deshabilitados). Al recargar la página se vuelve a elegir el recordado (o el primero) y
    se vuelve a preguntar. Con `?autostart=1` no se pregunta (se carga igual).
    `estimate_files_memory(files)` y `memory_warning_limit()` se exportan: el diálogo de importar
-   (`ImportFiles.vue`) muestra el total con la misma cuenta.
+   (`ImportFiles.vue`) muestra el total con la misma cuenta. `project_memory(p)`,
+   `project_memory_warn(p)` y `project_memory_title(p)` dan la memoria de un proyecto de una lista
+   (`audio_seconds`) para Projects y la galería.
 2. Arma índices y resuelve `track_group_obj` / `tag_objs` de cada archivo (descarta ids de tags
    que ya no existen).
 3. Libera los players (y saca de `files_by_id`) los archivos que no son del proyecto: solo hay
