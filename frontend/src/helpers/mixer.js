@@ -2,11 +2,14 @@
 // Los players de los archivos del grupo se enrutan al canal en vez de ir directo a la salida.
 // Además hay un vúmetro estéreo en la salida master. Los Meter solo analizan: no cambian el audio.
 // El volumen, el paneo y los efectos de cada pista viven en trg.props (se guardan con save_trackGroups); mute y solo, en memoria (mixer).
-// Efectos por pista: player → fx_lp → fx_hp → fx_gain → Channel (cadena de los FX de transición, ver
+// Efectos por pista: player → eng_in → fx_lp → fx_hp → fx_gain → Channel (cadena de los FX de transición, ver
 // fx_schedule), y un send post-fader del canal a una reverb compartida (convolución con impulsos reales).
 // Delay global sincronizado al tempo (config en TrackCtrl.delay) con un send post-fader por pista.
 // Los throws (FX echo / verb) salen de un segundo canal por pista (throw_ch) que toma la señal antes
 // de fx_gain (pre-Cut/Fade), con el mismo volumen, mute y solo que el canal principal.
+// Preview (toneLib.js): entra por preview_input y sale directo a Destination o, IN CONTEXT, por la cadena
+// de su pista (prev_in → fx_lp). Los players del motor entran a fx_lp por eng_in, que el preview baja a 0
+// para callar lo que toca el motor en una pista (o en todas) sin tocar el canal (ver route_preview).
 import * as Tone from "tone"
 import { reactive, watch } from "vue"
 import { store, audio_players, files_by_id, save_trackGroups_debounced } from "./composable"
@@ -95,6 +98,12 @@ watch(() => TrackCtrl.master, (db) => Tone.getDestination().volume.rampTo(vol_db
 // el vúmetro master cuelga del output de Destination, o sea que mide después del limitador
 const master_meter = new Tone.Meter({ channels: 2, smoothing: 0.8 })
 Tone.getDestination().connect(master_meter)
+// --- entrada del preview (toneLib.js conecta su player acá; ver route_preview) ---
+// preview_input → preview_direct → Destination (libre, MIX y SOLO) y → prev_in de cada pista (IN CONTEXT;
+// base 0). Se declara antes de crear los canales: get_strip conecta preview_input a su prev_in
+export const preview_input = new Tone.Gain(1)
+const preview_direct = new Tone.Gain(1).toDestination()
+preview_input.connect(preview_direct)
 // --- reverb global (una sola para todas las pistas, config en TrackCtrl.reverb) ---
 // sends de las pistas → reverb_in → convolver activo → ir_gain (compensación del impulso, REVERB_IRS)
 // → reverb_out (nivel de retorno) → Destination (pasa por el limitador). Solo devuelve la cola; la
@@ -351,13 +360,20 @@ function get_strip(trg) {
       solo: !!mixer.solo[trg]
     }
     let channel = new Tone.Channel(ch_opts).toDestination()
-    // cadena de los FX de transición (los players entran en fx_lp): fx_lp → fx_hp → fx_gain → canal.
+    // cadena de los FX de transición (los players entran en fx_lp por eng_in): fx_lp → fx_hp → fx_gain → canal.
     // Tone.Filter es Gain → BiquadFilter → Gain nativos, que ya son estéreo (a diferencia del Panner del
     // Channel). En reposo los filtros quedan abiertos (20 kHz / 10 Hz, Q 0) y no colorean; ganancia 1.
     let fx_lp = new Tone.Filter({ type: "lowpass", frequency: FILTER_OPEN_HZ, Q: FILTER_BASE_Q, rolloff: -12 })
     let fx_hp = new Tone.Filter({ type: "highpass", frequency: HP_OPEN_HZ, Q: FILTER_BASE_Q, rolloff: -12 })
     let fx_gain = new Tone.Gain(1)
     fx_lp.chain(fx_hp, fx_gain, channel)
+    // entradas de la cadena: eng_in = los players del motor (route_player; ganancia 1, 0 mientras el preview
+    // ocupa la pista o está en SOLO) y prev_in = el preview IN CONTEXT (base 0). Ver route_preview
+    let eng_in = new Tone.Gain(1)
+    let prev_in = new Tone.Gain(0)
+    eng_in.connect(fx_lp)
+    prev_in.connect(fx_lp)
+    preview_input.connect(prev_in)
     // send a la reverb, tomado de la salida del canal: post-fader, post-mute y post-solo
     // (una pista muteada o callada por otro solo no manda reverb). Ganancia lineal, 0 = nada.
     let send = new Tone.Gain(send_gain(p.reverb))
@@ -385,7 +401,9 @@ function get_strip(trg) {
     throw_ch.connect(throw_dly_send)
     throw_dly_send.connect(delay_in)
     // el orden de las claves es el orden en que remove_channel los libera
-    channels_by_trg[trg] = { fx_lp, fx_hp, fx_gain, send, dly_send, throw_send, throw_dly_send, throw_ch, channel, meter }
+    channels_by_trg[trg] = {
+      eng_in, prev_in, fx_lp, fx_hp, fx_gain, send, dly_send, throw_send, throw_dly_send, throw_ch, channel, meter
+    }
     levels.trgs[trg] = new_level()
   }
   return channels_by_trg[trg]
@@ -397,6 +415,7 @@ function remove_channel(trg) {
   // así los demás canales dejan de quedar callados por este solo (Solo.dispose no avisa a los demás)
   ch.channel.solo = false
   ch.throw_ch.solo = false
+  preview_input.disconnect(ch.prev_in)
   for (const node of Object.values(ch)) node.dispose()
   delete channels_by_trg[trg]
   delete levels.trgs[trg]
@@ -414,15 +433,40 @@ watch(() => store.track_groups.map(t => t.id).join(","), () => {
   for (const trg of ids) get_strip(trg)
 }, { immediate: true })
 
-// enruta el player del archivo al primer nodo de la cadena de FX (y de ahí al canal) de su track group (una sola vez; si el archivo cambió
-// de grupo se pasa al canal nuevo)
+// enruta el player del archivo a la entrada del motor (eng_in → cadena de FX → canal) de su track group
+// (una sola vez; si el archivo cambió de grupo se pasa al canal nuevo)
 export function route_player(file_id) {
   let trg = files_by_id[file_id]?.track_group
   let player = audio_players[file_id]
   if (!trg || !player || trg_of_player.get(player) === trg) return
   player.disconnect() // sale de Destination (o del canal anterior)
-  player.connect(get_strip(trg).fx_lp)
+  player.connect(get_strip(trg).eng_in)
   trg_of_player.set(player, trg)
+}
+
+// --- ruteo del preview (lo maneja toneLib.js; docs/PLAN_EDITOR.md, decisión 2) ---
+// Los cambios llegan a su valor exactamente en `time` (rampa de PREVIEW_RAMP antes, sin clics): el preview
+// arranca en `time` y lo que reemplaza ya está callado. Todos los tiempos son de audio.
+const PREVIEW_RAMP = 0.01
+function ramp_by(param, value, time) {
+  ramp_at(param, value, time - PREVIEW_RAMP, PREVIEW_RAMP)
+}
+// desde `time` el preview sale por la cadena de la pista trg (IN CONTEXT: FX de transición, canal con
+// volumen, paneo, mute/solo, sends y vúmetro) o directo a Destination (trg null, o pista sin canal).
+// Devuelve la pista por la que sale (o null)
+export function route_preview(time, trg = null) {
+  let ctx = trg && channels_by_trg[trg] ? trg : null
+  ramp_by(preview_direct.gain, ctx ? 0 : 1, time)
+  for (const [id, ch] of Object.entries(channels_by_trg)) ramp_by(ch.prev_in.gain, id === ctx ? 1 : 0, time)
+  return ctx
+}
+// lo que toca el motor desde `time`: muted = null (suenan todas las pistas), el id de una pista (esa calla:
+// IN CONTEXT) o "all" (SOLO). Calla los players, no el canal: mute, solo, sends y FX siguen igual y el motor
+// sigue sorteando y arrancando (lo que arranca en una pista callada tampoco suena)
+export function gate_engine(time, muted = null) {
+  for (const [id, ch] of Object.entries(channels_by_trg)) {
+    ramp_by(ch.eng_in.gain, muted === "all" || id === muted ? 0 : 1, time)
+  }
 }
 
 export function toggle_mute(trg) {

@@ -1,13 +1,15 @@
 <template>
-  <span ref="el" class="led" :class="[color, { lit }]"></span>
+  <span ref="el" class="led" :class="[color, { lit, blink }]"></span>
 </template>
 <script setup>
-// LED redondo. lit = encendido fijo; cada vez que cambia `pulse` hace un destello corto.
+// LED redondo. lit = encendido fijo; blink = titila (armado: espera para arrancar); cada vez que cambia
+// `pulse` hace un destello corto.
 import { ref, watch } from "vue"
 
 const props = defineProps({
   color: { type: String, default: "green" }, // "green" | "red" | "yellow"
   lit: { type: Boolean, default: false },
+  blink: { type: Boolean, default: false },
   pulse: { type: [Number, String, null], default: null }
 })
 
@@ -51,6 +53,23 @@ watch(() => props.pulse, (v) => {
 .led.lit {
   background: radial-gradient(circle at 40% 35%, #fff, var(--on) 55%);
   box-shadow: 0 0 6px 2px var(--glow);
+}
+
+/* titila (encendido / apagado, sin fundido) */
+.led.blink {
+  animation: led_blink 0.5s steps(1, end) infinite;
+}
+
+@keyframes led_blink {
+  0% {
+    background: radial-gradient(circle at 40% 35%, #fff, var(--on) 55%);
+    box-shadow: 0 0 6px 2px var(--glow);
+  }
+
+  50% {
+    background: var(--off);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  }
 }
 
 .led.flash {

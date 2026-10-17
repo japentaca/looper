@@ -851,8 +851,9 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   canales se crean para **todos** los track groups (un `watch` sobre los ids de `store.track_groups`:
   al cargar, al agregar un pad) con lo guardado en `props`, y se eliminan al borrar el pad (antes se
   le quita el solo para no dejar callados a los demás). `start_file` llama a `route_player(id)`, que saca al player de `Destination` (los players se crean
-  con `.toDestination()` en `composable.js`) y lo conecta al canal de su grupo. Se hace una sola vez
-  por player (WeakMap player → grupo); si el archivo cambió de grupo se pasa al canal nuevo.
+  con `.toDestination()` en `composable.js`) y lo conecta a la entrada del motor (`eng_in`) de la cadena
+  de su grupo. Se hace una sola vez por player (WeakMap player → grupo); si el archivo cambió de grupo se
+  pasa al canal nuevo.
 - **Volumen**: vive en `trg.props.volume` (dB) y se guarda en la base (`save_trackGroups_debounced`).
 - **Paneo**: vive en `trg.props.pan` (−1 izquierda .. 0 centro .. 1 derecha, default 0) y se guarda igual.
   `set_pan` lo aplica (rampa de 30 ms) al `pan` del `Tone.Channel` principal y al de `throw_ch`, así los
@@ -874,16 +875,22 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   con COMP prendido también cambia cuánto comprime). Afecta
   también al preview. El estado vive fuera de `TrackCtrl.tracks` porque
   los tracks se rearman en cada START. El volumen del canal se suma al `props.volume` de cada
-  archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales.
-- **Efectos por pista**: la cadena es `player → fx_lp (Tone.Filter lowpass) → fx_hp (Tone.Filter
-  highpass) → fx_gain (Tone.Gain) → Tone.Channel` (`route_player` conecta el player a `fx_lp`). Los
+  archivo (aplicado al player). El preview (`toneLib.js`) no pasa por los canales, salvo en sync con el
+  modo IN CONTEXT (ver "Preview").
+- **Efectos por pista**: la cadena es `player → eng_in (Tone.Gain) → fx_lp (Tone.Filter lowpass) → fx_hp
+  (Tone.Filter highpass) → fx_gain (Tone.Gain) → Tone.Channel` (`route_player` conecta el player a
+  `eng_in`). `eng_in` (ganancia 1) y `prev_in` (ganancia 0, la entrada del preview IN CONTEXT) son las dos
+  entradas de `fx_lp`: el preview baja `eng_in` para callar lo que toca el motor en la pista sin tocar el
+  canal (ver "Preview"). Los
   filtros son `Gain → BiquadFilter → Gain` nativos (estéreo, a diferencia del `Panner` del Channel,
   que por eso lleva `channelCount: 2`); en reposo quedan abiertos (20 kHz y 10 Hz, Q 0, −12 dB/oct)
   y no colorean; `fx_gain` en 1. Los usan solo los FX de transición (ver abajo).
   Cadena completa por pista:
   ```
-  player → fx_lp → fx_hp → fx_gain → channel → Destination / meter / send (→ reverb_in) / dly_send (→ delay_in)
-                     fx_hp → throw_ch → throw_send (→ reverb_in) / throw_dly_send (→ delay_in)
+  players del motor → eng_in ─┐
+  preview_input → prev_in ────┴→ fx_lp → fx_hp → fx_gain → channel → Destination / meter / send (→ reverb_in) / dly_send (→ delay_in)
+                                          fx_hp → throw_ch → throw_send (→ reverb_in) / throw_dly_send (→ delay_in)
+  preview_input → preview_direct → Destination
   ```
   `throw_ch` es un segundo `Tone.Channel` (`channelCount: 2`, **no** conectado a Destination) que
   toma la señal de `fx_hp`, o sea **antes de Cut y Fade** (`fx_gain`), con el mismo volumen, mute y
@@ -892,7 +899,8 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   contexto (`Solo._soloed`: cualquier `Solo` en solo calla a todos los que no lo están); como los dos
   canales de una pista tienen siempre el mismo estado, el solo entre pistas funciona igual.
   `remove_channel` pone `solo = false` en ambos antes de disponerlos (`Solo.dispose` no avisa a los
-  demás) y dispone también los tres nodos de FX, los sends (reverb y delay) y los de throw.
+  demás), desconecta `preview_input` de su `prev_in` y dispone también `eng_in`, `prev_in`, los tres nodos
+  de FX, los sends (reverb y delay) y los de throw.
 - **Reverb compartida** (config en `TrackCtrl.reverb`, guardada en `projects.props.reverb`): un único bus
   por convolución con impulsos reales: sends → `reverb_in` → `Tone.Convolver` activo (`normalize`) →
   `ir_gain` → `reverb_out` (`Tone.Volume`, nivel de retorno `reverb.level`, −24..+6 dB, default 0) →
@@ -1151,22 +1159,69 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 
 ### Preview
 
-`helpers/toneLib.js` tiene un `mainPlayer` separado para escuchar un archivo suelto desde la lista
-(`Files.vue` → `playFile`). Copia el buffer del player del archivo. Para un archivo del catálogo
-que no está en el proyecto (`ImportFiles.vue`), `playUrl(file, url)` descarga y decodifica solo ese
-archivo en un `Tone.ToneAudioBuffer` (volumen fijo de −6 dB, el default de un archivo); mientras
-carga marca `file.isPreviewLoading`. Solo queda referenciado el buffer del último preview, y cada
+`helpers/toneLib.js` escucha un archivo suelto desde la lista (`Files.vue` → `playFile`: cartuchos, tabla y
+editor), el catálogo (`ImportFiles.vue`) o el admin. Cada preview crea su propio `Tone.Player` conectado a
+`preview_input` de `mixer.js` y, al cortarse (`release`), lo para en `Tone.now()` y lo libera un segundo
+después; un `onstop` de un player que ya no es el actual se ignora. Para un archivo del proyecto usa el
+buffer de su player. Para uno del catálogo que no está en el proyecto, `playUrl(file, url)` descarga y
+decodifica solo ese archivo en un `Tone.ToneAudioBuffer` (volumen fijo de −6 dB, el default de un archivo);
+mientras carga marca `file.isPreviewLoading`. Solo queda referenciado el buffer del último preview, y cada
 pedido (`playFile`, `playUrl`, `playerStop`) invalida al que siga cargando, así no arranca tarde.
-Los diálogos usan los atajos `previewing(id)` / `preview_loading(id)` (estado del botón),
-`toggle_preview(file)` (play/stop: buffer del proyecto si está cargado, si no `playUrl`) y
-`stop_foreign_preview()` (al cerrar, corta un preview de un archivo que no es del proyecto).
-`playFile` y `playUrl` arrancan con `mainPlayer.start(Tone.now())` (lo mismo que `start()` sin argumento)
-y anotan ese momento: `preview_position()` da la posición del preview dentro del buffer (o `null`), no
-reactiva, para el cursor del editor. Hoy el preview suena libre, a velocidad original y una sola vez.
+Los diálogos usan los atajos `previewing(id)` / `preview_armed(id)` / `preview_loading(id)` (estado del
+botón), `toggle_preview(file)` (play/stop: buffer del proyecto si está cargado, si no `playUrl`; siempre
+libre) y `stop_foreign_preview()` (al cerrar, corta un preview de un archivo que no es del proyecto).
+
+**Sync** (fase 2 del editor, `docs/PLAN_EDITOR.md`): un switch global `preview_opts.sync` (LED amarillo SYNC
+en la cabecera de la lista, junto a Box/Table, y en el editor; atajo Q en el editor) y el modo de escucha
+`preview_opts.mode` (`mix` | `context` | `solo`, default `context`; selector MIX / IN CONTEXT / SOLO en el
+editor, atajo M), recordados en `localStorage` (`looper_preview_sync`, `looper_preview_mode`; si falla,
+defaults: sync off, IN CONTEXT). Valen para `playFile` desde la lista y el editor; el catálogo y el admin
+(`toggle_preview`, `playUrl`) son siempre libres. Cambiar SYNC con un preview de la lista sonando lo vuelve
+a arrancar en el modo nuevo.
+- **Libre** (sync off): como siempre, velocidad original, una vez, directo (`preview_input → preview_direct →
+  Destination`), con `start(Tone.now())`.
+- **Sync, loop**: `playbackRate = play_rate` del archivo, `loop` con `loopEnd = beats × 60 / bpm` (largo
+  según sus datos, sin el sobrante del mp3: cada vuelta ocupa exactamente `play_beats` del transporte y no se
+  desfasa; `loop_end` de `helpers/preview_sync.js`). Con el motor andando (`TrackCtrl.isPlaying` y el
+  transporte en marcha) arranca en `Tone.Transport.nextSubdivision("1m")` (próximo compás); parado, ya, al
+  tempo del proyecto. Al soltar el knob Tempo, un watch sobre `play_rate` le aplica el rate nuevo, como
+  `apply_rates` a los players del motor (sigue en fase). Un loop fuera de tolerancia suena igual, al rate del
+  múltiplo más cercano.
+- **Sync, shot**: a velocidad original (como en el motor) y repetido: se toca en loop una copia del shot en un
+  buffer de largo entero en beats (`shot_period_beats` = los que hacen falta para que entre, mínimo 1), con
+  el silencio después (anchor `start`) o antes (anchor `end`). Con el motor andando, `shot_sync_start`: start
+  arranca en el próximo beat (`nextSubdivision("4n")`); end termina en el primer beat B con B − duración ≥
+  ahora (si el inicio del buffer ya pasó, arranca ahora con el offset equivalente, dentro del silencio). Cada
+  vuelta empieza (o termina) en un beat, sin agendar nada más. Parado, arranca ya con el shot sonando. La
+  repetición usa el tempo del arranque: si cambia el tempo, se desfasa hasta volver a darle play.
+- **Armado**: si el arranque queda más lejos que el lookAhead (esperando el compás o el beat),
+  `file.isPreviewArmed` hasta que arranca (lo baja un `Tone.getContext().setTimeout`): el LED del botón PLAY
+  del editor, el del cartucho y el ícono de play de la lista titilan (prop `blink` de `hw/Led.vue` y
+  `hw/LedButton.vue`). `isPreviewing` ya está en true (el botón muestra STOP y corta el armado).
+- **Ruteo** (solo con sync y el motor andando; si no, directo): `route_preview(time, trg)` y
+  `gate_engine(time, muted)` de `mixer.js`, que llegan a su valor exactamente en `time` (rampa de 10 ms antes):
+  - MIX: directo (pasa por el master igual que la mezcla) y el motor entero.
+  - IN CONTEXT: el preview sale por `prev_in` de su pista (FX de transición, canal con volumen, paneo,
+    mute/solo, sends, vúmetro; los FX que dispare el motor en esa pista también lo afectan) y `eng_in` de esa
+    pista baja a 0: calla lo que toca el motor ahí (también lo que arranque mientras dura el preview), no el
+    canal. Sin pista asignada (o sin canal), como MIX.
+  - SOLO: directo y `eng_in` de todas las pistas a 0 (el motor sigue sorteando; las colas de reverb y delay
+    se apagan solas). No pasa por el canal de su pista.
+  - Cambiar el modo con el preview sonando lo reenruta en el momento (o en su arranque si está armado).
+- **Al soltar** (STOP del preview, otro preview, cerrar el editor con el preview de ese archivo): el preview
+  vuelve a salir directo y, si había callado algo, el motor vuelve en el próximo compás. START o STOP del
+  motor (watch sobre `TrackCtrl.isPlaying`) cortan un preview en sync (con el motor parado arrancó fuera de la
+  grilla) y vuelven todo ya; RESET (`stop_sync_preview()` desde `Tracks.vue`) lo corta con la vuelta en el
+  próximo compás; desmontar `Tracks.vue` lo corta con la vuelta ya; cambiar de proyecto corta cualquier
+  preview. Un preview libre sigue con START/STOP/RESET, como antes.
+- **Cursor**: `preview_position()` (no reactiva) da la posición dentro del archivo con `preview_pos` de
+  `preview_sync.js`: velocidad, vuelta del loop, silencio de relleno del shot (sin cursor ahí) y `null` antes
+  del arranque (armado). Al cambiar el rate se reancla para no saltar.
 
 ### Editor: pantalla de onda (`components/WaveScreen.vue`)
 
-Plan completo en `docs/PLAN_EDITOR.md`; está implementada la fase 1 (solo lectura del motor, sin backend).
+Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lectura del motor, sin backend)
+y la 2 (preview en sync: ver "Preview").
 El editor es el diálogo de edición de `Files.vue` (lápiz del cartucho o de la fila, o el nombre en la
 tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<WaveScreen :file :beats :active>`;
 debajo, los datos, las placas y los pads de siempre.
@@ -1204,3 +1259,11 @@ debajo, los datos, las placas y los pads de siempre.
   el loop sonando, el cursor del motor usa el `rate` del arranque hasta la próxima vuelta del loop.
 - El clic en la onda no hace nada (MVP). Funciona igual en `store.read_only` (no escribe nada), aunque
   hoy la vista pública no monta `Files.vue`.
+- **Preview** (fase 2): al pie del editor, PLAY/STOP (LED que titila mientras está armado), SYNC y el
+  selector MIX / IN CONTEXT / SOLO (atenuado sin sync o con el motor parado, donde no cuenta). Cerrar el
+  editor corta el preview del archivo editado.
+- **Atajos** (`on_editor_key` en `Files.vue`, listener de `window` solo con el editor abierto): Espacio =
+  play/stop del preview, Q = SYNC, M = rota MIX → IN CONTEXT → SOLO; figuran en el `title` de cada botón.
+  Solo si el foco está en el editor (o en ninguna parte; no con otro diálogo encima), nunca en un campo de
+  texto (input, select...), y Espacio tampoco en un botón o un control hw con teclado (Knob, Fader,
+  RangePads, ToggleSwitch), que lo usan para activarse. Sin Ctrl/Alt/Meta; la tecla repetida se ignora.

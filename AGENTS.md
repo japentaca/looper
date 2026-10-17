@@ -58,7 +58,8 @@ frontend/src/
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
-    toneLib.js       # reproductor de preview (un archivo suelto, del proyecto o del catálogo por url)
+    toneLib.js       # preview de un archivo suelto (del proyecto o del catálogo por url): libre o en sync con el motor (SYNC, MIX / IN CONTEXT / SOLO)
+    preview_sync.js  # funciones puras del preview en sync: arranque en la grilla, repetición de shots, cursor (tests en preview_sync.test.js)
     mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición + dinámica del master (worklet, con Tone.Limiter de respaldo)
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
     engine_oneshot.js # motor (parte de Tracks.vue): pistas one-shot (oneshot_step, disparos "end", cancelaciones en STOP/RESET)
@@ -137,8 +138,8 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js` y `wave.test.js`) deben pasar todos.
-3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js` y `preview_sync.test.js`) deben pasar todos.
+3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 

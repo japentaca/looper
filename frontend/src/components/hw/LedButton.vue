@@ -1,6 +1,6 @@
 <template>
   <div class="led_button">
-    <Led v-if="led" :color="led" :lit="lit" />
+    <Led v-if="led" :color="led" :lit="lit" :blink="blink" />
     <button type="button" class="cap" :class="[size, { pressed: lit }]" :disabled="disabled" @click="emit('click')">
       <span class="cap_text">{{ text }}</span>
     </button>
@@ -8,7 +8,8 @@
   </div>
 </template>
 <script setup>
-// Botón de goma tipo MPC con LED arriba. led = "green" | "red" | "yellow" | "" (sin LED); lit enciende el LED.
+// Botón de goma tipo MPC con LED arriba. led = "green" | "red" | "yellow" | "" (sin LED); lit enciende el LED;
+// blink lo hace titilar (armado).
 import Led from "./Led.vue"
 
 defineProps({
@@ -16,6 +17,7 @@ defineProps({
   label: { type: String, default: "" },
   led: { type: String, default: "" },
   lit: { type: Boolean, default: false },
+  blink: { type: Boolean, default: false },
   size: { type: String, default: "normal" }, // "small" | "normal" | "big"
   disabled: { type: Boolean, default: false }
 })

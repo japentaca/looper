@@ -304,14 +304,15 @@ import FxDialog from "./FxDialog.vue"
 import Fader from "./hw/Fader.vue"
 import RangePads from "./hw/RangePads.vue"
 import { url_autostart } from "../helpers/utils"
+import { stop_sync_preview } from "../helpers/toneLib"
 import { bind_fx, fx_step, end_run, fx_back_to_base, clear_fx_state } from "../helpers/engine_fx"
 import {
   bind_oneshot, oneshot_step, shot_bars, SHOT_BARS, cancel_end_shots, cancel_tag_end_shots, forget_end_shots
 } from "../helpers/engine_oneshot"
 
 function reset() {
-
-
+  // un preview en sync se corta (su pista vuelve en el próximo compás). STOP y START lo cortan desde toneLib.js
+  stop_sync_preview()
 
   tracks.map(track => {
 
@@ -904,6 +905,7 @@ Tone.context.on("statechange", on_context_state)
 register_stop(stop)
 onBeforeUnmount(() => {
   register_stop(null)
+  stop_sync_preview(true) // ninguna pista queda callada por un preview
   Tone.context.off("statechange", on_context_state)
   clearTimeout(resume_timer)
   Tone.Transport.clear(beat_repeat_id)

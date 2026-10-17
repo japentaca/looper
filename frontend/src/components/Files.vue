@@ -6,6 +6,9 @@
         <el-radio-button label="Table" />
 
       </el-radio-group>
+      <!-- switch SYNC del preview: global, el mismo del editor (toneLib.preview_opts, recordado en este navegador) -->
+      <LedButton size="small" text="SYNC" led="yellow" :lit="toneLib.preview_opts.sync"
+        :title="sync_title() + ' (Q in the editor)'" @click="toneLib.toggle_preview_sync()" />
       <!-- filtro por tonalidad (solo lo que se muestra; el motor sortea todos) -->
       <span class="key_filter">
         <span class="silk">Key</span>
@@ -19,12 +22,12 @@
     <div v-show="(fileListViewMode == 'Box')" class="box">
       <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags.
         FileCart calcula si suena (clase playing y el LED vía slot): Files.vue no lee el estado del motor -->
-      <FileCart v-for="file in shown_files" :key="file.id" v-slot="{ sounding }" :file="file"
+      <FileCart v-for="file in shown_files" :key="file.id" v-slot="{ sounding, armed }" :file="file"
         :class="{ drag_over: drag_id === file.id, unavailable: !drawable(file) }"
         :title="not_drawable_title(file)" @dragover="ondragover($event, file)"
         @dragleave="ondragleave($event, file)" @drop="ondrop($event, file)">
         <div class="grip">
-          <Led color="green" :lit="sounding" />
+          <Led color="green" :lit="sounding && !armed" :blink="armed" />
         </div>
         <div class="label">
           <div class="bands">
@@ -54,8 +57,8 @@
         </div>
         <div class="cart_foot">
           <span class="actions">
-            <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" :title="preview_title(file)"
-              @click="togglePreview(file)">
+            <el-icon v-if="file.isLoaded" :size="iconSize" class="icons" :class="{ armed: is_armed(file) }"
+              :title="preview_title(file)" @click="togglePreview(file)">
               <VideoPause v-if="is_previewing(file)" />
               <VideoPlay v-else />
             </el-icon>
@@ -120,8 +123,8 @@
         <el-table-column label="Actions" width="120" align="right">
           <template #default="scope">
             <span class="row_actions">
-              <el-icon v-if="scope.row.isLoaded" :size="iconSize" class="icons" :title="preview_title(scope.row)"
-                @click="togglePreview(scope.row)">
+              <el-icon v-if="scope.row.isLoaded" :size="iconSize" class="icons" :class="{ armed: is_armed(scope.row) }"
+                :title="preview_title(scope.row)" @click="togglePreview(scope.row)">
                 <VideoPause v-if="is_previewing(scope.row)" />
                 <VideoPlay v-else />
               </el-icon>
@@ -140,7 +143,7 @@
 
 
   <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(980px, 96vw)"
-    class="hw_dialog" align-center draggable>
+    class="hw_dialog editor_dialog" align-center draggable>
     <div class="edit_body">
       <!-- pantalla de onda a todo el ancho, con la grilla y los cursores (WaveScreen.vue). La grilla de un loop
         sigue al input Beats mientras se edita, antes de guardar (beats_draft) -->
@@ -250,9 +253,21 @@
     <template #footer>
       <div class="dialog_footer">
         <span class="dialog_actions">
-          <LedButton size="small" led="green" :lit="is_previewing(curr_edit_file)"
-            :text="is_previewing(curr_edit_file) ? 'STOP' : 'PLAY'" :disabled="!curr_edit_file.isLoaded"
-            :title="preview_title(curr_edit_file)" @click="togglePreview(curr_edit_file)" />
+          <!-- preview: PLAY/STOP (Espacio); en sync, mientras espera el compás el LED titila -->
+          <LedButton size="small" led="green" :lit="is_previewing(curr_edit_file) && !is_armed(curr_edit_file)"
+            :blink="is_armed(curr_edit_file)" :text="is_previewing(curr_edit_file) ? 'STOP' : 'PLAY'"
+            :disabled="!curr_edit_file.isLoaded" :title="preview_title(curr_edit_file) + ' (Space)'"
+            @click="togglePreview(curr_edit_file)" />
+          <!-- switch SYNC (Q): el mismo de la cabecera de la lista -->
+          <LedButton size="small" text="SYNC" led="yellow" :lit="toneLib.preview_opts.sync" :title="sync_title() + ' (Q)'"
+            @click="toneLib.toggle_preview_sync()" />
+          <!-- modo de escucha (M rota): solo cuenta con SYNC y el motor andando; si no, se atenúa -->
+          <span class="listen" :class="{ off: !listen_active }"
+            :title="listen_active ? undefined : 'Listening mode: only with SYNC on and the engine running'">
+            <LedButton v-for="m in LISTEN_MODES" :key="m.value" size="small" led="green" :text="m.text"
+              :lit="toneLib.preview_opts.mode === m.value" :title="m.title + ' (M)'"
+              @click="toneLib.set_preview_mode(m.value)" />
+          </span>
           <LedButton size="small" text="DELETE" class="danger" @click="deleteFile(curr_edit_file)" />
         </span>
         <LedButton size="small" text="CLOSE" @click="dialogVisible = false" />
@@ -262,7 +277,7 @@
 </template>
 <script setup>
 
-import { ref, watch, computed } from "vue"
+import { ref, watch, computed, onBeforeUnmount } from "vue"
 import {
   store, audio_players, files_by_id, trg_of, toggle_file_tag, save_file, save_file_debounced, delete_project_file, WEIGHT_MAX,
   REPEAT_OPTIONS, file_anchor
@@ -464,9 +479,13 @@ function ondrop_table(e) {
   else drag_id.value = null
 }
 
-// el archivo es el que está sonando en el preview
+// el archivo es el que está sonando en el preview (o, en sync, espera su arranque)
 function is_previewing(file) {
   return toneLib.previewing(file.id)
+}
+// preview en sync armado: espera el próximo compás (o beat) del motor
+function is_armed(file) {
+  return toneLib.preview_armed(file.id)
 }
 
 // el botón de preview es play o stop según si ese archivo ya suena en el preview
@@ -477,8 +496,63 @@ function togglePreview(file) {
 }
 
 function preview_title(file) {
+  if (is_armed(file)) return "Armed: starts on the next bar (beat for a shot). Click to cancel"
   return is_previewing(file) ? "Stop preview" : "Preview"
 }
+
+// --- switch SYNC y modo de escucha del preview (toneLib.preview_opts; docs/PLAN_EDITOR.md, decisiones 1 y 2) ---
+function sync_title() {
+  return toneLib.preview_opts.sync
+    ? "Sync on: preview at the project tempo, looped until stop; with the engine running it starts on the next bar"
+    : "Sync off: preview at the original speed, once"
+}
+const LISTEN_MODES = [
+  { value: "mix", text: "MIX", title: "Mix: the preview plays over the whole mix" },
+  { value: "context", text: "IN CONTEXT", title: "In context: the preview replaces what its track plays, through the track channel" },
+  { value: "solo", text: "SOLO", title: "Solo: only the preview; the engine keeps running, muted" },
+]
+// el modo de escucha solo cuenta con sync y el motor andando
+const listen_active = computed(() => toneLib.preview_opts.sync && TrackCtrl.isPlaying)
+
+// --- atajos del editor (docs/PLAN_EDITOR.md, decisión 11): Espacio = play/stop del preview, Q = SYNC, M = modo
+// de escucha. Solo con el editor abierto y con el foco en el editor (o en ninguna parte). Nunca con el foco en
+// un campo de texto (input, select...). Espacio tampoco con el foco en un botón o un control hw (Knob, Fader,
+// RangePads, ToggleSwitch), que lo usan para activarse; Q y M sí (esos controles no usan letras) ---
+const TEXT_FIELDS = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .el-select'
+const SPACE_TAKERS = 'button, a[href], [role="slider"], [role="switch"], [role="button"]'
+function on_editor_key(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+  let key = e.code == "Space" ? "space" : e.key?.toLowerCase()
+  if (!["space", "q", "m"].includes(key)) return
+  let t = e.target instanceof Element ? e.target : document.body
+  let dlg = document.querySelector(".editor_dialog")
+  // otro diálogo encima (confirmación de borrado, etc.) o foco fuera del editor
+  if (!dlg || !(dlg.contains(t) || t.contains(dlg))) return
+  if (t.closest(TEXT_FIELDS)) return
+  if (key == "space" && t.closest(SPACE_TAKERS)) return
+  e.preventDefault()
+  if (e.repeat) return
+  let f = curr_edit_file.value
+  if (key == "space") {
+    if (f?.isLoaded) togglePreview(f)
+  } else if (key == "q") toneLib.toggle_preview_sync()
+  else toneLib.cycle_preview_mode()
+}
+
+// editor abierto: atajos activos. Al cerrarlo se corta el preview del archivo editado (en sync quedaría en
+// loop) y todo vuelve a la normalidad (ninguna pista queda callada)
+watch(dialogVisible, (open) => {
+  if (open) {
+    window.addEventListener("keydown", on_editor_key)
+    return
+  }
+  window.removeEventListener("keydown", on_editor_key)
+  if (curr_edit_file.value && is_previewing(curr_edit_file.value)) toneLib.playerStop()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", on_editor_key)
+  if (dialogVisible.value && curr_edit_file.value && is_previewing(curr_edit_file.value)) toneLib.playerStop()
+})
 
 
 
@@ -891,7 +965,34 @@ const iconSize = 18
 
 .dialog_actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: flex-end;
+}
+
+/* modo de escucha: sin sync o con el motor parado no cuenta (se puede elegir igual) */
+.listen {
+  display: inline-flex;
+  gap: 4px;
+  align-items: flex-end;
+  padding: 0 6px;
+  border-left: 1px solid rgba(228, 225, 216, 0.18);
+  border-right: 1px solid rgba(228, 225, 216, 0.18);
+}
+
+.listen.off {
+  opacity: 0.5;
+}
+
+/* play de un preview en sync armado (espera el compás): titila */
+.icons.armed {
+  color: var(--hw_green);
+  animation: armed_blink 0.5s steps(1, end) infinite;
+}
+
+@keyframes armed_blink {
+  50% {
+    opacity: 0.25;
+  }
 }
 </style>

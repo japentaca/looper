@@ -1,6 +1,6 @@
 <template>
   <div class="cart" :class="{ playing: sounding }">
-    <slot :sounding="sounding" />
+    <slot :sounding="sounding" :armed="armed" />
   </div>
 </template>
 <script setup>
@@ -16,7 +16,9 @@ const props = defineProps({
   file: { type: Object, required: true }
 })
 
-// suena en el motor (algún track lo tiene) o en el preview
+// el preview en sync espera el próximo compás (o beat) para arrancar: el LED titila
+const armed = computed(() => toneLib.preview_armed(props.file.id))
+// suena en el motor (algún track lo tiene) o en el preview (o espera arrancar)
 const sounding = computed(() => toneLib.previewing(props.file.id)
   || (TrackCtrl.isPlaying && TrackCtrl.tracks.some(t => t.curr_file?.id == props.file.id && t.curr_file.isPlaying)))
 </script>
