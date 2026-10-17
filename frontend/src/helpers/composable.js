@@ -179,27 +179,36 @@ function cancel_save_file_debounced(id) {
   clearTimeout(save_file_timers.get(id)?.timer)
   save_file_timers.delete(id)
 }
-// guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
-let save_trg_timer = null
-export function save_trackGroups_debounced(ms = 500) {
-  if (store.read_only) return
-  clearTimeout(save_trg_timer)
-  save_trg_timer = setTimeout(() => {
-    save_trg_timer = null
-    save_trackGroups()
-  }, ms)
+// guardado diferido genérico: run() (re)arma el timer, flush() manda ya lo pendiente y pending() dice
+// si hay algo pendiente. fn lee store.project al dispararse (no al armar el timer): por eso antes de
+// cambiar de proyecto se hace flush (ver flush_pending_saves)
+function debounced(fn, def_ms = 500) {
+  let timer = null
+  const fire = () => {
+    timer = null
+    return fn()
+  }
+  return {
+    run(ms = def_ms) {
+      if (store.read_only) return
+      clearTimeout(timer)
+      timer = setTimeout(fire, ms)
+    },
+    flush() {
+      if (!timer) return
+      clearTimeout(timer)
+      return fire()
+    },
+    pending: () => timer != null,
+  }
 }
+// guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
+const trg_saver = debounced(() => save_trackGroups())
+export const save_trackGroups_debounced = trg_saver.run
 // --- config del proyecto (projects.props): tempo, tolerancia, compás, rango de cambio de Tag, delay, reverb y master ---
 // guardado diferido: se llama al cambiar tempo, tolerancia, compás, el rango de Tag, el delay o la reverb (no al cargar)
-let save_project_props_timer = null
-export function save_project_props_debounced(ms = 500) {
-  if (store.read_only) return
-  clearTimeout(save_project_props_timer)
-  save_project_props_timer = setTimeout(() => {
-    save_project_props_timer = null
-    save_project_props()
-  }, ms)
-}
+const project_props_saver = debounced(() => save_project_props())
+export const save_project_props_debounced = project_props_saver.run
 async function save_project_props() {
   if (!can_save()) return
   let props = {
@@ -212,17 +221,7 @@ async function save_project_props() {
 // antes de cambiar de proyecto (o de borrar el activo) se mandan ya los guardados diferidos
 // pendientes: si no, saldrían después con el id del proyecto nuevo (o contra uno borrado)
 export async function flush_pending_saves() {
-  let jobs = []
-  if (save_trg_timer) {
-    clearTimeout(save_trg_timer)
-    save_trg_timer = null
-    jobs.push(save_trackGroups())
-  }
-  if (save_project_props_timer) {
-    clearTimeout(save_project_props_timer)
-    save_project_props_timer = null
-    jobs.push(save_project_props())
-  }
+  let jobs = [trg_saver.flush(), project_props_saver.flush()]
   for (const { file } of [...save_file_timers.values()]) jobs.push(save_file(file))
   await Promise.all(jobs)
 }
@@ -394,7 +393,7 @@ async function install_project(p, same) {
   // config del proyecto (tempo, compás, Tag, delay). En una recarga del mismo proyecto con el
   // transporte en marcha o con un guardado pendiente no se aplica: lo que está en pantalla es más
   // nuevo que lo de la base.
-  if (!same || (!TrackCtrl.isPlaying && !save_project_props_timer)) apply_project_props(p.props)
+  if (!same || (!TrackCtrl.isPlaying && !project_props_saver.pending())) apply_project_props(p.props)
 
   store.track_groups.splice(0)
   for (let t of p.track_groups ?? []) {
