@@ -179,9 +179,8 @@
           </span>
           <span v-else>{{ key_label(curr_edit_file.music_key) }}</span>
 
-          <!-- anclaje de los disparos one-shot (dato del archivo): solo el dueño lo cambia (PUT /files/:id).
-            Cada proyecto lo puede pisar con la placa Anchor -->
-          <span class="info_label" :title="ANCHOR_HELP">File anchor</span>
+          <!-- anclaje de los disparos one-shot (dato del archivo): solo el dueño lo cambia (PUT /files/:id) -->
+          <span class="info_label" :title="ANCHOR_HELP">Anchor</span>
           <span v-if="curr_edit_file.own && !store.read_only" class="toggle_row">
             <LedButton v-for="a in ['start', 'end']" :key="a" size="small" led="green" :text="a.toUpperCase()"
               :lit="(curr_edit_file.anchor ?? 'start') === a" :disabled="saving_timing" :title="ANCHOR_TEXT[a]"
@@ -217,18 +216,6 @@
           <span class="silk">Repeat</span>
           <RangePads v-model="curr_edit_file.props.repeat" :options="REPEAT_OPTIONS" @change="onChange(curr_edit_file)" />
           <span class="silk">{{ repeat_label(curr_edit_file.props.repeat) }}</span>
-        </div>
-        <!-- anclaje en este proyecto: FILE = hereda el del archivo; START / END lo pisan (props.anchor).
-          Abajo, el valor efectivo. En modo lectura solo se muestra -->
-        <div class="hw_plate anchor" :title="ANCHOR_HELP">
-          <span class="silk">Anchor</span>
-          <div class="anchor_btns">
-            <LedButton v-for="o in ANCHOR_OVERRIDES" :key="o.value" size="small" led="green" :text="o.label"
-              :lit="(curr_edit_file.props.anchor ?? '') === o.value" :disabled="store.read_only" :title="o.title"
-              @click="set_anchor_override(curr_edit_file, o.value)" />
-          </div>
-          <span class="silk" :title="anchor_title(curr_edit_file)">→ {{ file_anchor(curr_edit_file).toUpperCase() }}<template
-              v-if="curr_edit_file.props.anchor == null"> (file)</template></span>
         </div>
       </div>
 
@@ -399,21 +386,8 @@ const ANCHOR_TEXT = {
 }
 const ANCHOR_HELP = "Where a one-shot track places the file relative to its trigger point (Tag change or phrase "
   + "start). Loop tracks ignore it."
-// override del proyecto: "" = hereda el del archivo (no se guarda props.anchor)
-const ANCHOR_OVERRIDES = [
-  { value: "", label: "FILE", title: "Use the file's own anchor" },
-  { value: "start", label: "START", title: ANCHOR_TEXT.start + " (in this project)" },
-  { value: "end", label: "END", title: ANCHOR_TEXT.end + " (in this project)" },
-]
 function anchor_title(file) {
-  let a = file_anchor(file)
-  return `Anchor: ${a.toUpperCase()}${file.props?.anchor == null ? " (file)" : " (this project)"}. ${ANCHOR_TEXT[a]}`
-}
-async function set_anchor_override(file, v) {
-  if (store.read_only || (file.props.anchor ?? "") === v) return
-  if (v) file.props.anchor = v
-  else delete file.props.anchor
-  await save_file(file)
+  return ANCHOR_TEXT[file_anchor(file)]
 }
 
 function repeat_label(r) {
@@ -905,16 +879,6 @@ const iconSize = ref(18)
 
 .weight {
   justify-self: start;
-}
-
-/* anclaje: fila de abajo, a lo ancho de las dos columnas */
-.anchor {
-  grid-column: 1 / 3;
-}
-
-.anchor_btns {
-  display: flex;
-  gap: 6px;
 }
 
 .anchor_mark {
