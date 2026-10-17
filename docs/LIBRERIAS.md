@@ -12,7 +12,8 @@ script `backend/import_manifest.js` y el procedimiento de respaldo de `docs/DEPL
 
 1. Relevar la librería y lo que ya está cargado.
 2. Acordar con el dueño qué entra, a qué proyecto y qué proyecto sirve de plantilla.
-3. Armar en local una carpeta con los audios renombrados y un `manifest.json`.
+3. Armar en local una carpeta con los audios renombrados y un `manifest.json`, con el anclaje de
+   fills y one-shots decidido por la envolvente (y las colas recortadas, ver 3).
 4. Probar la importación en local sobre una copia de la base. **La conversión a mp3 se hace acá,
    en la máquina de desarrollo**: de esa prueba salen los mp3 finales y un manifiesto `"converted": true`.
 5. En el servidor: respaldar la base, copiar la carpeta **de mp3** (nunca los wav), dry-run, importar,
@@ -27,7 +28,8 @@ script `backend/import_manifest.js` y el procedimiento de respaldo de `docs/DEPL
   el nombre de la carpeta del kit (`Kit_03_(Key_Bb)_(140BPM)`) y a veces en el del archivo
   (`FL_CPS_KIT03_140_Bb_Bass Loop.wav`).
 - **Duraciones** con el `ffprobe` de `backend/node_modules/ffprobe-static`. El límite es 60 s por
-  archivo: Stems y FullMix casi siempre pasan y quedan afuera.
+  archivo: Stems y FullMix casi siempre pasan y quedan afuera. En un `while read` de bash, pasar
+  `-nostdin` a ffmpeg (y redirigir la entrada de ffprobe): si no, se comen la lista de archivos.
 - **¿Ya está cargada?** Buscar en `files.original_name` (sobre una copia de `storage/db.sqlite` o con
   una consulta de solo lectura en el servidor) los nombres de la librería. Que el dueño crea que ya
   la usó no alcanza: en el primer caso, lo cargado venía de otro pack.
@@ -79,6 +81,26 @@ entra como `shot`, sin tempo. Si la librería no trae el BPM, mandar `beats`.
   ```
 
 - Ante la duda, dejarlo con la nota del kit: es el criterio conservador para el filtro.
+
+**Anclaje (`anchor`) de fills y one-shots.** Un one-shot `end` **termina** en el punto de disparo
+(cambio de Tag o inicio de frase, ver "One-shots" en `docs/ARCHITECTURE.md`); uno `start` empieza
+ahí. Criterio:
+
+- `end`: fills, risers, uplifters, crashes invertidos, redobles y pickups (lo que desemboca en el
+  cambio). Van a una pista one-shot con `on_tag_change` (y `density` 0 si solo deben sonar en el
+  cambio de Tag: así la pista no tiene candidatos `start` y solo dispara los `end`).
+- `start`: golpes, impacts, downlifters, crashes, drones, texturas, atmósferas, shots tonales.
+- No confiar solo en el nombre: medir la envolvente. Un one-shot que crece hacia el final
+  (energía del último cuarto bien por encima del primero, pico al final) es candidato a `end`
+  aunque el nombre no lo diga (en Deep Organic Percussion: pickups y Air Tubes).
+- **Colas después del remate.** El motor alinea el **final del archivo** con el punto, no el
+  clímax. Muchos risers suben, llegan al clímax y siguen 2–7 s con una cola de reverb; muchos
+  fills terminan el golpe y dejan la cola del último. Con `end`, en el cambio cae la cola y el
+  remate llega antes. En AVA: 17 de 30 risers/uplifters y 9 de 40 fills. Medirlo con el clímax =
+  último bloque de 50 ms a menos de 6 dB del máximo (risers) o el beat donde termina el golpe
+  (fills: nivel por beat a su BPM); si la cola pasa ~1,5 s, **recortar** antes de importar
+  (`atrim=0:<t>,afade=t=out:st=<t-f>:d=<f>`, fundido de 20–30 ms; un fill de ecos, más largo) y
+  escribir el recorte en `pcm_f32le`. La duración del manifiesto es la del recorte.
 
 ## 4. Carpeta y manifiesto (en local)
 
@@ -135,6 +157,14 @@ antes. Después: respaldar la base, copiar la carpeta a **`/var/tmp`** (`tar -cf
 `chmod -R a+rX`; **no a `/tmp`**: en el servidor es un tmpfs de ~1 GB en RAM, se llena y le quita
 memoria a la app), dry-run, importación real como `looper` con `nice`, revisar el resumen (errores 0)
 y borrar la carpeta.
+
+**Reemplazar audios ya importados** (un recorte que se decidió después, como en AVA): el audio se
+sirve con `Cache-Control: immutable` por un año, así que pisar el mp3 con el mismo id no llega a
+un navegador que ya lo cargó. Con un script de una sola vez, después de respaldar: copiar el mp3
+nuevo (de `utils.convert`) con un **id nuevo**, y en una transacción cambiar `files.id`,
+`duration` y `size`, `project_files.file_id` (única tabla que lo referencia) y ajustar
+`users.bytes_used` por la diferencia; después borrar el mp3 viejo. Buscar los archivos por
+`original_name` y dueño: los ids de la prueba local no son los de prod.
 
 ## 6. Pistas y tags del proyecto
 
