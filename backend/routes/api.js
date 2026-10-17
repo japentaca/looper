@@ -244,12 +244,19 @@ const ADMIN_STATUS_ACTIONS = {
 // tope de max_seconds (un día de audio): solo para frenar valores absurdos
 const MAX_SECONDS_LIMIT = 24 * 60 * 60
 
+// filtro ?status= de las listas del admin: "" si no viene o está vacío (todos); undefined si no es
+// uno de `statuses` (→ 400)
+function parse_status_filter(query, statuses) {
+  let status = query.status
+  if (status === undefined || status === "") return ""
+  return statuses.includes(status) ? status : undefined
+}
+const STATUS_ERROR = { stat: false, text: "Estado inválido" }
+
 // lista de usuarios, filtrable por estado (?status=pending|active|blocked; sin status o vacío: todos)
 router.get('/admin/users', require_admin, route("Error admin/users", async (req, res) => {
-  let status = req.query.status
-  if (status !== undefined && status !== "" && !USER_STATUSES.includes(status)) {
-    return res.status(400).send({ stat: false, text: "Estado inválido" })
-  }
+  let status = parse_status_filter(req.query, USER_STATUSES)
+  if (status === undefined) return res.status(400).send(STATUS_ERROR)
   let q = global.knex("users").select(ADMIN_USER_COLUMNS).orderBy("ts", "desc")
   if (status) q.where({ status: status })
   return res.send({ stat: true, data: await q })
@@ -340,10 +347,8 @@ function admin_report_out(r) {
 // denuncias, las más nuevas primero (hasta ADMIN_REPORTS_LIMIT). ?status=open|resolved|dismissed
 // (sin status o vacío: todas)
 router.get('/admin/reports', require_admin, route("Error admin/reports", async (req, res) => {
-  let status = req.query.status
-  if (status !== undefined && status !== "" && !REPORT_STATUSES.includes(status)) {
-    return res.status(400).send({ stat: false, text: "Estado inválido" })
-  }
+  let status = parse_status_filter(req.query, REPORT_STATUSES)
+  if (status === undefined) return res.status(400).send(STATUS_ERROR)
   let q = admin_reports_query(global.knex).orderBy([{ column: "r.ts", order: "desc" }, { column: "r.id" }])
     .limit(ADMIN_REPORTS_LIMIT)
   if (status) q.where("r.status", status)
@@ -973,7 +978,7 @@ function parse_catalog_query(query) {
     if (!r.ok) return { error: `Parámetro inválido: ${k}` }
     f[k] = r.v
   }
-  let out = { page: 1, per_page: CATALOG_PER_PAGE }
+  let out = {}
   if (f.kind) {
     if (!FILE_KINDS.includes(f.kind)) return { error: `Tipo inválido: tiene que ser ${FILE_KINDS.join(" o ")}` }
     out.kind = f.kind
@@ -1014,17 +1019,27 @@ function parse_catalog_query(query) {
     if (!valid_row_id(f.exclude_project)) return { error: "exclude_project inválido" }
     out.exclude_project = f.exclude_project
   }
-  if (f.page) {
-    out.page = Number(f.page)
-    if (!Number.isInteger(out.page) || out.page < 1) return { error: "Página inválida" }
+  let paging = parse_paging(query, CATALOG_PER_PAGE, CATALOG_PER_PAGE_MAX)
+  if (paging.error) return paging
+  return { f: { ...out, ...paging } }
+}
+
+// paginación leída de la query (catálogo y galería): page desde 1 y per_page de 1 a `max`; sin el
+// parámetro o vacío, 1 y `def`. Devuelve { page, per_page } o { error } (texto para el 400)
+function parse_paging(query, def, max) {
+  for (let k of ["page", "per_page"]) {
+    if (query[k] !== undefined && typeof query[k] != "string") return { error: `Parámetro inválido: ${k}` }
   }
-  if (f.per_page) {
-    out.per_page = Number(f.per_page)
-    if (!Number.isInteger(out.per_page) || out.per_page < 1 || out.per_page > CATALOG_PER_PAGE_MAX) {
-      return { error: `per_page tiene que ser un entero entre 1 y ${CATALOG_PER_PAGE_MAX}` }
+  let out = { page: 1, per_page: def }
+  for (let k of ["page", "per_page"]) {
+    if (!query[k] || !query[k].trim()) continue
+    let n = Number(query[k])
+    if (!Number.isInteger(n) || n < 1 || (k == "per_page" && n > max)) {
+      return { error: k == "page" ? "Página inválida" : `per_page tiene que ser un entero entre 1 y ${max}` }
     }
+    out[k] = n
   }
-  return { f: out }
+  return out
 }
 
 // escapa los comodines de LIKE (se usa con ESCAPE '\')
@@ -1119,21 +1134,8 @@ const PROJECT_AVAILABLE_SECONDS_SQL = PROJECT_AVAILABLE_FILES_SQL.replace("count
 // galería: proyectos públicos con al menos un archivo disponible (los vacíos no se listan, aunque
 // su link /p/<id> funcione), los más nuevos primero. Query opcional: page (desde 1) y per_page
 router.get('/public/projects', public_rate_limit, route("Error GET public/projects", async (req, res) => {
-  let q = req.query || {}
-  let page = 1, per_page = PUBLIC_PER_PAGE
-  for (let k of ["page", "per_page"]) {
-    if (q[k] !== undefined && typeof q[k] != "string") return res.status(400).send({ stat: false, text: `Parámetro inválido: ${k}` })
-  }
-  if (q.page && q.page.trim()) {
-    page = Number(q.page)
-    if (!Number.isInteger(page) || page < 1) return res.status(400).send({ stat: false, text: "Página inválida" })
-  }
-  if (q.per_page && q.per_page.trim()) {
-    per_page = Number(q.per_page)
-    if (!Number.isInteger(per_page) || per_page < 1 || per_page > PUBLIC_PER_PAGE_MAX) {
-      return res.status(400).send({ stat: false, text: `per_page tiene que ser un entero entre 1 y ${PUBLIC_PER_PAGE_MAX}` })
-    }
-  }
+  let { page, per_page, error } = parse_paging(req.query || {}, PUBLIC_PER_PAGE, PUBLIC_PER_PAGE_MAX)
+  if (error) return res.status(400).send({ stat: false, text: error })
   let gallery_query = db => public_projects_query(db).whereRaw(`(${PROJECT_AVAILABLE_FILES_SQL}) > 0`)
   let { total } = await gallery_query(global.knex).count({ total: "*" }).first()
   let rows = await gallery_query(global.knex)
