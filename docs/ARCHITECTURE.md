@@ -652,7 +652,10 @@ Flujo:
      (o el resultado anticipado `next_rest` de un FX `cond: rest`) la pista **descansa** en vez de
      sortear otro archivo. Se decide antes de mirar los candidatos: si el Tag nuevo no tiene archivos
      para la pista, el descanso igual se cumple (antes se salteaba y el FX "before rest" quedaba sin
-     descanso y el LCD vacío). Una pista callada por falta de candidatos no tira el dado. Al descansar: `resting = true`, `curr_file = null` y
+     descanso y el LCD vacío). Una pista callada por falta de candidatos no tira el dado. En el primer
+     beat tras START o RESET (`first_step`) también se tira: `roll_start_rests` deja el resultado en
+     `next_rest` de cada pista loop con candidatos y, si salen todas en descanso, una al azar arranca
+     sonando (antes, tras START no había `curr_file` y ninguna pista descansaba al arrancar). Al descansar: `resting = true`, `curr_file = null` y
      `remaining_beats = draw_rest_beats(track) - 1`: un valor al azar (uniforme) del rango
      `trg.props.rest_len` (`[min, max]` de `REST_LEN_OPTIONS = [4, 8, 16, 32]` compases, en
      `composable.js`; sin dato `[4, 4]`), o sea `n * beats_x_bar` beats. Son beats enteros contados desde un beat del

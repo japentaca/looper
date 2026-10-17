@@ -293,6 +293,7 @@ function reset() {
   // los disparos "end" hacia el cambio de Tag que ya no ocurre: se cancelan los que no arrancaron (los
   // que ya suenan terminan donde terminen). El cambio de RESET no se anticipa: no lleva "end"
   cancel_tag_end_shots()
+  first_step = true
   //set_next_step(-1)
 
 }
@@ -748,6 +749,7 @@ function start() {
   get_available_files_x_tag(current_TAG.tag?.id)
 
   beat.n = 0 // el transporte arranca de cero; evita mostrar la posición de la corrida anterior
+  first_step = true
   Tone.Transport.start()
 
 }
@@ -849,6 +851,9 @@ onBeforeUnmount(() => {
 
 // true desde que se elige un Tag hasta que set_next_step procesa su primer beat
 let tag_starting = false
+// true desde START o RESET hasta que set_next_step procesa el primer beat (ahí se tiran los dados de
+// descanso de arranque, ver roll_start_rests)
+let first_step = false
 // "sin Tag": old_tag cuando el Tag que termina era null (todos los pesos en 0)
 const NO_TAG = { id: "nada", name: "vacio" }
 
@@ -940,6 +945,10 @@ function set_next_step(time, n, downbeat) {
   current_TAG.remaining_beats--
   let tag_start = tag_starting
   tag_starting = false
+  if (first_step) {
+    first_step = false
+    roll_start_rests()
+  }
   tracks.map(track => {
 
     // las pistas one-shot no usan remaining_beats ni descansos: solo deciden si disparan en este beat
@@ -976,10 +985,11 @@ function loop_step(track, time) {
 
     // descanso: con probabilidad props.rest la pista calla una cantidad de compases sorteada en
     // props.rest_len (beats enteros desde este beat, así al volver sigue alineada al compás). Al fin de
-    // un loop o de otro descanso (una pista en silencio por falta de candidatos no tira el dado), y
+    // un loop o de otro descanso, o en el primer beat tras START/RESET (roll_start_rests deja next_rest;
+    // una pista en silencio por falta de candidatos no tira el dado), y
     // antes de mirar los candidatos: no los necesita, y si el Tag nuevo no tiene archivos para la
     // pista el descanso sorteado (p. ej. por un FX "before rest") igual se cumple y se cuenta en el LCD
-    if ((track.curr_file || was_resting) && (next_rest ?? roll_rest(track))) {
+    if ((track.curr_file || was_resting || next_rest != null) && (next_rest ?? roll_rest(track))) {
       // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
       if (track.curr_file) stop_file(track.curr_file.id, time)
       track.curr_file = null
@@ -1021,6 +1031,18 @@ function loop_step(track, time) {
 // dado de descanso (props.rest) al terminar una tirada
 function roll_rest(track) {
   return Math.random() < (track.track_group.props?.rest ?? 0)
+}
+
+// primer beat tras START o RESET: las pistas loop que van a sortear en este beat (con candidatos) tiran
+// el dado de descanso como al final de un loop; el resultado queda en next_rest y lo usa loop_step en
+// este mismo beat (tras START no hay curr_file y sin esto nunca descansaban). Si salen todas en
+// descanso, una al azar arranca sonando (que al darle START o RESET suene algo)
+function roll_start_rests() {
+  let fresh = tracks.filter(t => !is_oneshot(t.track_group) && t.remaining_beats == 0 && draw_candidates(t).length)
+  for (const t of fresh) t.next_rest = roll_rest(t)
+  if (fresh.length && fresh.every(t => t.next_rest)) {
+    fresh[Math.floor(Math.random() * fresh.length)].next_rest = false
+  }
 }
 
 // --- FX de transición (trg.props.fx, ver helpers/fx.js y mixer.js) ---
