@@ -132,6 +132,11 @@ function get_file_extension(file) {
   let ext = file.split('.').pop()
   return ext.toLowerCase()
 }
+
+// fecha y hora actual UTC en ISO sin ms ("2026-10-17T12:34:56"): el formato de las columnas `ts`
+function now_ts() {
+  return new Date().toISOString().slice(0, 19)
+}
 // tempo de un loop: bpm = beats × 60 / duración (segundos), redondeado a 2 decimales. null si falta
 // algún dato. El dato que carga el creador es `beats`; `bpm` siempre se deduce de ahí
 function loop_bpm(beats, duration) {
@@ -198,11 +203,9 @@ export default {
   normalize_key,
   suggest_key,
   KEY_ATONAL,
-  KEY_TONICS,
   convert,
   measure_loudness,
   loudness_gain,
   get_file_extension,
-  ffmpeg_path,
-  ffprobe_path
+  now_ts,
 }

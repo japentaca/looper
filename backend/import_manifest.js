@@ -60,10 +60,6 @@ const knex = Knex({
   connection: { filename: global.config.db_file }
 })
 
-function now() {
-  return new Date().toISOString().slice(0, 19)
-}
-
 // tipo y tempo de una entrada del manifiesto: { kind, beats, bpm } o { error }
 function timing(entry, duration) {
   let kind = entry.kind ?? "loop"
@@ -92,7 +88,7 @@ async function main() {
   if (project_name) {
     project = await knex("projects").select("id").where({ user_id: user.id, name: project_name }).first()
     if (!project && !dry_run) {
-      project = { id: uuid(), user_id: user.id, name: project_name, props: "{}", ts: now() }
+      project = { id: uuid(), user_id: user.id, name: project_name, props: "{}", ts: utils.now_ts() }
       await knex("projects").insert(project)
       console.log(`Proyecto creado: ${project_name}`)
     } else if (!project) {
@@ -159,8 +155,8 @@ async function main() {
           let size = (await fs.stat(out_file)).size
           await knex.transaction(async trx => {
             await trx("files").insert({
-              id: id, user_id: user.id, original_name: name, size: size, tags: "[]", duration: info.duration,
-              kind: t.kind, bpm: t.bpm, beats: t.beats, music_key: music_key, anchor: anchor, ts: now(),
+              id: id, user_id: user.id, original_name: name, size: size, duration: info.duration,
+              kind: t.kind, bpm: t.bpm, beats: t.beats, music_key: music_key, anchor: anchor, ts: utils.now_ts(),
             })
             await trx("users").where({ id: user.id }).update({ bytes_used: trx.raw("coalesce(bytes_used, 0) + ?", [size]) })
           })

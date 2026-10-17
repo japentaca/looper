@@ -283,7 +283,7 @@ async function migrate_projects() {
   let users = await global.knex("users").select("id", "props")
   if (!users.length) return
   console.log(`Migro datos a proyectos: un proyecto por usuario (${users.length})`)
-  let ts = new Date().toISOString().slice(0, 19)
+  let ts = utils.now_ts()
   await global.knex.transaction(async trx => {
     for (let user of users) {
       let project_id = uuid()

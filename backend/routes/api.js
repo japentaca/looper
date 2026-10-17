@@ -41,10 +41,18 @@ function require_session(req, res, next) {
 }
 
 // para endpoints de admin: el rol sale de la base en cada request (middleware de arriba)
-export function require_admin(req, res, next) {
+function require_admin(req, res, next) {
   if (!req.user) return res.status(401).send({ stat: false, text: "Sin sesión" })
   if (req.user.role !== "admin") return res.status(403).send({ stat: false, text: "Sin permiso" })
   next()
+}
+
+// largo máximo de un id recibido (pista, tag, archivo, proyecto): los uuid tienen 36
+const ID_MAX = 36
+
+// id recibido (de archivo, pista, tag...): string no vacío de hasta ID_MAX
+function valid_row_id(v) {
+  return typeof v == "string" && v.length > 0 && v.length <= ID_MAX
 }
 
 // error de validación de datos recibidos: route() lo responde como 400 con su mensaje
@@ -177,7 +185,7 @@ router.post('/register', route("Error register", async (req, res) => {
       bio: bio || null,
       status: "pending",
       role: "user",
-      ts: new Date().toISOString().slice(0, 19),
+      ts: utils.now_ts(),
     })
   } catch (e) {
     // carrera con otro registro simultáneo: lo resuelven los índices únicos
@@ -517,7 +525,7 @@ router.post("/projects", require_session, route("Error POST projects", async (re
     user_id: req.user.id,
     name: name,
     props: props,
-    ts: new Date().toISOString().slice(0, 19),
+    ts: utils.now_ts(),
   }
   await global.knex("projects").insert(row)
   return res.send({ stat: true, data: project_summary(row) })
@@ -534,7 +542,6 @@ router.post("/projects", require_session, route("Error POST projects", async (re
 const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
   "f.beats", "f.music_key", "f.anchor", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
-const FILE_ID_MAX = 36
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
 const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat"]
 // peso en el sorteo (de un archivo en el proyecto o de un Tag): entero 0..WEIGHT_MAX; 0 = no sale nunca
@@ -683,7 +690,6 @@ const PROJECT_ROWS_COLUMNS = {
   user_track_groups: { columns: ["id", "name", "color", "props"], json: ["props"] },
   user_tags: { columns: ["id", "name", "color", "weight"], json: [] },
 }
-const ROW_ID_MAX = 36
 
 // reemplaza todas las pistas o tags del proyecto por las recibidas (array con la colección
 // completa), en una transacción para no perder la colección si falla un insert. Los ids los genera
@@ -696,7 +702,7 @@ async function replace_project_rows(table, req, res) {
   let { columns, json } = PROJECT_ROWS_COLUMNS[table]
   let ids = new Set()
   for (let r of rows) {
-    if (!r || typeof r != "object" || typeof r.id != "string" || !r.id || r.id.length > ROW_ID_MAX) {
+    if (!r || typeof r != "object" || !valid_row_id(r.id)) {
       return res.status(400).send({ stat: false, text: "Datos inválidos: cada elemento necesita un id" })
     }
     if (ids.has(r.id)) return res.status(400).send({ stat: false, text: "Id repetido: " + r.id })
@@ -743,11 +749,6 @@ async function replace_project_rows(table, req, res) {
   })
   if (!found) return res.status(404).send(PROJECT_NOT_FOUND)
   return res.send({ stat: true })
-}
-
-// id de archivo (o de pista/tag) recibido: string no vacío de hasta FILE_ID_MAX
-function valid_row_id(v) {
-  return typeof v == "string" && v.length > 0 && v.length <= FILE_ID_MAX
 }
 
 // campos de un archivo en un proyecto recibidos (solo los presentes): track_group (id o null),
@@ -1090,7 +1091,6 @@ const PUBLIC_MAX = 120
 const PUBLIC_WINDOW_S = 60
 const PUBLIC_PER_PAGE = 24
 const PUBLIC_PER_PAGE_MAX = 100
-const PROJECT_ID_MAX = 36
 
 async function public_rate_limit(req, res, next) {
   let key = "looper_public:" + req.ip
@@ -1157,7 +1157,7 @@ router.get('/public/projects', public_rate_limit, route("Error GET public/projec
 // disponibles no se mandan: no se sortean ni se cargan), más el nombre público y la bio del dueño
 router.get('/public/project/:id', public_rate_limit, route("Error GET public/project/:id", async (req, res) => {
   let id = String(req.params.id)
-  if (id.length > PROJECT_ID_MAX) return res.status(404).send(PROJECT_NOT_FOUND)
+  if (id.length > ID_MAX) return res.status(404).send(PROJECT_NOT_FOUND)
   let p = await public_projects_query(global.knex)
     .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio"])
     .where("p.id", id).first()
@@ -1201,7 +1201,7 @@ router.post('/report', require_session, route("Error POST report", async (req, r
   }
   let target_id = body.target_id
   let not_found = target_type == "file" ? FILE_NOT_FOUND : PROJECT_NOT_FOUND
-  if (target_id.length > ROW_ID_MAX) return res.status(404).send(not_found)
+  if (target_id.length > ID_MAX) return res.status(404).send(not_found)
   let reason = typeof body.reason === "string" ? body.reason.trim() : ""
   if (!reason || [...reason].length > REPORT_REASON_MAX) {
     return res.send({ stat: false, text: `El motivo es obligatorio (hasta ${REPORT_REASON_MAX} caracteres)` })
@@ -1233,7 +1233,7 @@ router.post('/report', require_session, route("Error POST report", async (req, r
     if (await open_report(trx)) return true
     await trx("reports").insert({
       id: uuid(), target_type: target_type, target_id: target_id, reporter_user_id: user_id,
-      reason: reason, status: "open", ts: new Date().toISOString().slice(0, 19),
+      reason: reason, status: "open", ts: utils.now_ts(),
     })
     return false
   })
@@ -1529,14 +1529,13 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       user_id: user_id,
       original_name: file.name,
       size: size,
-      tags: "[]",
       duration: duration,
       kind: timing.kind,
       bpm: timing.bpm,
       beats: timing.beats,
       music_key: music_key,
       anchor: anchor,
-      ts: new Date().toISOString().slice(0, 19),
+      ts: utils.now_ts(),
     }
     try {
       await global.knex.transaction(async trx => {
@@ -1588,7 +1587,7 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
 
 // columnas de `users` que se devuelven al front (nunca `password` ni `id`; `props` quedó obsoleta:
 // la config es de cada proyecto)
-const U_INFO_COLUMNS = ["email", "name", "ts", "bytes_used", "max_bytes_uploaded", "status", "role", "bio", "max_seconds"]
+const U_INFO_COLUMNS = ["email", "name", "ts", "bytes_used", "status", "role", "bio", "max_seconds"]
 
 // datos del usuario leídos de la base en cada llamada (no de la sesión, que solo guarda el id):
 // el usuario, su cuota y la lista de sus proyectos. Pistas, tags, archivos y config vienen de

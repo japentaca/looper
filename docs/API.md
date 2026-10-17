@@ -81,7 +81,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 
 ```js
 {
-  email, name, ts, bytes_used, max_bytes_uploaded,
+  email, name, ts, bytes_used,
   status, role, bio, max_seconds, // status: "active" (los otros estados no deberían tener sesión); role: "user" | "admin"; max_seconds: null = default
   quota: { max_seconds, used_seconds }, // cuota efectiva (max_seconds o default_max_seconds de .env) y suma de files.duration;
                                         // la usa Uploader.vue para "te quedan m:ss"
