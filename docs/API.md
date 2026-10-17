@@ -152,7 +152,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
 ```js
 {
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay, reverb, master, comp }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
-  track_groups: [{ id, name, color, props: { volume, rest, rest_len, mode, on_tag_change, density, bars, scatter, reverb, delay, fx } }], // props: {} si no hay nada
+  track_groups: [{ id, name, color, props: { volume, rest, rest_again, rest_len, mode, on_tag_change, density, bars, scatter, reverb, delay, fx } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, // del catálogo (files); anchor "start" | "end"
             track_group, tags: [tag_id, ...], props: { volume, weight?, repeat? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]

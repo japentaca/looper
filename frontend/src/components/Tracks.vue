@@ -201,12 +201,20 @@
               <LedButton size="small" text="TAG" led="red" :lit="!!trg.props.on_tag_change"
                 title="Disparar al empezar cada Tag" @click="toggle_on_tag_change(trg)" />
             </div>
-            <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest) y rango
-              de su duración (props.rest_len: 4, 8, 16 o 32 compases) -->
+            <!-- loop: probabilidad de descanso al terminar cada loop (0..1, guardada en props.rest), de
+              encadenar otro descanso al terminar uno (0..REST_AGAIN_MAX, props.rest_again) y rango de su
+              duración (props.rest_len: 4, 8, 16 o 32 compases) -->
             <div class="rest_ctrls" :class="{ ghost: is_oneshot(trg) }">
-              <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
-                :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
-                @update:model-value="v => set_rest(trg, v)" />
+              <div class="rest_knobs">
+                <Knob :model-value="trg.props.rest ?? 0" :min="0" :max="1" :step="0.05"
+                  :size="36" label="Rest" :title="'Rest ' + Math.round((trg.props.rest ?? 0) * 100) + '%'"
+                  @update:model-value="v => set_rest(trg, v)" />
+                <!-- con Rest en 0 no hay descansos que encadenar: queda atenuado y sin respuesta -->
+                <Knob :class="{ knob_off: !(trg.props.rest > 0) }" :model-value="rest_again(trg)" :min="0"
+                  :max="REST_AGAIN_MAX" :step="0.05" :size="36" label="Again"
+                  :title="'Again ' + Math.round(rest_again(trg) * 100) + '%: otro descanso al terminar uno'"
+                  @update:model-value="v => set_rest_again(trg, v)" />
+              </div>
               <!-- con Rest en 0 no hay descansos: los pads quedan deshabilitados -->
               <RangePads small :model-value="parse_rest_len(trg.props.rest_len)" :options="rest_len_options"
                 :disabled="!(trg.props.rest > 0)"
@@ -450,6 +458,11 @@ function set_master(pos) {
 // probabilidad de descanso de la pista (se llama mientras se mueve el knob; el guardado es diferido)
 function set_rest(trg, v) {
   trg.props.rest = Math.round(v * 100) / 100 // evita 0.15000000000000002
+  save_trackGroups_debounced()
+}
+// probabilidad de encadenar otro descanso al terminar uno (ver rest_again)
+function set_rest_again(trg, v) {
+  trg.props.rest_again = Math.min(REST_AGAIN_MAX, Math.round(v * 100) / 100)
   save_trackGroups_debounced()
 }
 // rango de duración del descanso (RangePads ya entrega [min, max] ordenado)
@@ -1025,7 +1038,9 @@ function loop_step(track, time) {
     // una pista en silencio por falta de candidatos no tira el dado), y
     // antes de mirar los candidatos: no los necesita, y si el Tag nuevo no tiene archivos para la
     // pista el descanso sorteado (p. ej. por un FX "before rest") igual se cumple y se cuenta en el LCD
-    if ((track.curr_file || was_resting || next_rest != null) && (next_rest ?? roll_rest(track))) {
+    // al terminar un descanso, el dado es el de encadenar otro (props.rest_again), no el de Rest
+    let rest_roll = () => was_resting ? Math.random() < rest_again(track.track_group) : roll_rest(track)
+    if ((track.curr_file || was_resting || next_rest != null) && (next_rest ?? rest_roll())) {
       // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
       drop_file(track, time)
       track.resting = true
@@ -1066,6 +1081,15 @@ function drop_file(track, time) {
 // dado de descanso (props.rest) al terminar una tirada
 function roll_rest(track) {
   return Math.random() < (track.track_group.props?.rest ?? 0)
+}
+
+// probabilidad de encadenar otro descanso al terminar uno: props.rest_again, o la de Rest si nunca se
+// tocó (antes se volvía a tirar el dado de Rest). Con tope REST_AGAIN_MAX: siempre queda chance de que
+// vuelva un loop (con Rest en 1 la pista ya no queda muda para siempre)
+const REST_AGAIN_MAX = 0.9
+function rest_again(trg) {
+  let v = trg.props?.rest_again ?? trg.props?.rest ?? 0
+  return Math.min(Math.max(v, 0), REST_AGAIN_MAX)
 }
 
 // primer beat tras START o RESET: las pistas loop que van a sortear en este beat (con candidatos) tiran
@@ -1363,6 +1387,16 @@ function get_available_files_x_tag(tag_id) {
   flex-direction: column;
   align-items: center;
   gap: 4px;
+}
+
+.rest_knobs {
+  display: flex;
+  gap: 4px;
+}
+
+.knob_off {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .oneshot_ctrls {
