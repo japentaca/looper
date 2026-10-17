@@ -459,6 +459,8 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   `composable.js`) más lo guardado. Las pistas nuevas (`addTrackGroup` en `App.vue`) nacen con los
   defaults. Los cambios de mixer se guardan con `save_trackGroups_debounced()` (500 ms).
 - `store.read_only`: modo lectura (ver "Modo lectura"); con `true` ningún guardado manda requests.
+- `store.open_prompt`: proyecto que se ofrece abrir al entrar (fila de `store.projects`) o `null`; ver
+  "Carga inicial".
 - `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
@@ -489,7 +491,8 @@ app, con `store.read_only = true`:
   Import, Account ni Admin.
 - Si hay sesión, la vista pide `GET /api/get_user_info` (solo lectura) y, si el proyecto está en la
   lista del visitante, muestra "OPEN IN EDITOR": un `<a href="/">` que antes guarda el id en
-  `localStorage` (`looper_project_id`), así la app abre ese proyecto.
+  `localStorage` (`looper_project_id`) y marca el pedido en `sessionStorage` (`looper_open_project`,
+  `request_open_project`), así la app abre ese proyecto sin preguntar (ver "Carga inicial").
 - Al cambiar el `:id` se hace STOP antes de cargar el otro. Al salir de la vista (router-link a la
   galería) `unload_public_project()` hace STOP, olvida el Tag y libera los players
   (`unload_project`); el `beforeUnmount` de la vista corre antes de desmontar `Tracks.vue`.
@@ -509,6 +512,14 @@ app, con `store.read_only = true`:
    si es de este usuario); si no, el primero. Si el usuario no tiene ningún proyecto (cuenta nueva o
    borró todos) se crea uno vacío, `My project`. `GET /api/projects/:id` trae config, pistas, tags y
    archivos.
+   **Pregunta al entrar**: si no hay proyecto activo (recarga de la página o login), el elegido no se
+   abre directo: la app queda sin proyecto (`unload_project()`, LCD `NO PROJECT`) y se pone su fila de
+   la lista en `store.open_prompt`, que `OpenProject.vue` (montado en `App.vue`) muestra con nombre,
+   memoria estimada, archivos y fecha. OPEN → `switch_project(id)` (puede seguir el aviso de memoria);
+   OTHER... → abre el diálogo PROJECTS; CANCEL (o X / Esc) → queda en `NO PROJECT`. No se pregunta con
+   `?autostart=1`, con un proyecto recién creado (cuenta nueva) ni con OPEN IN EDITOR de la vista pública
+   (pedido en `sessionStorage` `looper_open_project`, que se consume en la primera carga con sesión).
+   Las recargas con proyecto activo (después de una subida, o al borrar el activo) tampoco preguntan.
    La config del proyecto (`props`: tempo, compás, rango de Tag, delay) se aplica enseguida a
    `TrackCtrl` y a `Tone.Transport` (`apply_project_props`, con defaults para lo que falte o sea
    inválido), **antes** de cargar los audios, así `calculate_timing()` (paso 4) usa el
@@ -527,8 +538,8 @@ app, con `store.read_only = true`:
    app queda sin proyecto (`store.project = null`, `unload_project()`, que libera todos los players y
    deja `TrackCtrl.isReady = true` porque no hay audios pendientes) y el LCD de la barra muestra
    `NO PROJECT`: se abre, crea o borra otro desde PROJECTS (con `isReady` en `false` esos botones
-   quedarían deshabilitados). Al recargar la página se vuelve a elegir el recordado (o el primero) y
-   se vuelve a preguntar. Con `?autostart=1` no se pregunta (se carga igual).
+   quedarían deshabilitados). Al recargar la página se vuelve a ofrecer el recordado (o el primero) y,
+   si se abre, se vuelve a preguntar. Con `?autostart=1` no se pregunta (se carga igual).
    `estimate_files_memory(files)` y `memory_warning_limit()` se exportan: el diálogo de importar
    (`ImportFiles.vue`) muestra el total con la misma cuenta. `project_memory(p)`,
    `project_memory_warn(p)` y `project_memory_title(p)` dan la memoria de un proyecto de una lista

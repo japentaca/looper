@@ -47,6 +47,7 @@ frontend/src/
     Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave
     Projects.vue     # diálogo de proyectos: abrir, crear, renombrar, borrar, visibilidad
+    OpenProject.vue  # pregunta al entrar (recarga o login) si se abre el último proyecto, otro o ninguno
     ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria; no lista lo que ya está en el proyecto)
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
     PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)

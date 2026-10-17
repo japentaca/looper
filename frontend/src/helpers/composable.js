@@ -79,6 +79,9 @@ export const store = reactive({
   // pedido de abrir el diálogo de edición de un archivo desde otro componente (id del archivo; lo
   // atiende y vuelve a null Files.vue). Lo usa el nombre del loop que suena en las tiras de Tracks.vue
   edit_file_id: null,
+  // proyecto que se ofrece abrir al entrar (fila de store.projects) o null: en vez de abrir el último
+  // usado sin preguntar, App.vue muestra OpenProject.vue (abrir, elegir otro o cancelar)
+  open_prompt: null,
 })
 export let files_by_id = reactive([])
 
@@ -300,10 +303,28 @@ export function remember_project(id) {
 function remembered_project() {
   try { return localStorage.getItem(LAST_PROJECT_KEY) } catch { return null }
 }
+// pedido explícito de abrir un proyecto al entrar (OPEN IN EDITOR de la vista pública): ese no se
+// pregunta. Va en sessionStorage (solo esta pestaña) y lo consume la primera carga con sesión
+const OPEN_REQUEST_KEY = "looper_open_project"
+export function request_open_project(id) {
+  remember_project(id)
+  try { sessionStorage.setItem(OPEN_REQUEST_KEY, id) } catch { /* sin sessionStorage */ }
+}
+function take_open_request() {
+  try {
+    let id = sessionStorage.getItem(OPEN_REQUEST_KEY)
+    sessionStorage.removeItem(OPEN_REQUEST_KEY)
+    return id
+  } catch {
+    return null
+  }
+}
 
 // usuario (con la cuota) + lista de proyectos, y (re)carga del proyecto activo. Se llama al entrar,
 // después del login y después de cada subida. Proyecto a abrir: el activo si sigue existiendo; si no,
 // el último usado en este navegador; si no, el primero. Sin proyectos (cuenta nueva) se crea uno.
+// Al entrar (recarga de la página o login, sin proyecto activo) no se abre directo: se pregunta con
+// store.open_prompt, salvo un proyecto recién creado, OPEN IN EDITOR o ?autostart=1
 export const store_get_user_info = async () => {
   let res = await api.get_user_info()
   console.log("res get_user_info", res)
@@ -314,17 +335,27 @@ export const store_get_user_info = async () => {
 
     store.u_info = res.u_info
     store.projects = res.u_info.projects ?? []
+    let created = false
     if (store.projects.length == 0) {
       try {
         let pres = await api.create_project({ name: "My project" })
-        if (pres.stat) store.projects.push(pres.data)
+        if (pres.stat) {
+          store.projects.push(pres.data)
+          created = true
+        }
       } catch (e) {
         console.log("Error creando el proyecto inicial", e)
       }
     }
     let ids = store.projects.map(p => p.id)
+    let requested = take_open_request()
     let id = [store.project?.id, remembered_project()].find(i => i && ids.includes(i)) ?? ids[0]
-    if (id) {
+    if (id && !store.project && !created && !AUTOSTART && requested !== id) {
+      // queda sin proyecto (NO PROJECT, con isReady en true para que PROJECTS funcione) hasta que se conteste
+      unload_project()
+      store.loading = false
+      store.open_prompt = store.projects.find(p => p.id === id)
+    } else if (id) {
       await load_project(id)
     } else {
       ElMessage({ type: 'error', message: "No se pudo cargar ni crear un proyecto" })
@@ -567,7 +598,8 @@ async function confirm_project_memory(p) {
     return false
   }
 }
-// deja la app sin proyecto abierto (se canceló el aviso de memoria y no hay otro usable)
+// deja la app sin proyecto abierto (se canceló el aviso de memoria y no hay otro usable, o al entrar
+// mientras se pregunta qué proyecto abrir)
 function unload_project() {
   store.project = null
   store.files = []

@@ -33,7 +33,7 @@
       </div>
 
       <!-- proyecto activo (LCD) y botones de los diálogos de proyectos y de importar del catálogo -->
-      <!-- sin proyecto abierto (se canceló el aviso de memoria) el botón sigue, para abrir otro -->
+      <!-- sin proyecto abierto (se canceló el aviso de memoria o la pregunta al entrar) el botón sigue, para abrir otro -->
       <div v-if="store.isLogged == true" class="project">
         <span class="silk">Project</span>
         <Lcd small :digits="0">
@@ -113,6 +113,7 @@
     <Login :visible="store.loginVisible" />
     <Account v-if="store.isLogged == true" v-model="accountVisible" />
     <Projects v-if="store.isLogged == true" v-model="projectsVisible" />
+    <OpenProject v-if="store.isLogged == true" @choose="projectsVisible = true" />
     <ImportFiles v-if="store.isLogged == true" v-model="importVisible" />
     <GalleryDialog v-model="galleryVisible" />
     <!-- solo para role = admin: a los demás ni se monta (el backend igual lo exige con require_admin) -->
@@ -127,6 +128,7 @@ import Files from "./components/Files.vue"
 import Login from "./components/Login.vue"
 import Account from "./components/Account.vue"
 import Projects from "./components/Projects.vue"
+import OpenProject from "./components/OpenProject.vue"
 import ImportFiles from "./components/ImportFiles.vue"
 import GalleryDialog from "./components/GalleryDialog.vue"
 import Admin from "./components/Admin.vue"

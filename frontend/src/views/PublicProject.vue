@@ -16,7 +16,7 @@
           }}/{{ store.load_progress.total }}</span>
       </div>
       <a v-if="is_owner" class="silk link" href="/" title="Abrir este proyecto en el editor"
-        @click="remember_project(info.id)">OPEN IN EDITOR</a>
+        @click="request_open_project(info.id)">OPEN IN EDITOR</a>
       <!-- denunciar: solo con sesión y si el proyecto no es del visitante -->
       <button v-if="info && logged && !is_owner" class="silk link report" title="Report this project"
         @click="report_visible = true">REPORT</button>
@@ -57,7 +57,7 @@ import Led from "../components/hw/Led.vue"
 import ReportDialog from "../components/ReportDialog.vue"
 import { get_user_info } from "../helpers/api"
 import {
-  store, load_public_project, unload_public_project, remember_project
+  store, load_public_project, unload_public_project, request_open_project
 } from "../helpers/composable"
 import { TrackCtrl, stop_transport } from "../helpers/TrackCtrl"
 import { url_autostart } from "../helpers/utils"
