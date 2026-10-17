@@ -516,18 +516,20 @@ function draw_candidates(track) {
   return (available_files_per_TRG[track.track_group.id] ?? [])
     .filter(id => playable(id, track.track_group) && file_weight(id) > 0)
 }
-// veces seguidas que va a sonar un loop recién sorteado: un valor al azar (uniforme) de REPEAT_OPTIONS
-// dentro de su rango props.repeat (con [2, 8] sale 2, 4 u 8)
-function draw_repeat(file) {
-  let [lo, hi] = parse_repeat(file.props?.repeat).map(v => REPEAT_OPTIONS.indexOf(v))
-  return REPEAT_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
+// un valor al azar (uniforme) de options entre lo y hi (ambos incluidos, valores de options)
+function draw_in_range(options, [lo, hi]) {
+  let i = options.indexOf(lo)
+  return options[i + Math.floor(Math.random() * (options.indexOf(hi) - i + 1))]
 }
-// beats de un descanso: un valor al azar (uniforme) de REST_LEN_OPTIONS dentro de props.rest_len de la
-// pista, en compases del compás actual
+// veces seguidas que va a sonar un loop recién sorteado: un valor de REPEAT_OPTIONS dentro de su rango
+// props.repeat (con [2, 8] sale 2, 4 u 8)
+function draw_repeat(file) {
+  return draw_in_range(REPEAT_OPTIONS, parse_repeat(file.props?.repeat))
+}
+// beats de un descanso: un valor de REST_LEN_OPTIONS dentro de props.rest_len de la pista, en compases
+// del compás actual
 function draw_rest_beats(track) {
-  let [lo, hi] = parse_rest_len(track.track_group.props?.rest_len).map(v => REST_LEN_OPTIONS.indexOf(v))
-  let v = REST_LEN_OPTIONS[lo + Math.floor(Math.random() * (hi - lo + 1))]
-  return v * parseInt(TrackCtrl.beats_x_bar)
+  return draw_in_range(REST_LEN_OPTIONS, parse_rest_len(track.track_group.props?.rest_len)) * parseInt(TrackCtrl.beats_x_bar)
 }
 function file_weight(id) {
   return files_by_id[id]?.props?.weight ?? 0
@@ -970,12 +972,9 @@ function loop_step(track, time) {
     // pista el descanso sorteado (p. ej. por un FX "before rest") igual se cumple y se cuenta en el LCD
     if ((track.curr_file || was_resting || next_rest != null) && (next_rest ?? roll_rest(track))) {
       // el loop anterior se corta en este mismo beat (por si su audio dura un poco más que sus beats)
-      if (track.curr_file) stop_file(track.curr_file.id, time)
-      track.curr_file = null
+      drop_file(track, time)
       track.resting = true
       track.remaining_beats = draw_rest_beats(track) - 1
-      track.repeat_n = 1
-      track.repeats_left = 0
       return false
     }
 
@@ -984,10 +983,7 @@ function loop_step(track, time) {
     // congelado en su último beat)
     let candidates = draw_candidates(track)
     if (!candidates.length) {
-      if (track.curr_file) stop_file(track.curr_file.id, time)
-      track.curr_file = null
-      track.repeat_n = 1
-      track.repeats_left = 0
+      drop_file(track, time)
       return false
     }
     let f = pick_weighted(candidates, file_weight)
@@ -1002,6 +998,14 @@ function loop_step(track, time) {
   track.remaining_beats--
   // en descanso no hay archivo: solo se cuenta
   return !!track.curr_file && !track.resting
+}
+
+// suelta el archivo de una pista loop: lo corta en time y deja la pista sin archivo ni repeticiones
+function drop_file(track, time) {
+  if (track.curr_file) stop_file(track.curr_file.id, time)
+  track.curr_file = null
+  track.repeat_n = 1
+  track.repeats_left = 0
 }
 
 // dado de descanso (props.rest) al terminar una tirada
