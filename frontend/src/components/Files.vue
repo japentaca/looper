@@ -139,9 +139,12 @@
   </div>
 
 
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(780px, 96vw)"
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(980px, 96vw)"
     class="hw_dialog" align-center draggable>
     <div class="edit_body">
+      <!-- pantalla de onda a todo el ancho, con la grilla y los cursores (WaveScreen.vue). La grilla de un loop
+        sigue al input Beats mientras se edita, antes de guardar (beats_draft) -->
+      <WaveScreen :file="curr_edit_file" :beats="beats_draft" :active="dialogVisible" />
       <div class="edit_left">
         <div class="edit_info">
           <span class="info_label">Duración</span>
@@ -161,8 +164,8 @@
             <span class="info_label">Beats</span>
             <span class="timing_row">
               <el-input-number v-if="curr_edit_file.own && !store.read_only" :model-value="curr_edit_file.beats"
-                size="small" :min="1" :max="1024" :precision="0" :step="1" :disabled="saving_timing"
-                @change="v => v && save_timing(curr_edit_file, { beats: v })" />
+                size="small" :min="1" :max="BEATS_MAX" :precision="0" :step="1" :disabled="saving_timing"
+                @input="set_beats_draft" @change="v => v && save_timing(curr_edit_file, { beats: v })" />
               <span v-else>{{ curr_edit_file.beats }}</span>
               <span>{{ fmt_bpm(curr_edit_file.bpm) }} BPM</span>
               <span v-if="out_of_tempo(curr_edit_file)" class="out_tempo"
@@ -271,6 +274,7 @@ import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
 import FileCart from "./FileCart.vue"
+import WaveScreen from "./WaveScreen.vue"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import { update_file, error_text } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
@@ -341,7 +345,16 @@ async function save_timing(file, data) {
     ElMessage({ type: 'error', message: error_text(e) })
   } finally {
     saving_timing.value = false
+    // guardado (o no): la grilla vuelve a los beats del archivo
+    if ("beats" in data) beats_draft.value = null
   }
+}
+// beats que muestra el input mientras se edita (al tipear o con +/-), para que la pantalla de onda
+// redibuje la grilla antes de guardar; null = los del archivo. Se guarda igual que antes, en @change
+const BEATS_MAX = 1024
+const beats_draft = ref(null)
+function set_beats_draft(v) {
+  beats_draft.value = Number.isInteger(v) && v >= 1 && v <= BEATS_MAX ? v : null
 }
 
 
@@ -353,6 +366,7 @@ const dialogVisible = ref(false)
 const curr_edit_file = ref(null)
 
 async function editFile(file) {
+  beats_draft.value = null
   curr_edit_file.value = file
   dialogVisible.value = true
 }

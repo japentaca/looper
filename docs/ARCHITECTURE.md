@@ -464,7 +464,9 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
 - `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
-`files_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`). La pista de un archivo
+`files_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`). `engine_starts` (id →
+`{ time, rate, prev }` del último arranque en el motor) también es plano: lo escribe `start_file` con
+`note_engine_start` y lo lee el cursor del motor del editor en cada frame. La pista de un archivo
 no se guarda como objeto: `trg_of(file)` la busca en `store.track_groups` en el momento (reactivo; null si
 no tiene o ya no existe).
 
@@ -752,6 +754,10 @@ Flujo:
        todos, con `Tone.Draw.schedule(..., time)` (ahí también llama `on_start`). Ese Draw se descarta si
        en el medio el archivo se cortó o se volvió a arrancar (`start_seq[id]`, lo incrementan
        `start_file` y `stop_file`): un "end" cancelado no prende nada.
+     - Cursor del editor: `start_file` anota además el arranque con `note_engine_start(id, time, rate)`
+       (`composable.js`; `engine_starts[id] = { time, rate, prev }`, objeto plano no reactivo, `rate` =
+       `playbackRate` al arrancar, `prev` = el arranque anterior). No cambia nada del motor: solo lo lee
+       el cursor de `WaveScreen.vue` (ver "Editor: pantalla de onda").
      Si la pista pasa de loop a one-shot con un loop sonando, ese
      loop se corta en el beat siguiente; de one-shot a loop, la pista sortea un loop en el beat
      siguiente (`remaining_beats` quedó en 0; los "end" ya agendados suenan igual). RESET no corta los
@@ -1154,3 +1160,47 @@ pedido (`playFile`, `playUrl`, `playerStop`) invalida al que siga cargando, así
 Los diálogos usan los atajos `previewing(id)` / `preview_loading(id)` (estado del botón),
 `toggle_preview(file)` (play/stop: buffer del proyecto si está cargado, si no `playUrl`) y
 `stop_foreign_preview()` (al cerrar, corta un preview de un archivo que no es del proyecto).
+`playFile` y `playUrl` arrancan con `mainPlayer.start(Tone.now())` (lo mismo que `start()` sin argumento)
+y anotan ese momento: `preview_position()` da la posición del preview dentro del buffer (o `null`), no
+reactiva, para el cursor del editor. Hoy el preview suena libre, a velocidad original y una sola vez.
+
+### Editor: pantalla de onda (`components/WaveScreen.vue`)
+
+Plan completo en `docs/PLAN_EDITOR.md`; está implementada la fase 1 (solo lectura del motor, sin backend).
+El editor es el diálogo de edición de `Files.vue` (lápiz del cartucho o de la fila, o el nombre en la
+tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<WaveScreen :file :beats :active>`;
+debajo, los datos, las placas y los pads de siempre.
+
+- **Onda**: canvas con los colores del LCD (`--hw_lcd_*`, como `hw/Lcd.vue`), picos min/max por píxel del
+  dispositivo calculados en el cliente del `AudioBuffer` ya cargado en `audio_players[id]`
+  (`compute_peaks` de `helpers/wave.js`). Un carril por canal: L/R si es estéreo, uno si es mono. Sin
+  zoom. Los picos se cachean por buffer (`WeakMap`, último ancho dibujado): redibujar la grilla no los
+  recalcula. El canvas sigue al contenedor con un `ResizeObserver` y usa `devicePixelRatio`; con el
+  diálogo cerrado (ancho 0) no dibuja. Sin buffer (cargando) muestra `LOADING…` (`LOAD ERROR` si falló):
+  como `file.isLoaded` se prende antes de que el player quede en `audio_players` (`install_project`),
+  también redibuja cuando `TrackCtrl.isReady` pasa a true.
+- **Grilla** (`grid_lines` de `helpers/wave.js`, encima de la onda): en un loop, una línea por beat
+  repartida sobre los `beats` del archivo y más marcada en cada compás (`TrackCtrl.beats_x_bar`); en un
+  shot, de trazos, al tempo del proyecto (`TrackCtrl.tempo`; el shot suena a velocidad original) desde el
+  anchor (`start`: desde el inicio; `end`: hacia atrás desde el final), con un triángulo en el punto de
+  disparo. Si las líneas quedan a menos de 4 px no se dibujan las de beat (ni las de compás si tampoco
+  entran). En un loop el tempo no se lee: mover el knob Tempo no redibuja la pantalla.
+- **Beats en vivo**: el input Beats (solo el dueño) sigue guardando en `@change` como antes; además su
+  evento `input` (al tipear o con +/−) deja el valor en `beats_draft` de `Files.vue`, que va a la
+  pantalla como `beats`. Vuelve a `null` (los del archivo) al terminar el guardado, salga bien o mal, y
+  al abrir el editor.
+- **Rótulo ×2 / ×½**: si el motor toca el loop con otro largo (`play_beats ≠ beats`), la pantalla dice
+  "in this project: N beats (×2)" (`rate_label`). Con los beats guardados usa `play_beats` / `in_tempo`
+  de `calculate_timing`; con un valor sin guardar los calcula con `file_timing` (bpm deducido de beats y
+  duración, como el backend) y `TrackCtrl.timing_basis`. Fuera de tempo no se muestra.
+- **Cursores**: el del preview (tinta del LCD; `toneLib.preview_position()`) y el del motor (rojo,
+  `--hw_red`) cuando el archivo suena en su pista (`TrackCtrl.isPlaying && file.isPlaying`; posición =
+  `(currentTime − time) × rate` con `engine_starts[id]`; como el arranque se agenda hasta `LOOK_AHEAD`
+  antes, hasta que llega se sigue con `prev`, la vuelta que todavía suena). Una leyenda abajo a la derecha dice cuál está
+  activo. Se mueven con `requestAnimationFrame` **solo** mientras el diálogo está abierto (`active`) y
+  algo suena, tocando el `transform` en el DOM: igual que `FileCart.vue` y los medidores, el estado del
+  motor y del preview se lee adentro del componente y `Files.vue` no se re-renderiza por eso.
+  Aproximaciones: se ignora la latencia de salida del dispositivo, y si el tempo cambia (knob Tempo) con
+  el loop sonando, el cursor del motor usa el `rate` del arranque hasta la próxima vuelta del loop.
+- El clic en la onda no hace nada (MVP). Funciona igual en `store.read_only` (no escribe nada), aunque
+  hoy la vista pública no monta `Files.vue`.

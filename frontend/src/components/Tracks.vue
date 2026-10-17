@@ -280,7 +280,7 @@ import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import {
   store, tags_by_id, audio_players, files_by_id, save_trackGroups, save_trackGroups_debounced,
   save_project_props_debounced, pick_weighted, parse_repeat, REPEAT_OPTIONS, move_item, parse_rest_len,
-  REST_LEN_OPTIONS
+  REST_LEN_OPTIONS, note_engine_start
 } from "../helpers/composable"
 import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX,
@@ -732,6 +732,7 @@ function start_file(id, time, on_start) {
   audio_players[id].volume.value = vol_db(files_by_id[id].props.volume, FILE_VOL_MAX_DB)
   route_player(id)
   audio_players[id].start(time)
+  note_engine_start(id, time, audio_players[id].playbackRate) // solo para el cursor del editor (WaveScreen.vue)
   Tone.Draw.schedule(() => {
     if (start_seq[id] != seq) return
     files_by_id[id].isPlaying = true

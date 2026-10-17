@@ -88,6 +88,16 @@ export let files_by_id = reactive([])
 
 
 export let audio_players = {}
+// último arranque de cada archivo en el motor: id -> { time (segundos del AudioContext), rate (playbackRate
+// al arrancar), prev (el arranque anterior, sin su prev) }. Lo anota start_file en Tracks.vue con
+// note_engine_start y lo lee el cursor del motor de WaveScreen.vue en cada frame. prev hace falta porque
+// el arranque se agenda con anticipación (lookAhead): hasta que llega `time` sigue sonando la vuelta
+// anterior. Objeto plano (no reactivo) a propósito: escribirlo o leerlo no dispara renders
+export const engine_starts = {}
+export function note_engine_start(id, time, rate) {
+  let old = engine_starts[id]
+  engine_starts[id] = { time, rate, prev: old ? { time: old.time, rate: old.rate } : null }
+}
 
 export let tags_by_id = {}
 // pista (objeto de store.track_groups) de un archivo, o null. Se busca en el momento (no se guarda en

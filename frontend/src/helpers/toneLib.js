@@ -13,6 +13,8 @@ let started = 0
 let ended = 0
 // número del último pedido de preview (ver playUrl)
 let url_request = 0
+// momento (segundos del AudioContext) en que arrancó el último preview: para el cursor de WaveScreen.vue
+let preview_t0 = 0
 
 function onstop() {
   ended++
@@ -36,7 +38,9 @@ export async function playFile(file) {
   store.curr_file = file
   mainPlayer.buffer.set(audio_players[file.id].buffer)
   mainPlayer.volume.value = vol_db(file.props.volume, FILE_VOL_MAX_DB)
-  mainPlayer.start()
+  // el tiempo explícito es el mismo que usaría start() sin argumento (Tone.now()); se anota para el cursor
+  preview_t0 = Tone.now()
+  mainPlayer.start(preview_t0)
   started++
   store.curr_file.isPreviewing = true
 }
@@ -67,7 +71,8 @@ export async function playUrl(file, url) {
   store.curr_file.isPreviewLoading = false
   mainPlayer.buffer.set(buffer)
   mainPlayer.volume.value = PREVIEW_VOLUME
-  mainPlayer.start()
+  preview_t0 = Tone.now()
+  mainPlayer.start(preview_t0)
   started++
   store.curr_file.isPreviewing = true
 }
@@ -81,6 +86,14 @@ export function previewing(id) {
 // el archivo con ese id se está descargando para el preview
 export function preview_loading(id) {
   return store.curr_file.isPreviewLoading == true && store.curr_file.id == id
+}
+// posición del preview dentro del buffer (segundos, a la velocidad con que suena) o null si no suena o
+// todavía no arrancó (Tone.now() le suma el lookAhead al arranque). No es reactiva: la lee el cursor de
+// WaveScreen.vue en cada frame, mientras previewing() dice que suena
+export function preview_position() {
+  if (!store.curr_file.isPreviewing) return null
+  let pos = (Tone.getContext().currentTime - preview_t0) * mainPlayer.playbackRate
+  return pos >= 0 ? pos : null
 }
 // play o stop de un archivo ({ id, original_name }): si está cargado en el proyecto se usa su
 // buffer; si no, se descarga solo ese archivo. Si falla la carga, tira el error
