@@ -1,6 +1,6 @@
 import { store } from "./composable"
 import { reactive } from "vue"
-import { COMP_DEFAULT } from "./master_dsp"
+import { COMP_DEFAULT, COMP_TRIM_MAX_DB } from "./master_dsp"
 
 // --- delay global (ver mixer.js) ---
 // tipos: pingpong = ping-pong estéreo, stereo = la misma repetición en los dos canales,
@@ -55,12 +55,15 @@ export const TAG_RANGE_MAX = 9
 export const TAG_RANGE_DEFAULT = [6, 7]
 export const MASTER_DEFAULT = 0 // volumen master en dB (knob Master; curva y rango en mixer.js)
 // compresor multibanda del master (worklet, ver mixer.js y master_dsp.js): { on, amount, low, mid, high }.
-// Apagado por defecto. Por ahora no se guarda ni tiene controles (fase F4 de docs/PLAN_MASTER.md)
+// on = COMP, amount = GLUE 0..1, low/mid/high = trim por banda en dB (COMP_BAND_MIN..COMP_BAND_MAX, pasos
+// de 0.5). Apagado por defecto: los proyectos sin comp guardado no se comprimen
+export const COMP_BAND_MIN = -COMP_TRIM_MAX_DB
+export const COMP_BAND_MAX = COMP_TRIM_MAX_DB
 export function comp_default() {
   return { ...COMP_DEFAULT }
 }
 
-// tempo, compás, rango de cambio de Tag, delay, reverb y volumen master son la config del proyecto activo: se
+// tempo, compás, rango de cambio de Tag, delay, reverb, volumen master y compresor son la config del proyecto activo: se
 // guardan en projects.props (save_project_props_debounced en composable.js) y se aplican al cargar el proyecto
 export const TrackCtrl = reactive({
   tempo: TEMPO_DEFAULT,

@@ -97,7 +97,8 @@ export function trg_of(file) {
 import {
   TrackCtrl, calculate_timing, stop_transport, delay_default, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX,
   DELAY_LEVEL_MIN, DELAY_LEVEL_MAX, TEMPO_DEFAULT, TEMPO_TOL_DEFAULT, TEMPO_TOL_MAX, BEATS_X_BAR_DEFAULT, TAG_RANGE_MIN, TAG_RANGE_MAX,
-  TAG_RANGE_DEFAULT, MASTER_DEFAULT, reverb_default, REVERB_IRS, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX
+  TAG_RANGE_DEFAULT, MASTER_DEFAULT, reverb_default, REVERB_IRS, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX, comp_default,
+  COMP_BAND_MIN, COMP_BAND_MAX
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
 import { normalize_fx_list } from './fx'
@@ -209,18 +210,19 @@ function debounced(fn, def_ms = 500) {
 // guardado diferido de los track groups (para controles que cambian seguido: volumen, knobs)
 const trg_saver = debounced(() => save_trackGroups())
 export const save_trackGroups_debounced = trg_saver.run
-// --- config del proyecto (projects.props): tempo, tolerancia, compás, rango de cambio de Tag, delay, reverb y master ---
-// guardado diferido: se llama al cambiar tempo, tolerancia, compás, el rango de Tag, el delay o la reverb (no al cargar)
+// --- config del proyecto (projects.props): tempo, tolerancia, compás, rango de cambio de Tag, delay, reverb, master y compresor ---
+// guardado diferido: se llama al cambiar tempo, tolerancia, compás, el rango de Tag, el delay, la reverb, el master o el
+// compresor (no al cargar)
 const project_props_saver = debounced(() => save_project_props())
 export const save_project_props_debounced = project_props_saver.run
 async function save_project_props() {
   if (!can_save()) return
   let props = {
     tempo: TrackCtrl.tempo, tempo_tol: TrackCtrl.tempo_tol, beats_x_bar: TrackCtrl.beats_x_bar, tag_range: [...TrackCtrl.tag_range],
-    delay: { ...TrackCtrl.delay }, reverb: { ...TrackCtrl.reverb }, master: TrackCtrl.master
+    delay: { ...TrackCtrl.delay }, reverb: { ...TrackCtrl.reverb }, master: TrackCtrl.master, comp: { ...TrackCtrl.comp }
   }
   await save_collection(() => api.update_project(store.project.id, { props }), null,
-    "la configuración (tempo / tag / delay / reverb)")
+    "la configuración (tempo / tag / delay / reverb / compresor)")
 }
 // antes de cambiar de proyecto (o de borrar el activo) se mandan ya los guardados diferidos
 // pendientes: si no, saldrían después con el id del proyecto nuevo (o contra uno borrado)
@@ -234,7 +236,7 @@ function clamp(v, min, max, def) {
   return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def
 }
 // aplica la config guardada (con defaults para lo que falte o sea inválido) a TrackCtrl y al transporte.
-// El delay y la reverb de mixer.js siguen a TrackCtrl con watchers. Va antes de calculate_timing (el playbackRate
+// El delay, la reverb y el compresor de mixer.js siguen a TrackCtrl con watchers. Va antes de calculate_timing (el playbackRate
 // y los beats de los archivos dependen del tempo y la tolerancia). No guarda nada: solo se guarda al tocar un control.
 function apply_project_props(props) {
   let p = props ?? {}
@@ -263,6 +265,16 @@ function apply_project_props(props) {
   })
   // volumen master en dB: -60 (= silencio) .. +6, el rango del knob (VOL_OFF_DB..VOL_MAX_DB de mixer.js)
   TrackCtrl.master = clamp(p.master, -60, 6, MASTER_DEFAULT)
+  // compresor del master: un proyecto sin comp guardado (anterior al compresor) queda apagado con los defaults.
+  // GLUE en pasos de 0.01 y las bandas en pasos de 0.5 dB, como los knobs (el worklet igual lo acota)
+  let cdef = comp_default()
+  let c = p.comp && typeof p.comp == "object" ? p.comp : {}
+  let band = v => Math.round(clamp(v, COMP_BAND_MIN, COMP_BAND_MAX, 0) * 2) / 2
+  Object.assign(TrackCtrl.comp, {
+    on: c.on === true,
+    amount: Math.round(clamp(c.amount, 0, 1, cdef.amount) * 100) / 100,
+    low: band(c.low), mid: band(c.mid), high: band(c.high),
+  })
   Tone.Transport.bpm.value = TrackCtrl.tempo
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
 }

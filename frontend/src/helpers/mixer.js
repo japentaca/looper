@@ -321,7 +321,7 @@ function dsp_fail(why) {
 }
 
 load_master_dsp()
-// config del compresor (TrackCtrl.comp; la UI y el guardado son de la fase F4 del plan): se manda
+// config del compresor (TrackCtrl.comp: controles en Tracks.vue, guardada en projects.props): se manda
 // como objeto plano, no el reactive
 watch(() => ({ ...TrackCtrl.comp }), (comp) => dsp_node?.port.postMessage({ t: "params", comp }))
 

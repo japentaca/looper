@@ -108,6 +108,29 @@
         <Knob :model-value="db_to_fader(TrackCtrl.master)" :min="0" :max="1" :step="0.01" :size="64" label="Master"
           :title="'Master ' + db_label(TrackCtrl.master)" @update:model-value="set_master" />
       </div>
+
+      <!-- compresor multibanda del master (TrackCtrl.comp, guardado en projects.props; worklet de mixer.js): COMP
+        on/off, GLUE = cuánto comprime (0..1) y LOW/MID/HIGH = trim por banda en dB, con un LED de reducción de
+        ganancia por banda (levels.comp_gr). Apagado, los knobs se atenúan pero se pueden mover (se guardan). Sin
+        worklet (contexto no seguro) el compresor no existe: todo atenuado y COMP deshabilitado -->
+      <div v-if="!store.read_only" class="group g_comp" :class="{ no_dsp: !levels.dsp }"
+        :title="levels.dsp ? undefined : 'Requires a secure context (https)'">
+        <LedButton size="small" text="COMP" led="green" :lit="TrackCtrl.comp.on" label="Dynamics"
+          :disabled="!levels.dsp" :title="!levels.dsp ? 'Requires a secure context (https)' : TrackCtrl.comp.on ? 'Compressor on' : 'Compressor off'"
+          @click="toggle_comp" />
+        <div class="comp_ctrls" :class="{ off: !TrackCtrl.comp.on }">
+          <Knob :model-value="TrackCtrl.comp.amount" :min="0" :max="1" :step="0.01" :size="48" label="Glue"
+            :title="'Glue ' + Math.round(TrackCtrl.comp.amount * 100) + '%'"
+            @update:model-value="v => set_comp('amount', Math.round(v * 100) / 100)" />
+          <div v-for="(b, i) in COMP_BAND_KEYS" :key="b.key" class="comp_band">
+            <Led :color="levels.comp_gr[i] > 6 ? 'red' : 'yellow'" :lit="levels.comp_gr[i] > 1"
+              :title="b.name + ' GR ' + levels.comp_gr[i].toFixed(1) + ' dB'" />
+            <Knob :model-value="TrackCtrl.comp[b.key]" :min="COMP_BAND_MIN" :max="COMP_BAND_MAX" :step="0.5" :size="32"
+              :label="b.name" :title="b.name + ' ' + band_label(TrackCtrl.comp[b.key])"
+              @update:model-value="v => set_comp(b.key, v)" />
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- una tira por track group (pista), también con el transporte detenido y sin archivos -->
@@ -245,7 +268,7 @@ import {
 } from "../helpers/composable"
 import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX,
-  REVERB_IRS, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX
+  REVERB_IRS, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX, COMP_BAND_MIN, COMP_BAND_MAX
 } from "../helpers/TrackCtrl"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -557,6 +580,20 @@ function step_reverb(dir) {
   let n = REVERB_IR_KEYS.length
   let i = REVERB_IR_KEYS.indexOf(TrackCtrl.reverb.ir)
   set_reverb_cfg("ir", REVERB_IR_KEYS[(i + dir + n) % n])
+}
+
+// --- compresor multibanda del master (TrackCtrl.comp; mixer.js manda los cambios al worklet con un watcher) ---
+// orden = el de levels.comp_gr
+const COMP_BAND_KEYS = [{ key: "low", name: "Low" }, { key: "mid", name: "Mid" }, { key: "high", name: "High" }]
+function set_comp(key, v) {
+  TrackCtrl.comp[key] = v
+  save_project_props_debounced()
+}
+function toggle_comp() {
+  set_comp("on", !TrackCtrl.comp.on)
+}
+function band_label(db) {
+  return (db > 0 ? "+" : "") + db + " dB"
 }
 
 function stop() {
@@ -1083,48 +1120,89 @@ function get_available_files_x_tag(tag_id) {
   letter-spacing: 3px;
 }
 
-/* panel ancho: grilla de dos filas. Fila 1: transporte, tempo, delay; fila 2: posición, Tag actual y reverb.
-   La placa del rango de Tag y el master ocupan las dos filas a la derecha. En modo lectura no hay
-   delay ni rango: tres columnas. Las columnas suman ~1280 px (medido en el navegador). */
-@container (min-width: 1300px) {
-  .controls {
-    display: grid;
-    grid-template-columns: auto auto auto auto auto;
-    grid-template-areas:
-      "transport tempo delay range master"
-      "position  tag   reverb range master";
-    justify-content: space-between;
-    align-items: center;
-  }
+/* panel ancho: grilla de dos filas. Fila 1: transporte, tempo, delay, master; fila 2: posición, Tag actual,
+   reverb, compresor. La placa del rango de Tag ocupa las dos filas. Las columnas suman ~1470 px (medido en
+   el navegador). En modo lectura no hay delay, reverb, rango ni compresor: tres columnas con el master en
+   las dos filas, que entran desde 1300 px (como antes del compresor). Las áreas solo cuentan en la grilla */
+.g_transport { grid-area: transport; }
+.g_tempo { grid-area: tempo; }
+.g_delay { grid-area: delay; }
+.g_reverb { grid-area: reverb; }
+.g_range { grid-area: range; }
+.g_master { grid-area: master; }
+.g_comp { grid-area: comp; }
+.g_position { grid-area: position; }
+.g_tag { grid-area: tag; }
 
+@container (min-width: 1300px) {
   .controls.read_only {
+    display: grid;
     grid-template-columns: auto auto auto;
     grid-template-areas:
       "transport tempo master"
       "position  tag   master";
+    justify-content: space-between;
+    align-items: center;
   }
 
-  .g_transport { grid-area: transport; }
-  .g_tempo { grid-area: tempo; }
-  .g_delay { grid-area: delay; }
-  .g_reverb { grid-area: reverb; }
-  .g_range { grid-area: range; }
-  .g_master { grid-area: master; }
-  .g_position { grid-area: position; }
-  .g_tag { grid-area: tag; }
-
   /* la primera columna arranca pegada al borde, sin línea separadora */
+  .controls.read_only .g_transport,
+  .controls.read_only .g_position {
+    border-left: 0;
+    padding-left: 4px;
+  }
+
+  /* el master ocupa el alto de las dos filas: su línea separadora también */
+  .controls.read_only .g_master {
+    align-self: stretch;
+  }
+}
+
+@container (min-width: 1480px) {
+  .controls:not(.read_only) {
+    display: grid;
+    grid-template-columns: auto auto auto auto auto;
+    grid-template-areas:
+      "transport tempo delay  range master"
+      "position  tag   reverb range comp";
+    justify-content: space-between;
+    align-items: center;
+  }
+
   .controls .g_transport,
   .controls .g_position {
     border-left: 0;
     padding-left: 4px;
   }
 
-  /* la placa y el master ocupan el alto de las dos filas: su línea separadora también */
-  .g_range,
-  .g_master {
+  /* la placa ocupa el alto de las dos filas */
+  .g_range {
     align-self: stretch;
   }
+}
+
+/* compresor: apagado se atenúan GLUE y las bandas; sin worklet, todo el grupo */
+.g_comp.no_dsp {
+  opacity: 0.4;
+}
+
+.comp_ctrls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: opacity 0.15s;
+}
+
+.comp_ctrls.off {
+  opacity: 0.5;
+}
+
+/* columna de una banda: LED de GR arriba, trim abajo */
+.comp_band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .tag_lcd {
