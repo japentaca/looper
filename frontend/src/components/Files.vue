@@ -27,7 +27,7 @@
         </div>
         <div class="label">
           <div class="bands">
-            <span :style="{ background: file.track_group_obj?.color ?? 'transparent' }"></span>
+            <span :style="{ background: trg_of(file)?.color ?? 'transparent' }"></span>
             <span class="tag_bands">
               <span v-for="tag in file.tag_objs" :key="tag.id" :style="{ background: tag.color }"></span>
             </span>
@@ -44,8 +44,8 @@
             <span v-else-if="out_of_tempo(file)" class="unavailable_mark"> · out of tempo</span>
           </p>
           <p class="tags">
-            <span class="chip" :class="{ empty: !file.track_group_obj }"
-              :style="{ background: file.track_group_obj?.color }">{{ file.track_group_obj?.name ?? "no group" }}</span>
+            <span class="chip" :class="{ empty: !trg_of(file) }"
+              :style="{ background: trg_of(file)?.color }">{{ trg_of(file)?.name ?? "no group" }}</span>
             <span v-for="tag in file.tag_objs" :key="tag.id" class="chip" :style="{ background: tag.color }">{{
               tag.name }}</span>
             <span v-if="file.tag_objs.length == 0" class="chip empty">no tag</span>
@@ -88,8 +88,8 @@
         </el-table-column>
         <el-table-column sortable label="Track Group" prop="track_group" width="130">
           <template #default="scope">
-            <span v-if="scope.row.track_group != null" class="chip" :style="{ background: scope.row.track_group_obj.color }">{{
-                scope.row.track_group_obj.name
+            <span v-if="trg_of(scope.row)" class="chip" :style="{ background: trg_of(scope.row).color }">{{
+                trg_of(scope.row).name
               }}</span>
           </template>
         </el-table-column>
@@ -260,7 +260,7 @@
 
 import { ref, watch, computed } from "vue"
 import {
-  store, audio_players, files_by_id, track_groups_by_id, toggle_file_tag, save_file, save_file_debounced, delete_project_file, WEIGHT_MAX,
+  store, audio_players, files_by_id, trg_of, toggle_file_tag, save_file, save_file_debounced, delete_project_file, WEIGHT_MAX,
   REPEAT_OPTIONS, file_anchor
 } from "../helpers/composable"
 import LedButton from "./hw/LedButton.vue"
@@ -365,7 +365,6 @@ watch(() => store.edit_file_id, (id) => {
 async function set_track_group(file, id) {
   if (file.track_group === id) id = null
   file.track_group = id
-  file.track_group_obj = id ? track_groups_by_id[id] : null
   await save_file(file)
 }
 async function toggleTag(file, id) {
@@ -406,7 +405,6 @@ async function ondrop(e, file) {
   if (msg_type == "track_group") {
     let id = e.dataTransfer.getData("id")
     file.track_group = id
-    file.track_group_obj = track_groups_by_id[id]
     await save_file(file)
   } else if (msg_type == "tag") {
     // un archivo puede tener varios tags: soltar un tag que ya tiene lo quita

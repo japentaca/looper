@@ -42,7 +42,6 @@ const KINDS = {
     unassign: (file, id) => {
       if (file.track_group != id) return false
       file.track_group = null
-      file.track_group_obj = null
       return true
     },
     // suena si algún archivo del grupo se está reproduciendo (el loop de la pista o los disparos one-shot,

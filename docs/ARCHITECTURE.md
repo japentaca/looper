@@ -444,7 +444,7 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   `switch_project(id)`, que hace STOP (`stop_transport()`), olvida el Tag actual y llama a
   `load_project`. `refresh_projects()` vuelve a pedir la lista (`GET /projects`).
 - `store.files`: archivos del proyecto activo (filas de `project_files` unidas con el catálogo: `own`,
-  `available`, pista, tags y volumen del proyecto), enriquecidos en el cliente con `track_group_obj`, `tag_objs`
+  `available`, pista, tags y volumen del proyecto), enriquecidos en el cliente con `tag_objs`
   (objetos de `store.tags` de cada id de `tags`; se mantienen con `set_file_tags` / `toggle_file_tag`),
   `isLoaded`, `duration`, `duration_fixed`, `play_rate`, `play_beats`, `in_tempo`, etc.
   Estos campos **no** existen en la DB.
@@ -464,7 +464,9 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
 - `store.tags`, `store.u_info`, `store.curr_file` (preview; usa el flag `isPreviewing`, distinto del `isPlaying` que pone el motor en cada archivo), `store.loading`.
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
-`files_by_id`, `track_groups_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`).
+`files_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`). La pista de un archivo
+no se guarda como objeto: `trg_of(file)` la busca en `store.track_groups` en el momento (reactivo; null si
+no tiene o ya no existe).
 
 ### Modo lectura (`/p/:id`, tarea 4.3)
 
@@ -533,7 +535,7 @@ app, con `store.read_only = true`:
    (`ImportFiles.vue`) muestra el total con la misma cuenta. `project_memory(p)`,
    `project_memory_warn(p)` y `project_memory_title(p)` dan la memoria de un proyecto de una lista
    (`audio_seconds`) para Projects y la galería.
-2. Arma índices y resuelve `track_group_obj` / `tag_objs` de cada archivo (descarta ids de tags
+2. Arma índices y resuelve `tag_objs` de cada archivo (descarta ids de tags y de pista
    que ya no existen).
 3. Libera los players (y saca de `files_by_id`) los archivos que no son del proyecto: solo hay
    `Tone.Player` para los archivos del proyecto abierto (memoria del navegador, ver el plan).

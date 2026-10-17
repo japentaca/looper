@@ -87,7 +87,11 @@ export let files_by_id = reactive([])
 export let audio_players = {}
 
 export let tags_by_id = {}
-export let track_groups_by_id = {}
+// pista (objeto de store.track_groups) de un archivo, o null. Se busca en el momento (no se guarda en
+// el archivo): es reactivo y sigue a los cambios de nombre / color / borrado de la pista
+export function trg_of(file) {
+  return file.track_group == null ? null : store.track_groups.find(t => t.id == file.track_group) ?? null
+}
 
 
 import {
@@ -432,10 +436,7 @@ async function install_project(p, same) {
     let f = store.files[i]
     files_by_id[f.id] = f
 
-    if (f.track_group !== null) {
-      f.track_group_obj = track_groups_by_id[f.track_group]
-      if (f.track_group_obj == undefined) f.track_group = null
-    }
+    if (f.track_group !== null && !trg_of(f)) f.track_group = null
     set_file_tags(f, f.tags)
 
     if (!f.props) {
@@ -673,10 +674,6 @@ export async function move_item(list, from_id, to_id, save) {
   return true
 }
 export function rebuildIndexes() {
-  track_groups_by_id = {}
-  for (let i = 0; i < store.track_groups.length; i++) {
-    track_groups_by_id[store.track_groups[i].id] = store.track_groups[i]
-  }
   tags_by_id = {}
   for (let i = 0; i < store.tags.length; i++) {
     tags_by_id[store.tags[i].id] = store.tags[i]

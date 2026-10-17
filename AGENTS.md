@@ -136,7 +136,7 @@ Si se agregan tests, preferir Vitest (ya alineado con Vite) y documentar el coma
 Imitar el estilo existente al editar:
 
 - JavaScript plano (sin TypeScript), ESM en ambos lados, indentación de 2 espacios, **sin punto y coma**.
-- Nombres en `snake_case` para variables, funciones y endpoints (`save_fileData`, `track_groups_by_id`);
+- Nombres en `snake_case` para variables, funciones y endpoints (`save_fileData`, `tags_by_id`);
   componentes Vue en PascalCase. Abreviaturas usadas: `trg` = track group, `u_info` = info de usuario.
 - Backend: acceso a DB vía `global.knex`, config vía `global.config` (de `.env`), Redis vía
   `global.redisClient`. Respuestas JSON con forma `{ stat: boolean, text?, data? }`.
