@@ -226,13 +226,16 @@
           <Fader :model-value="db_to_fader(trg.props.volume)" :min="0" :max="1" :step="0.01" :length="84"
             :marks="strip_volume_marks" label="Vol" :title="db_label(trg.props.volume)"
             @update:model-value="v => set_volume(trg.id, fader_to_db(v))" />
-          <!-- efectos: send a la reverb compartida (props.reverb, dB; al mínimo = nada) y send al delay global
-            (props.delay, ídem) -->
+          <!-- paneo (props.pan, -1..1; doble clic = centro) y efectos: send a la reverb compartida (props.reverb,
+            dB; al mínimo = nada) y send al delay global (props.delay, ídem). Tres knobs de 30 px: entran en la tira -->
           <div v-if="!store.read_only" class="fx_ctrls">
-            <Knob :model-value="trg.props.reverb ?? REV_OFF_DB" :min="REV_OFF_DB" :max="0" :step="1" :size="36"
+            <Knob :model-value="trg.props.pan ?? 0" :min="-1" :max="1" :step="0.05" :size="30" label="Pan"
+              :title="pan_label(trg.props.pan) + ' (doble clic: centro)'" @update:model-value="v => set_pan(trg.id, v)"
+              @dblclick="set_pan(trg.id, 0)" />
+            <Knob :model-value="trg.props.reverb ?? REV_OFF_DB" :min="REV_OFF_DB" :max="0" :step="1" :size="30"
               label="Rev" :title="trg.props.reverb == null ? 'Reverb: off' : 'Reverb send ' + trg.props.reverb + ' dB'"
               @update:model-value="v => set_reverb(trg.id, v)" />
-            <Knob :model-value="trg.props.delay ?? DLY_OFF_DB" :min="DLY_OFF_DB" :max="0" :step="1" :size="36"
+            <Knob :model-value="trg.props.delay ?? DLY_OFF_DB" :min="DLY_OFF_DB" :max="0" :step="1" :size="30"
               label="Dly" :title="trg.props.delay == null ? 'Delay: off' : 'Delay send ' + trg.props.delay + ' dB'"
               @update:model-value="v => set_delay(trg.id, v)" />
           </div>
@@ -293,7 +296,7 @@ import GrLed from "./hw/GrLed.vue"
 import StepLeds from "./hw/StepLeds.vue"
 import {
   levels, mixer, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
-  set_reverb, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label,
+  set_pan, set_reverb, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label,
   vol_db, FILE_VOL_MAX_DB, fx_reset_all
 } from "../helpers/mixer"
 import { new_fx, FX_TYPES, MAX_FX_PER_TRACK } from "../helpers/fx"
@@ -457,6 +460,11 @@ function set_master(pos) {
 }
 
 // probabilidad de descanso de la pista (se llama mientras se mueve el knob; el guardado es diferido)
+// texto del paneo para el title: "Pan C", "Pan L50", "Pan R25"
+function pan_label(pan) {
+  let v = Math.round((pan ?? 0) * 100)
+  return "Pan " + (v == 0 ? "C" : (v < 0 ? "L" : "R") + Math.abs(v))
+}
 function set_rest(trg, v) {
   trg.props.rest = Math.round(v * 100) / 100 // evita 0.15000000000000002
   save_trackGroups_debounced()
@@ -1408,7 +1416,7 @@ function get_available_files_x_tag(tag_id) {
   gap: 4px;
 }
 
-/* Rev y Dly: knobs de 36 px en una fila de la tira */
+/* Pan, Rev y Dly: knobs de 30 px en una fila de la tira */
 .fx_ctrls {
   display: flex;
   gap: 2px;

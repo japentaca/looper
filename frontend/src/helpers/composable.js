@@ -165,12 +165,13 @@ export async function save_file(file) {
 // (la usa el motor en Tracks.vue) y rest_len = rango de duración del descanso (ver parse_rest_len). mode = "loop" | "oneshot"; en oneshot la pista dispara archivos sueltos:
 // on_tag_change = al empezar cada Tag, density = probabilidad 0..1 de disparar al empezar cada frase
 // de bars compases (1, 2, 4, 8, 16, 32 o 64).
+// pan = paneo -1 (izquierda) .. 0 (centro) .. 1 (derecha), ver set_pan en mixer.js.
 // reverb = nivel del send a la reverb compartida en dB (null = nada; no se usa -Infinity porque
 // JSON.stringify lo vuelve null igual). delay = nivel del send al delay global en dB (null = nada, igual
 // que reverb). fx = instancias de los FX de transición (ver helpers/fx.js). Un props.drift guardado de
 // antes (el drift se eliminó) se ignora: no se migra ni se borra.
 export function trg_default_props() {
-  return { volume: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false, density: 0, bars: 1,
+  return { volume: 0, pan: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false, density: 0, bars: 1,
     reverb: null, delay: null, fx: [] }
 }
 // guardado diferido de un archivo (fader de volumen, knob de peso, Repeat del diálogo de edición): con la

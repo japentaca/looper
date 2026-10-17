@@ -1,7 +1,7 @@
 // Mixer de las pistas: un canal por track group (Tone.Channel, con volumen, mute y solo) y su vúmetro.
 // Los players de los archivos del grupo se enrutan al canal en vez de ir directo a la salida.
 // Además hay un vúmetro estéreo en la salida master. Los Meter solo analizan: no cambian el audio.
-// El volumen y los efectos de cada pista viven en trg.props (se guardan con save_trackGroups); mute y solo, en memoria (mixer).
+// El volumen, el paneo y los efectos de cada pista viven en trg.props (se guardan con save_trackGroups); mute y solo, en memoria (mixer).
 // Efectos por pista: player → fx_lp → fx_hp → fx_gain → Channel (cadena de los FX de transición, ver
 // fx_schedule), y un send post-fader del canal a una reverb compartida (convolución con impulsos reales).
 // Delay global sincronizado al tempo (config en TrackCtrl.delay) con un send post-fader por pista.
@@ -345,8 +345,10 @@ function get_strip(trg) {
   if (!channels_by_trg[trg]) {
     let p = trg_props(trg)
     // channelCount 2: si no, Tone.Channel pasa el audio a mono
+    // pan: el Panner del Channel (StereoPannerNode) con entrada estéreo hace balance (-1 = todo a la izquierda)
     let ch_opts = {
-      channelCount: 2, volume: vol_db(p.volume ?? 0), mute: !!mixer.mute[trg], solo: !!mixer.solo[trg]
+      channelCount: 2, volume: vol_db(p.volume ?? 0), pan: pan_value(p.pan), mute: !!mixer.mute[trg],
+      solo: !!mixer.solo[trg]
     }
     let channel = new Tone.Channel(ch_opts).toDestination()
     // cadena de los FX de transición (los players entran en fx_lp): fx_lp → fx_hp → fx_gain → canal.
@@ -445,6 +447,20 @@ export function set_volume(trg, db) {
   let ch = get_strip(trg)
   ch.channel.volume.rampTo(vol_db(db), 0.03)
   ch.throw_ch.volume.rampTo(vol_db(db), 0.03)
+  save_trackGroups_debounced()
+}
+
+// paneo de la pista (-1 izquierda .. 0 centro .. 1 derecha, guardado en props.pan). Va en el canal
+// principal y en el de los throws, así los sends (post-pan) salen del mismo lado que la pista
+function pan_value(v) {
+  return Number.isFinite(v) ? Math.min(1, Math.max(-1, v)) : 0
+}
+export function set_pan(trg, v) {
+  let p = trg_props(trg)
+  p.pan = Math.round(pan_value(v) * 100) / 100 // evita 0.15000000000000002
+  let ch = get_strip(trg)
+  ch.channel.pan.rampTo(p.pan, 0.03)
+  ch.throw_ch.pan.rampTo(p.pan, 0.03)
   save_trackGroups_debounced()
 }
 
