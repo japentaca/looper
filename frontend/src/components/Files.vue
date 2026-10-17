@@ -149,12 +149,10 @@
 
           <!-- tipo y beats: solo el dueño los cambia (PUT /files/:id); el bpm lo deduce el backend -->
           <span class="info_label">Tipo</span>
-          <span v-if="curr_edit_file.own && !store.read_only">
-            <el-radio-group :model-value="curr_edit_file.kind" size="small" :disabled="saving_timing"
-              @change="v => save_timing(curr_edit_file, { kind: v })">
-              <el-radio-button label="loop">Loop</el-radio-button>
-              <el-radio-button label="shot">Shot</el-radio-button>
-            </el-radio-group>
+          <span v-if="curr_edit_file.own && !store.read_only" class="toggle_row">
+            <LedButton v-for="k in ['loop', 'shot']" :key="k" size="small" led="green" :text="k.toUpperCase()"
+              :lit="(curr_edit_file.kind ?? 'loop') === k" :disabled="saving_timing"
+              @click="curr_edit_file.kind !== k && save_timing(curr_edit_file, { kind: k })" />
           </span>
           <span v-else>{{ curr_edit_file.kind == 'shot' ? 'Shot' : 'Loop' }}</span>
 
@@ -183,33 +181,14 @@
 
           <!-- anclaje de los disparos one-shot (dato del archivo): solo el dueño lo cambia (PUT /files/:id).
             Cada proyecto lo puede pisar con la placa Anchor -->
-          <span class="info_label" :title="ANCHOR_HELP">Anchor</span>
-          <span v-if="curr_edit_file.own && !store.read_only">
-            <el-radio-group :model-value="curr_edit_file.anchor ?? 'start'" size="small" :disabled="saving_timing"
-              @change="v => save_timing(curr_edit_file, { anchor: v })">
-              <el-radio-button label="start" :title="ANCHOR_TEXT.start">Start</el-radio-button>
-              <el-radio-button label="end" :title="ANCHOR_TEXT.end">End</el-radio-button>
-            </el-radio-group>
+          <span class="info_label" :title="ANCHOR_HELP">File anchor</span>
+          <span v-if="curr_edit_file.own && !store.read_only" class="toggle_row">
+            <LedButton v-for="a in ['start', 'end']" :key="a" size="small" led="green" :text="a.toUpperCase()"
+              :lit="(curr_edit_file.anchor ?? 'start') === a" :disabled="saving_timing" :title="ANCHOR_TEXT[a]"
+              @click="(curr_edit_file.anchor ?? 'start') !== a && save_timing(curr_edit_file, { anchor: a })" />
           </span>
           <span v-else :title="ANCHOR_HELP">{{ curr_edit_file.anchor == 'end' ? 'End' : 'Start' }}</span>
 
-          <span class="info_label">Track group</span>
-          <span>
-            <span v-if="curr_edit_file.track_group_obj" class="chip"
-              :style="{ background: curr_edit_file.track_group_obj.color }">{{ curr_edit_file.track_group_obj.name }}</span>
-            <span v-else class="muted">sin asignar</span>
-          </span>
-
-          <span class="info_label">Tags</span>
-          <span class="chip_list">
-            <span v-for="tag in curr_edit_file.tag_objs" :key="tag.id" class="chip" :style="{ background: tag.color }">{{
-              tag.name }}<span class="chip_remove" title="Quitar tag" @click="toggleTag(curr_edit_file, tag.id)">✕</span></span>
-            <el-select v-if="unassigned_tags.length > 0" class="add_tag" :model-value="null" placeholder="+ tag"
-              size="small" @change="(id) => toggleTag(curr_edit_file, id)">
-              <el-option v-for="tag in unassigned_tags" :key="tag.id" :label="tag.name" :value="tag.id" />
-            </el-select>
-            <span v-else-if="curr_edit_file.tag_objs.length == 0" class="muted">no hay tags creados</span>
-          </span>
         </div>
       </div>
 
@@ -252,21 +231,40 @@
               v-if="curr_edit_file.props.anchor == null"> (file)</template></span>
         </div>
       </div>
+
+      <!-- pista y tags del archivo en este proyecto, como pads del color de cada uno (los mismos de la sidebar).
+        Track: uno solo (tocar el encendido lo deja sin pista). Tags: varios, cada pad prende o apaga el suyo -->
+      <div class="assign">
+        <div class="assign_row">
+          <span class="silk assign_label">Track</span>
+          <div class="pads">
+            <button v-for="trg in store.track_groups" :key="trg.id" type="button" class="mini_pad"
+              :class="{ lit: curr_edit_file.track_group === trg.id }" :style="{ '--pad_color': trg.color }"
+              :disabled="store.read_only" @click="set_track_group(curr_edit_file, trg.id)">{{ trg.name }}</button>
+            <span v-if="store.track_groups.length == 0" class="silk empty_pads">no tracks</span>
+          </div>
+        </div>
+        <div class="assign_row">
+          <span class="silk assign_label">Tags</span>
+          <div class="pads">
+            <button v-for="tag in store.tags" :key="tag.id" type="button" class="mini_pad"
+              :class="{ lit: curr_edit_file.tags.includes(tag.id) }" :style="{ '--pad_color': tag.color }"
+              :disabled="store.read_only" @click="toggleTag(curr_edit_file, tag.id)">{{ tag.name }}</button>
+            <span v-if="store.tags.length == 0" class="silk empty_pads">no tags</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template #footer>
       <div class="dialog_footer">
         <span class="dialog_actions">
-          <el-icon v-if="curr_edit_file.isLoaded" :size="iconSize" class="icons" :title="preview_title(curr_edit_file)"
-            @click="togglePreview(curr_edit_file)">
-            <VideoPause v-if="is_previewing(curr_edit_file)" />
-            <VideoPlay v-else />
-          </el-icon>
-          <el-icon :size="iconSize" class="icons" @click="deleteFile(curr_edit_file)">
-            <Delete />
-          </el-icon>
+          <LedButton size="small" led="green" :lit="is_previewing(curr_edit_file)"
+            :text="is_previewing(curr_edit_file) ? 'STOP' : 'PLAY'" :disabled="!curr_edit_file.isLoaded"
+            :title="preview_title(curr_edit_file)" @click="togglePreview(curr_edit_file)" />
+          <LedButton size="small" text="DELETE" class="danger" @click="deleteFile(curr_edit_file)" />
         </span>
-        <el-button type="primary" @click="dialogVisible = false">CLOSE</el-button>
+        <LedButton size="small" text="CLOSE" @click="dialogVisible = false" />
       </div>
     </template>
   </el-dialog>
@@ -376,8 +374,14 @@ watch(() => store.edit_file_id, (id) => {
   store.edit_file_id = null
 })
 // tags que se pueden agregar al archivo del diálogo de edición
-const unassigned_tags = computed(() => store.tags.filter(t => !curr_edit_file.value?.tags.includes(t.id)))
 
+// pista del archivo en el proyecto: tocar la que ya tiene lo deja sin pista
+async function set_track_group(file, id) {
+  if (file.track_group === id) id = null
+  file.track_group = id
+  file.track_group_obj = id ? track_groups_by_id[id] : null
+  await save_file(file)
+}
 async function toggleTag(file, id) {
   toggle_file_tag(file, id)
   await save_file(file)
@@ -765,35 +769,113 @@ const iconSize = ref(18)
 }
 
 .info_label {
-  font-size: 11px;
-  letter-spacing: 1.2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--hw_silk);
+  opacity: 0.75;
 }
 
 .muted {
   color: var(--muted);
 }
 
-.chip_list {
+.toggle_row {
+  display: flex;
+  gap: 6px;
+}
+
+/* pista y tags: bahía hundida a lo ancho, debajo de los datos y las placas */
+.assign {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid #0a0a0b;
+  background: rgba(0, 0, 0, 0.32);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.assign_row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.assign_label {
+  width: 44px;
+  flex: none;
+  padding-top: 7px;
+}
+
+.pads {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
+  gap: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 2px 2px 5px;
 }
 
-.chip_remove {
-  margin-left: 6px;
+.empty_pads {
+  padding-top: 7px;
+  opacity: 0.5;
+}
+
+/* pad chico de goma con la franja del color, como los de la sidebar (SidebarItem.vue); encendido se tiñe */
+.mini_pad {
+  min-width: 64px;
+  max-width: 150px;
+  height: 30px;
+  padding: 0 10px 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid #0c0c0d;
+  border-radius: 5px;
+  background:
+    linear-gradient(0deg, color-mix(in srgb, var(--pad_color) 55%, #2a2b2e) 0 3px, transparent 3px),
+    radial-gradient(ellipse at 50% 35%, #55575b, #3b3c40 70%);
+  box-shadow: 0 3px 0 #0e0e0f, 0 4px 6px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: var(--hw_silk);
+  font-family: var(--font_mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   cursor: pointer;
-  opacity: 0.55;
+  transition: background 0.08s, box-shadow 0.08s, transform 0.05s;
 }
 
-.chip_remove:hover {
-  opacity: 1;
+.mini_pad:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #0e0e0f, 0 2px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.add_tag {
-  width: 96px;
+.mini_pad.lit {
+  background: radial-gradient(ellipse at 50% 40%,
+      color-mix(in srgb, var(--pad_color) 85%, #fff),
+      color-mix(in srgb, var(--pad_color) 70%, #222) 75%);
+  box-shadow: 0 3px 0 #0e0e0f, 0 0 12px 1px color-mix(in srgb, var(--pad_color) 50%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #111;
+}
+
+.mini_pad:focus-visible {
+  outline: 2px solid var(--hw_red);
+  outline-offset: 2px;
+}
+
+.mini_pad:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.danger :deep(.cap) {
+  color: #8f1d12;
 }
 
 .edit_body {
@@ -843,12 +925,13 @@ const iconSize = ref(18)
 
 .dialog_footer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
 }
 
 .dialog_actions {
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  align-items: flex-end;
 }
 </style>

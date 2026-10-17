@@ -1,7 +1,8 @@
 <template>
-  <!-- importar archivos del catálogo al proyecto activo (se abre desde la barra superior) -->
-  <el-dialog v-model="visible" title="Import from catalog" width="960px" align-center @open="on_open"
-    @closed="on_closed">
+  <!-- importar archivos del catálogo al proyecto activo (se abre desde la barra superior). Chasis del aparato
+    (hw_dialog); el catálogo no trae los archivos que ya están en el proyecto (exclude_project) -->
+  <el-dialog v-model="visible" title="Import from catalog" width="min(960px, 96vw)" class="hw_dialog" align-center
+    @open="on_open" @closed="on_closed">
     <div class="filters">
       <el-input v-model="filters.q" class="f_text" maxlength="64" clearable placeholder="Name contains…"
         @keyup.enter="search(1)" @clear="search(1)" />
@@ -13,7 +14,7 @@
       <span class="silk">±</span>
       <el-input-number v-model="filters.bpm_tol" class="f_tol" :min="0" :max="50" :step="1" :precision="2"
         controls-position="right" :disabled="filters.bpm == null" />
-      <el-button size="small" title="Usar el tempo del proyecto" @click="use_tempo">= TEMPO</el-button>
+      <LedButton size="small" text="= TEMPO" title="Usar el tempo del proyecto" @click="use_tempo" />
       <span class="silk">Beats</span>
       <el-input-number v-model="filters.beats" class="f_num" :min="1" :max="1024" :step="1" step-strictly
         controls-position="right" placeholder="any" />
@@ -22,10 +23,11 @@
         <el-option v-for="t in KEY_TONICS" :key="t" :label="t" :value="t" />
       </el-select>
       <el-checkbox v-model="filters.atonal" :disabled="!filters.key" @change="filters.key && search(1)">+ atonal</el-checkbox>
-      <el-button type="primary" :loading="loading" @click="search(1)">SEARCH</el-button>
-      <el-button :disabled="loading" @click="clear_filters">CLEAR</el-button>
+      <LedButton size="small" text="SEARCH" :disabled="loading" @click="search(1)" />
+      <LedButton size="small" text="CLEAR" :disabled="loading" @click="clear_filters" />
     </div>
 
+    <div class="bay">
     <el-table :data="items" size="small" height="380" v-loading="loading" empty-text="No files"
       :row-class-name="row_class">
       <el-table-column label="" width="40">
@@ -85,34 +87,37 @@
         </template>
       </el-table-column>
     </el-table>
+    </div>
 
     <div class="pager">
-      <el-pagination small layout="total, prev, pager, next" :total="total" :page-size="PER_PAGE"
+      <span class="silk">{{ total }} not in project</span>
+      <el-pagination small layout="prev, pager, next" :total="total" :page-size="PER_PAGE"
         :current-page="page" :disabled="loading" @current-change="search" />
     </div>
 
-    <!-- memoria estimada del proyecto activo más lo seleccionado (misma cuenta que el aviso al abrir) -->
+    <!-- memoria estimada del proyecto activo más lo seleccionado (misma cuenta que el aviso al abrir),
+      como un medidor de LEDs: amarillo pasado el 75 % y rojo al llegar al límite recomendado -->
     <div class="memory" :class="{ over: over_limit }">
-      <div class="memory_text">
-        <span class="silk">Project memory</span>
-        <span>
-          {{ mb(memory.current) }} MB<template v-if="selected.size"> + {{ mb(memory.selected) }} MB
-            ({{ selected.size }} selected)</template>
-          = <b>{{ mb(memory.total) }} MB</b> of ~{{ mb(memory.limit) }} MB recommended
-        </span>
-      </div>
-      <el-progress :percentage="memory_percent" :show-text="false" :stroke-width="8"
-        :status="over_limit ? 'exception' : (memory_percent > 75 ? 'warning' : 'success')" />
+      <span class="silk">Memory</span>
+      <LedMeter horizontal :segments="40" :value="memory.total / memory.limit" />
+      <span class="memory_text">
+        {{ mb(memory.current) }} MB<template v-if="selected.size"> + {{ mb(memory.selected) }} MB
+          ({{ selected.size }} selected)</template>
+        = <b>{{ mb(memory.total) }} MB</b> of ~{{ mb(memory.limit) }} MB
+      </span>
     </div>
 
     <el-alert v-if="msg.text" :type="msg.type" :title="msg.text" :closable="false" show-icon class="msg" />
 
     <template #footer>
-      <el-button :disabled="busy || selected.size == 0" @click="selected.clear()">CLEAR SELECTION</el-button>
-      <el-button @click="visible = false">CLOSE</el-button>
-      <el-button type="primary" :loading="busy" :disabled="!can_import" @click="do_import">
-        IMPORT{{ selected.size ? ` (${selected.size})` : "" }}
-      </el-button>
+      <div class="footer">
+        <LedButton size="small" text="CLEAR SELECTION" :disabled="busy || selected.size == 0" @click="selected.clear()" />
+        <span class="footer_right">
+          <LedButton size="small" text="CLOSE" @click="visible = false" />
+          <LedButton size="small" led="green" :lit="busy" :disabled="!can_import" @click="do_import"
+            :text="'IMPORT' + (selected.size ? ` (${selected.size})` : '')" />
+        </span>
+      </div>
     </template>
     <ReportDialog v-model="report_visible" :target="report_target" />
   </el-dialog>
@@ -129,6 +134,8 @@ import { TrackCtrl } from "../helpers/TrackCtrl"
 import { get_catalog, save_project_files, error_text, file_url } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
 import ReportDialog from "./ReportDialog.vue"
+import LedButton from "./hw/LedButton.vue"
+import LedMeter from "./hw/LedMeter.vue"
 import { KEY_TONICS, key_label } from "../helpers/music_key"
 
 const visible = defineModel({ type: Boolean, default: false })
@@ -171,6 +178,8 @@ function toggle_select(row, on) {
 // solo se mandan los filtros con valor (el backend ignora los vacíos, pero así la URL queda limpia)
 function catalog_params(p) {
   let params = { page: p, per_page: PER_PAGE }
+  // lo que ya está en el proyecto activo no se lista (solo mete ruido: no se puede volver a importar)
+  if (store.project?.id) params.exclude_project = store.project.id
   let q = filters.q.trim()
   let creator = filters.creator.trim()
   if (q) params.q = q
@@ -253,7 +262,6 @@ const memory = computed(() => {
   return { current, selected: sel, total: current + sel, limit: memory_warning_limit() }
 })
 const over_limit = computed(() => memory.value.total > memory.value.limit)
-const memory_percent = computed(() => Math.min(100, Math.round(100 * memory.value.total / memory.value.limit)))
 function mb(bytes) {
   return Math.round(bytes / 1024 ** 2)
 }
@@ -383,30 +391,74 @@ function fmt_date(ts) {
   opacity: 0.6;
 }
 
+/* campos de los filtros hundidos en el chasis, como la bahía */
+.filters :deep(.el-input__wrapper),
+.filters :deep(.el-select__wrapper) {
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* tabla en una bahía hundida en el chasis: fondo transparente y encabezados serigrafiados */
+.bay {
+  border-radius: 4px;
+  border: 1px solid #0a0a0b;
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.bay :deep(.el-table) {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(0, 0, 0, 0.25);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.05);
+  --el-table-border-color: rgba(0, 0, 0, 0.5);
+  --el-table-text-color: var(--hw_silk);
+  --el-table-header-text-color: var(--hw_silk);
+  background: transparent;
+}
+
+.bay :deep(.el-table th.el-table__cell) {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+}
+
 .pager {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 8px;
 }
 
 .memory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
   margin-top: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel_2);
-}
-
-.memory.over {
-  border-color: var(--danger);
 }
 
 .memory_text {
+  font-size: 11px;
+  color: var(--hw_silk);
+}
+
+.memory.over .memory_text {
+  color: var(--hw_red);
+}
+
+.footer {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-  font-size: 12px;
+}
+
+.footer_right {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 .msg {

@@ -1,54 +1,52 @@
 <template>
-  <!-- proyectos del usuario: abrir, crear, renombrar, borrar y visibilidad (se abre desde la barra superior) -->
-  <el-dialog v-model="visible" title="Projects" width="760px" align-center @open="on_open">
+  <!-- proyectos del usuario: abrir, crear, renombrar y borrar (se abre desde la barra superior). Chasis del
+    aparato (hw_dialog) con una bahía hundida donde cada proyecto es un cartucho con etiqueta de papel -->
+  <el-dialog v-model="visible" title="Projects" width="min(760px, 96vw)" class="hw_dialog" align-center
+    @open="on_open">
     <div class="create">
+      <span class="silk">New</span>
       <el-input v-model="new_name" maxlength="64" placeholder="New project name" :disabled="busy"
         @keyup.enter="do_create" />
-      <el-button type="primary" :loading="busy" :disabled="!TrackCtrl.isReady" @click="do_create">CREATE</el-button>
+      <LedButton size="small" text="CREATE" :disabled="busy || !TrackCtrl.isReady" @click="do_create" />
     </div>
 
-    <el-table :data="store.projects" size="small" max-height="420" v-loading="busy" empty-text="No projects"
-      :row-class-name="row_class">
-      <el-table-column label="" width="34">
-        <template #default="{ row }">
+    <div class="bay" v-loading="busy" element-loading-background="rgba(0, 0, 0, 0.35)">
+      <p v-if="!store.projects.length" class="empty silk">No projects</p>
+      <div v-for="row in store.projects" :key="row.id" class="cart" :class="{ active: is_active(row) }">
+        <div class="grip">
           <Led color="green" :lit="is_active(row)" />
-        </template>
-      </el-table-column>
-      <el-table-column label="Name" min-width="180">
-        <template #default="{ row }">
-          <span class="name">{{ row.name }}</span>
-          <el-tag v-if="row.hidden" size="small" type="danger" class="hidden_tag"
-            title="Oculto por el admin: no aparece en la galería pública">hidden</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="Memory" width="90" align="right">
-        <template #default="{ row }">
-          <span :class="{ mem_warn: memory(row) > memory_limit }" :title="memory_title(row)">
-            {{ fmt_memory(memory(row)) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Date" width="96">
-        <template #default="{ row }">{{ fmt_date(row.ts) }}</template>
-      </el-table-column>
-      <el-table-column label="" width="210" align="right">
-        <template #default="{ row }">
-          <el-button size="small" type="success" :disabled="busy || is_active(row) || !TrackCtrl.isReady"
-            @click="do_open(row)">Open</el-button>
-          <el-button size="small" :disabled="busy" @click="do_rename(row)">Rename</el-button>
-          <el-button size="small" type="danger" :disabled="busy || !TrackCtrl.isReady"
-            @click="do_delete(row)">Delete</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+        </div>
+        <div class="label">
+          <p class="name">
+            {{ row.name }}
+            <el-tag v-if="row.hidden" size="small" type="danger" class="hidden_tag"
+              title="Oculto por el admin: no aparece en la galería pública">hidden</el-tag>
+          </p>
+          <p class="specs">
+            <span :class="{ mem_warn: memory(row) > memory_limit }" :title="memory_title(row)">
+              {{ fmt_memory(memory(row)) }}</span>
+            · {{ row.files_count ?? 0 }} {{ row.files_count == 1 ? "file" : "files" }}
+            <template v-if="row.ts"> · {{ fmt_date(row.ts) }}</template>
+          </p>
+        </div>
+        <div class="actions">
+          <LedButton size="small" :text="is_active(row) ? 'LOADED' : 'OPEN'"
+            :disabled="busy || is_active(row) || !TrackCtrl.isReady" @click="do_open(row)" />
+          <LedButton size="small" text="RENAME" :disabled="busy" @click="do_rename(row)" />
+          <LedButton size="small" text="DELETE" class="danger" :disabled="busy || !TrackCtrl.isReady"
+            @click="do_delete(row)" />
+        </div>
+      </div>
+    </div>
 
     <p class="hint">
       Public projects can be opened by anyone with the link (read only). Deleting a project removes its
-      tracks, tags and file list; the audio files stay in the catalog.
+      tracks, tags and file list, and also your audio files that no other project uses.
     </p>
     <el-alert v-if="msg.text" :type="msg.type" :title="msg.text" :closable="false" show-icon class="msg" />
 
     <template #footer>
-      <el-button type="primary" @click="visible = false">CLOSE</el-button>
+      <LedButton size="small" text="CLOSE" @click="visible = false" />
     </template>
   </el-dialog>
 </template>
@@ -58,6 +56,7 @@
 import { reactive, ref } from "vue"
 import { ElMessageBox } from "element-plus"
 import Led from "./hw/Led.vue"
+import LedButton from "./hw/LedButton.vue"
 import {
   store, refresh_projects, switch_project, flush_pending_saves, store_get_user_info,
   estimate_seconds_memory, memory_warning_limit, fmt_memory
@@ -76,9 +75,6 @@ function set_msg(type, text) {
 }
 function is_active(row) {
   return row.id === store.project?.id
-}
-function row_class({ row }) {
-  return is_active(row) ? "active_row" : ""
 }
 function fmt_date(ts) {
   return ts ? String(ts).slice(0, 10) : ""
@@ -211,34 +207,140 @@ async function do_delete(row) {
 <style scoped>
 .create {
   display: flex;
+  align-items: center;
   gap: 10px;
   margin-bottom: 14px;
 }
 
-.name {
-  font-weight: 600;
+/* bahía hundida en el chasis donde van los cartuchos */
+.bay {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #0a0a0b;
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+.empty {
+  margin: 16px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+/* cartucho de plástico negro, acostado: estrías con el LED a la izquierda, etiqueta y botones */
+.cart {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 0;
+  border-radius: 4px 6px 6px 4px;
+  border: 1px solid #0a0a0b;
+  background: var(--hw_tex_plastic) center / cover, #18181a;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.cart.active {
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--hw_green), 0 0 12px rgba(60, 230, 120, 0.25);
+}
+
+.grip {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  margin: -6px 0;
+  flex: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.07) 0 2px, transparent 2px 6px);
+  border-right: 1px solid #000;
+}
+
+/* etiqueta de papel pegada en el cartucho */
+.label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ece7d8, #dcd6c4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  color: #1e1f22;
+}
+
+.name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.specs {
+  margin: 0;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* sobre el papel el amarillo no se lee: aviso de memoria en rojo */
 .mem_warn {
-  color: var(--hw_yellow);
+  color: #b3261e;
+  font-weight: 700;
 }
 
 .hidden_tag {
   margin-left: 8px;
 }
 
-:deep(.active_row) {
-  --el-table-tr-bg-color: var(--panel_2);
+.actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+/* mismo ancho para OPEN y LOADED, así las etiquetas quedan alineadas */
+.actions :deep(.cap) {
+  min-width: 72px;
+}
+
+/* campo del nombre hundido en el chasis, como la bahía */
+.create :deep(.el-input__wrapper) {
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* DELETE con la tinta de la tecla en rojo */
+.danger :deep(.cap) {
+  color: #8f1d12;
 }
 
 .hint {
   margin: 12px 0 0;
-  color: var(--muted);
+  color: var(--hw_silk);
+  opacity: 0.6;
   font-size: 11px;
   line-height: 1.5;
 }
 
 .msg {
   margin-top: 10px;
+}
+
+@media (max-width: 560px) {
+  .cart {
+    flex-wrap: wrap;
+  }
+
+  .actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 </style>

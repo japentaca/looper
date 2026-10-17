@@ -1063,7 +1063,7 @@ function parse_catalog_query(query) {
     return { ok: true, v: v.trim() }
   }
   let f = {}
-  for (let k of ["bpm", "bpm_tol", "beats", "key", "atonal", "creator", "q", "page", "per_page"]) {
+  for (let k of ["bpm", "bpm_tol", "beats", "key", "atonal", "creator", "q", "exclude_project", "page", "per_page"]) {
     let r = get(k)
     if (!r.ok) return { error: `Parámetro inválido: ${k}` }
     f[k] = r.v
@@ -1098,6 +1098,10 @@ function parse_catalog_query(query) {
     if ([...f.q].length > CATALOG_TEXT_MAX) return { error: `El texto de búsqueda tiene más de ${CATALOG_TEXT_MAX} caracteres` }
     out.q = f.q
   }
+  if (f.exclude_project) {
+    if (!valid_row_id(f.exclude_project)) return { error: "exclude_project inválido" }
+    out.exclude_project = f.exclude_project
+  }
   if (f.page) {
     out.page = Number(f.page)
     if (!Number.isInteger(out.page) || out.page < 1) return { error: "Página inválida" }
@@ -1116,8 +1120,9 @@ function like_escape(s) {
   return s.replace(/[\\%_]/g, c => "\\" + c)
 }
 
-// query base del catálogo con los filtros aplicados (solo disponibles: lo mismo que file_available)
-function catalog_query(db, f) {
+// query base del catálogo con los filtros aplicados (solo disponibles: lo mismo que file_available).
+// exclude_project saca los archivos que ya están en ese proyecto, solo si es de user_id (uno ajeno no filtra nada)
+function catalog_query(db, f, user_id) {
   let qb = db("files as f").join("users as u", "u.id", "f.user_id")
     .where("u.status", "active").andWhere("f.hidden", 0)
   if (f.bpm !== undefined) qb.whereBetween("f.bpm", [f.bpm - f.bpm_tol, f.bpm + f.bpm_tol])
@@ -1129,6 +1134,10 @@ function catalog_query(db, f) {
   }
   if (f.creator !== undefined) qb.whereRaw("lower(u.name) = ?", [f.creator])
   if (f.q !== undefined) qb.whereRaw("f.original_name like ? escape '\\'", ["%" + like_escape(f.q) + "%"])
+  if (f.exclude_project !== undefined) {
+    qb.whereNotExists(q => q.select(db.raw(1)).from("project_files as pf").join("projects as p", "p.id", "pf.project_id")
+      .whereRaw("pf.file_id = f.id").andWhere("p.id", f.exclude_project).andWhere("p.user_id", user_id))
+  }
   return qb
 }
 
@@ -1137,8 +1146,8 @@ router.get('/catalog', require_session, async (req, res) => {
   if (error) return res.status(400).send({ stat: false, text: error })
   let user_id = req.user.id
   try {
-    let { total } = await catalog_query(global.knex, f).count({ total: "*" }).first()
-    let rows = await catalog_query(global.knex, f)
+    let { total } = await catalog_query(global.knex, f, user_id).count({ total: "*" }).first()
+    let rows = await catalog_query(global.knex, f, user_id)
       .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.anchor",
         "f.ts", "u.name as creator_name", "u.bio as creator_bio",
         global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])

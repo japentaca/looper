@@ -269,9 +269,10 @@ superior (al lado de PROJECTS; deshabilitado sin proyecto abierto). Busca en `GE
 filtra haciendo clic en el creador de una fila), BPM ± tolerancia (el botón `= TEMPO` pone el tempo
 del proyecto), beats y tonalidad (una tónica, que trae mayor y menor, con "+ atonal" para sumar los
 atonales). Cada fila muestra nombre, BPM, beats, tonalidad y duración tal como están en la base
-(los de la base: `beats` lo carga el creador), creador (la bio en un tooltip), usos y fecha; las que ya están en
-el proyecto activo (cruce con `store.files`) aparecen marcadas *in project* y no se pueden elegir, y
-las propias, *mine*. La selección se guarda por id y se mantiene al cambiar de página o de filtro
+(los de la base: `beats` lo carga el creador), creador (la bio en un tooltip), usos y fecha; las propias van marcadas
+*mine*. Lo que ya está en el proyecto activo no se lista (`exclude_project` con el id del proyecto,
+así el total y el paginado ya vienen sin eso); si igual aparece una (cruce con `store.files`), sale
+marcada *in project* y no se puede elegir. La selección se guarda por id y se mantiene al cambiar de página o de filtro
 (se vacía al cambiar de proyecto). Preview con `toneLib.js`: si el archivo ya está cargado en el
 proyecto usa su buffer (`playFile`); si no, `playUrl` descarga y decodifica solo ese archivo
 (`GET /file/:id`), guarda únicamente el buffer del último preview y descarta uno que termine de

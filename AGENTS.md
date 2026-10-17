@@ -47,7 +47,7 @@ frontend/src/
     Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave
     Projects.vue     # diálogo de proyectos: abrir, crear, renombrar, borrar, visibilidad
-    ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria)
+    ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria; no lista lo que ya está en el proyecto)
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
     PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
@@ -150,7 +150,8 @@ Imitar el estilo existente al editar:
   la fuente DSEG7 local (`src/assets/fonts/`, OFL). Las texturas son imágenes en `frontend/public/textures/`
   (`chassis.jpg`, `metal.jpg`, `plastic_black.jpg`) usadas como `background-image` con color sólido de respaldo si faltan.
   Diálogos y tablas siguen con Element Plus; un diálogo con `class="hw_dialog"` toma la textura del chasis
-  (por ahora solo el de edición de Files).
+  (edición de Files, FX de transición, Projects e Import; en Projects cada proyecto es un cartucho como los de Files). Sus botones
+  son `LedButton`; en el de edición de Files la pista y los tags se asignan con pads chicos del color de cada uno.
 - Idioma: UI mayormente en inglés, mensajes al usuario y comentarios en español. Commits en español,
   cortos y descriptivos.
 - Hay mucho `console.log` comentado; no es necesario limpiarlo salvo que la tarea lo pida.
