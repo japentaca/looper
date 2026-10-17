@@ -550,6 +550,15 @@ app, con `store.read_only = true`:
 
 ### Motor de reproducción (`components/Tracks.vue`)
 
+El motor vive en `Tracks.vue` (transporte, Tags, pistas loop, `start_file` / `stop_file`) más dos
+módulos movidos tal cual desde ahí: `helpers/engine_oneshot.js` (pistas one-shot: `oneshot_step`,
+`end_step`, `end_shots`, `cancel_end_shots`, `cancel_tag_end_shots`, `shot_bars`) y
+`helpers/engine_fx.js` (FX de transición: `fx_step`, `beats_to_end`, `end_run`, `fx_back_to_base`,
+`clear_fx_state`). Lo que usan de `Tracks.vue` se les pasa al montar el componente con
+`bind_oneshot({ start_file, stop_file, draw_candidates, file_weight })` y
+`bind_fx({ tag_cuts, NO_TAG_ID, roll_rest })`; `current_TAG` y `tracks` los toman de `TrackCtrl`.
+Ninguno de los dos importa `Tracks.vue` (`engine_oneshot.js` importa `end_run` de `engine_fx.js`).
+
 Conceptos:
 - **Track** = un Track Group (pista); cada track reproduce un archivo a la vez. Hay un track por
   cada track group, tenga o no archivos (sin archivos sorteables queda en silencio).
@@ -901,7 +910,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     `fx_reset_all(ramp)` (STOP y RESET) lleva todas las pistas a la base ya, con una rampa corta.
     Mover Rev o Dly durante un throw no lo afecta: los knobs mueven los sends normales (`send` /
     `dly_send`, post-Channel y después de Cut/Fade) y los throws van por sus sends propios.
-  - Motor (`Tracks.vue`): las pistas one-shot ignoran `props.fx` (las instancias se conservan). En
+  - Motor (`helpers/engine_fx.js`, llamado desde `Tracks.vue`): las pistas one-shot ignoran `props.fx` (las instancias se conservan). En
     cada beat, después del paso del loop (`loop_step`, que devuelve si la pista está sonando una
     tirada), `fx_step` calcula `beats_to_end(track)`: beats hasta el fin de la tirada contando el
     actual (1 = este es el último beat de lo que suena), el **mínimo** entre:

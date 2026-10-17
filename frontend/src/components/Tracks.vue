@@ -241,7 +241,7 @@ import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
 import {
   store, tags_by_id, audio_players, files_by_id, save_trackGroups, save_trackGroups_debounced,
   save_project_props_debounced, pick_weighted, parse_repeat, REPEAT_OPTIONS, move_item, parse_rest_len,
-  REST_LEN_OPTIONS, file_anchor
+  REST_LEN_OPTIONS
 } from "../helpers/composable"
 import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX,
@@ -257,13 +257,17 @@ import StepLeds from "./hw/StepLeds.vue"
 import {
   levels, mixer, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,
   set_reverb, REV_OFF_DB, set_delay, DLY_OFF_DB, fader_to_db, db_to_fader, db_label,
-  vol_db, FILE_VOL_MAX_DB, fx_schedule, fx_reset, fx_reset_all
+  vol_db, FILE_VOL_MAX_DB, fx_reset_all
 } from "../helpers/mixer"
-import { lead_beats, new_fx, FX_TYPES, MAX_FX_PER_TRACK } from "../helpers/fx"
+import { new_fx, FX_TYPES, MAX_FX_PER_TRACK } from "../helpers/fx"
 import FxDialog from "./FxDialog.vue"
 import Fader from "./hw/Fader.vue"
 import RangePads from "./hw/RangePads.vue"
 import { url_autostart } from "../helpers/utils"
+import { bind_fx, fx_step, end_run, fx_back_to_base, clear_fx_state } from "../helpers/engine_fx"
+import {
+  bind_oneshot, oneshot_step, shot_bars, SHOT_BARS, cancel_end_shots, cancel_tag_end_shots, forget_end_shots
+} from "../helpers/engine_oneshot"
 
 function reset() {
 
@@ -440,12 +444,6 @@ function is_oneshot(trg) {
 function toggle_mode(trg) {
   trg.props.mode = is_oneshot(trg) ? "loop" : "oneshot"
   save_trackGroups_debounced()
-}
-// cada cuántos compases se tira el dado de density (valores de SHOT_BARS; default 1 = cada compás)
-const SHOT_BARS = [1, 2, 4, 8, 16, 32, 64]
-function shot_bars(trg) {
-  let b = trg?.props?.bars
-  return SHOT_BARS.includes(b) ? b : 1
 }
 // el knob da el índice dentro de SHOT_BARS
 function set_bars(trg, i) {
@@ -685,7 +683,7 @@ function start() {
   Tone.Transport.bpm.value = TrackCtrl.tempo
   let tag_ids = new Set()
   tracks.splice(0)
-  end_shots = []
+  forget_end_shots()
   files_per_TRG = []
   available_tags = []
 
@@ -843,6 +841,11 @@ let tag_starting = false
 let first_step = false
 // "sin Tag": id del Tag que termina cuando era null (todos los pesos en 0), para tag_cuts
 const NO_TAG_ID = "nada"
+
+// one-shot y FX de transición viven en helpers/engine_oneshot.js y engine_fx.js: se les pasa lo que
+// usan de acá (después de NO_TAG_ID, que es const)
+bind_oneshot({ start_file, stop_file, draw_candidates, file_weight })
+bind_fx({ tag_cuts, NO_TAG_ID, roll_rest })
 
 // sorteo de un Tag y su duración (no lo activa). Ponderado por el peso del Tag (puede repetirse el
 // actual); si todos pesan 0 sale null (no hay Tag y suenan solo los archivos sin tags). Duración:
@@ -1023,209 +1026,6 @@ function roll_start_rests() {
   if (fresh.length && fresh.every(t => t.next_rest)) {
     fresh[Math.floor(Math.random() * fresh.length)].next_rest = false
   }
-}
-
-// --- FX de transición (trg.props.fx, ver helpers/fx.js y mixer.js) ---
-
-// beats que faltan hasta el fin de la tirada, contando el beat actual: 1 = este es el último beat de
-// lo que suena (el siguiente arranca otra cosa). Se llama después de loop_step (y de que set_next_step
-// descontó current_TAG.remaining_beats). Es el mínimo entre el fin natural y el corte por Tag; by_tag =
-// el fin es el corte por Tag (si los dos caen en el mismo beat cuenta como corte: ahí también cambia el Tag)
-function beats_to_end(track) {
-  let natural = natural_end_beats(track)
-  let tag_cut = tag_cut_beats(track)
-  return { left: Math.min(natural, tag_cut), by_tag: tag_cut <= natural }
-}
-
-// fin natural: en el último beat de la última repetición da 1
-function natural_end_beats(track) {
-  let play_beats = Math.max(1, track.curr_file.play_beats)
-  return track.repeats_left * play_beats + track.remaining_beats + 1
-}
-
-// fin por corte de Tag: beats hasta el cambio si el cambio va a cortar el archivo (misma regla que
-// set_next_step, con el Tag preseleccionado), si no Infinity. El corte ocurre en el beat que empieza
-// con current_TAG.remaining_beats == 1, y acá ya está descontado el del beat actual: faltan
-// exactamente current_TAG.remaining_beats beats. Ejemplo, Tag de 4 beats que empieza en el beat 10:
-// start_tag deja 5; en el 10 se descuenta a 4, en el 11 a 3, en el 12 a 2, en el 13 a 1; en el 14 se
-// ve 1 antes de descontar y se corta en su `time`. En el 10 da 4 (10, 11, 12, 13) y en el 13 da 1
-// (último beat que suena), igual que un loop de 4 beats arrancado en el 10: remaining_beats 3 → 3 + 1 = 4
-function tag_cut_beats(track) {
-  if (!tag_cuts(track.curr_file, current_TAG.tag?.id ?? NO_TAG_ID, current_TAG.next_tag)) return Infinity
-  return Math.max(1, current_TAG.remaining_beats)
-}
-
-// ¿se cumple la condición de la instancia para el fin de esta tirada? by_tag = el fin es un corte por Tag
-function fx_cond_ok(track, inst, by_tag) {
-  if (inst.cond == "rest") {
-    // el dado de descanso se sortea ahora y se guarda: loop_step lo usa en el fin
-    if (track.next_rest == null) track.next_rest = roll_rest(track)
-    return track.next_rest
-  }
-  // "tag" = el fin de esta tirada es un corte por cambio de Tag (si el natural llega antes, no)
-  if (inst.cond == "tag") return by_tag
-  return true
-}
-
-// en cada beat de una tirada: cada instancia se evalúa una sola vez por tirada, en el primer beat en que
-// su anticipación (en beats) alcanza a los beats que faltan (>= y no ==: una tirada más corta que la
-// anticipación dispara igual, recortada). Si pasa prob y cond, se agenda de `time` al fin
-function fx_step(track, time) {
-  let list = track.track_group.props?.fx
-  if (!Array.isArray(list) || !list.length) return
-  let { left, by_tag } = beats_to_end(track)
-  let bpb = parseInt(TrackCtrl.beats_x_bar)
-  for (const inst of list) {
-    if (!inst?.id || track.fx_fired.includes(inst.id)) continue
-    if (lead_beats(inst.lead, bpb) < left) continue
-    track.fx_fired.push(inst.id)
-    if (by_tag) track.fx_tag_end = true
-    if (!(Math.random() < (inst.prob ?? 1))) continue
-    if (!fx_cond_ok(track, inst, by_tag)) continue
-    // segundos por beat con el tempo actual (un cambio de tempo en medio de la rampa se tolera)
-    let end = time + left * 60 / Tone.Transport.bpm.value
-    fx_schedule(track.track_group.id, inst, time, end)
-    let id = inst.id
-    // se chequea fx_fired al dibujar: un RESET entre el callback (hasta ~0,1 s antes) y el beat ya
-    // limpió el estado y el chip quedaría encendido hasta el próximo fin con FX
-    Tone.Draw.schedule(() => {
-      if (TrackCtrl.isPlaying && track.fx_fired.includes(id) && !track.fx_active.includes(id)) track.fx_active.push(id)
-    }, time)
-  }
-}
-
-// fin de una tirada (en el beat donde arranca otro archivo, empieza un descanso, la corta el cambio de
-// Tag o la pista pasa a one-shot): si algo se evaluó, los FX vuelven a la base exactamente en `time`. Se limpia el estado
-function end_run(track, time) {
-  fx_back_to_base(track, time)
-  track.next_rest = null
-}
-
-// FX de la pista a la base en `time` (si algo se evaluó) y sin instancias evaluadas
-function fx_back_to_base(track, time) {
-  if (track.fx_fired.length) {
-    fx_reset(track.track_group.id, time)
-    Tone.Draw.schedule(() => { track.fx_active = [] }, time)
-  }
-  track.fx_fired = []
-  track.fx_tag_end = false
-}
-
-// STOP y RESET (los nodos los lleva a la base fx_reset_all)
-function clear_fx_state(track) {
-  track.fx_fired = []
-  track.fx_active = []
-  track.next_rest = null
-  track.fx_tag_end = false
-}
-
-// paso de una pista one-shot: dispara si empieza un Tag (on_tag_change) o si en el primer downbeat de
-// cada frase de props.bars compases (contados desde el inicio del transporte, como los loops) sale el
-// dado de density. Si el Tag cambió en este beat, available_files_per_TRG ya es la del Tag nuevo.
-function oneshot_step(track, time, n, tag_start, downbeat) {
-  let p = track.track_group.props ?? {}
-  // si la pista venía de modo loop, su loop se corta en este beat y deja de contar (fin de la tirada)
-  end_run(track, time)
-  if (track.curr_file) stop_file(track.curr_file.id, time)
-  track.curr_file = null
-  track.remaining_beats = 0
-  track.resting = false
-
-  // los archivos con anchor "end" se deciden por adelantado (end_step); acá solo los "start"
-  end_step(track, time, n)
-
-  let phrase_start = downbeat && Math.round(n / parseInt(TrackCtrl.beats_x_bar)) % shot_bars(track.track_group) == 0
-  let fire = (p.on_tag_change && tag_start) || (phrase_start && Math.random() < (p.density ?? 0))
-  if (!fire) return
-  let files = draw_candidates(track).filter(id => file_anchor(files_by_id[id]) != "end")
-  if (!files.length) return
-  let f = pick_weighted(files, file_weight)
-  // si ese mismo player ya está sonando (un disparo anterior), se saltea: no se reinicia
-  if (audio_players[f]?.state == "started") return
-  // suena entero: no se le agenda stop
-  start_file(f, time, () => show_shot(track, f))
-}
-
-// nombre del último disparo en la tira y destello de su LED (se llama con Tone.Draw, al sonar)
-function show_shot(track, f) {
-  track.last_shot = files_by_id[f]
-  track.shot_n = (track.shot_n ?? 0) + 1
-}
-
-// duración efectiva de un disparo en segundos: la del buffer (composable.js la deja en
-// files_by_id[id].duration al cargar el audio) al playbackRate con que suena; 0 = sin dato
-function shot_length(id) {
-  let f = files_by_id[id]
-  let d = Number(f?.duration)
-  return d > 0 ? d / (f.play_rate || 1) : 0
-}
-
-// disparos "end" agendados ({ id, start, end, tag }: segundos del AudioContext; tag = apunta a un cambio
-// de Tag): para no volver a arrancar un archivo que sigue sonando o espera su turno, y para cancelarlos
-// en STOP / RESET
-let end_shots = []
-
-// disparos con anchor "end": el archivo termina en el punto de disparo (riser, crash invertido), así
-// que arranca antes y se decide por adelantado. Puntos (cada uno por su lado; si caen en el mismo beat
-// son uno solo y manda el de Tag): el próximo cambio de Tag (con on_tag_change, siempre dispara) y el
-// inicio de la próxima frase de `bars` compases (con density > 0, tira el dado). Cada punto se decide
-// una vez (track.end_points: { at: número de beat absoluto, tag }), en el primer beat en que al "end" más largo
-// le queda menos de su duración + 1 beat (el último en que todavía entra), o en el último beat antes del
-// punto. Se sortea con peso entre los "end" de la pista compatibles con el Tag que suena y que entran.
-// Con el tempo de ahora: si el tempo cambia después, el final ya no cae justo en el punto
-function end_step(track, time, n) {
-  let p = track.track_group.props ?? {}
-  let files = draw_candidates(track).filter(id => file_anchor(files_by_id[id]) == "end" && shot_length(id) > 0)
-  if (!files.length) return
-  let spb = 60 / Tone.Transport.bpm.value
-  let phrase = parseInt(TrackCtrl.beats_x_bar) * shot_bars(track.track_group)
-  // beats desde este beat hasta cada punto. El cambio de Tag ocurre en el beat que empieza con
-  // current_TAG.remaining_beats == 1 y acá ya está descontado el de este beat (ver tag_cut_beats)
-  let points = []
-  if (p.on_tag_change) points.push({ b: current_TAG.remaining_beats, always: true })
-  if (p.density > 0) points.push({ b: phrase - n % phrase, always: false })
-  let longest = Math.max(...files.map(shot_length))
-  track.end_points = track.end_points.filter(e => e.at > n)
-  for (const { b, always } of points) {
-    let at = n + b
-    if (!(b >= 1) || track.end_points.some(e => e.at == at)) continue
-    if (b > 1 && b * spb >= longest + spb) continue // todavía hay tiempo
-    track.end_points.push({ at, tag: always })
-    if (!always && !(Math.random() < p.density)) continue
-    let point_time = time + b * spb
-    let f = pick_weighted(files.filter(id => shot_length(id) <= b * spb), file_weight)
-    if (!f) continue // no entra ninguno (justo tras START, Tag corto, tempo lento)
-    let start = point_time - shot_length(f)
-    // si ese mismo player está sonando o tiene un disparo agendado que todavía suena en `start`, se saltea
-    let now = Tone.getContext().currentTime
-    end_shots = end_shots.filter(s => s.end > now)
-    if (audio_players[f]?.state == "started" || end_shots.some(s => s.id == f && s.end > start)) continue
-    start_file(f, start, () => show_shot(track, f))
-    end_shots.push({ id: f, start, end: point_time, tag: always })
-  }
-}
-
-// STOP: corta todos los disparos "end" agendados, hayan arrancado o no (Player.stop(ahora) también
-// cancela un start agendado a futuro)
-function cancel_end_shots() {
-  let ctx_now = Tone.getContext().currentTime
-  for (const s of end_shots) {
-    if (s.end > ctx_now && files_by_id[s.id]) stop_file(s.id, -1)
-  }
-  end_shots = []
-}
-// RESET: el cambio de Tag hacia el que apuntaban ya no ocurre. Se cancelan los disparos "end" de Tag que
-// todavía no arrancaron (los que arrancan dentro del lookahead ya no se pueden cortar antes de empezar:
-// siguen, igual que los que ya suenan) y se olvidan los puntos de Tag decididos, para que el nuevo cambio
-// (y una frase que caía en el mismo beat) se decidan otra vez. Los de frase siguen valiendo
-function cancel_tag_end_shots() {
-  let now = Tone.now() // un stop se agenda como mucho a partir de acá
-  let cancel = end_shots.filter(s => s.tag && s.start > now)
-  // se corta en su propio inicio (no ya): Player.stop corta todas las fuentes del player, y un disparo
-  // "end" anterior del mismo archivo (de frase, que no se cancela) puede estar sonando todavía
-  for (const s of cancel) if (files_by_id[s.id]) stop_file(s.id, s.start)
-  end_shots = end_shots.filter(s => !cancel.includes(s))
-  for (const track of tracks) track.end_points = track.end_points.filter(e => !e.tag)
 }
 
 // archivos de cada pista compatibles con el Tag activo (sin tags = compatible con cualquier tag)

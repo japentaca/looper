@@ -58,6 +58,8 @@ frontend/src/
     toneLib.js       # reproductor de preview (un archivo suelto, del proyecto o del catálogo por url)
     mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
+    engine_oneshot.js # motor (parte de Tracks.vue): pistas one-shot (oneshot_step, disparos "end", cancelaciones en STOP/RESET)
+    engine_fx.js     # motor (parte de Tracks.vue): agenda de los FX de transición hacia el fin de cada tirada (fx_step, end_run)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos)
@@ -125,7 +127,7 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores.
-3. Si se tocó la reproducción (`Tracks.vue`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`):
+3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 
