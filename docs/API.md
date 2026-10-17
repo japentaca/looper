@@ -45,7 +45,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 
 | Método | Ruta | Sesión | Body / Query | Respuesta |
 |---|---|---|---|---|
-| POST | `/login` | no | `{ email, password }` (el email se compara en minúsculas) | `{ stat: true, data: { u_info, text } }` solo si `status = 'active'`; si no, `{ stat: false, text }`: clave correcta con `status = 'pending'` → "Tu cuenta está pendiente de aprobación"; clave inválida, email inexistente o `blocked` → "Usuario o clave inválida" (mismo texto y cuenta como fallo); 10 fallos por IP en 15 min → "Demasiados intentos" |
+| POST | `/login` | no | `{ email, password }` (el email se compara en minúsculas) | `{ stat: true }` (los datos del usuario se piden con `get_user_info`) solo si `status = 'active'`; si no, `{ stat: false, text }`: clave correcta con `status = 'pending'` → "Tu cuenta está pendiente de aprobación"; clave inválida, email inexistente o `blocked` → "Usuario o clave inválida" (mismo texto y cuenta como fallo); 10 fallos por IP en 15 min → "Demasiados intentos" |
 | POST | `/register` | no | `{ email, password, name, bio?, accept_license: true }` | `{ stat: true, text }` si se registró **o si el email ya existía** (misma respuesta, no revela registrados; la cuenta existente no se toca). Error `{ stat: false, text }`: email inválido, clave fuera de 8–72, nombre fuera de 3–32 o con caracteres no permitidos, bio de más de 280, licencia no aceptada, "Ese nombre ya está en uso" (sin distinguir mayúsculas), 10 intentos por IP por hora → "Demasiados intentos". Ver detalle abajo |
 | PUT | `/change_password` | sí | `{ current_password, new_password }` | `{ stat: true, text: "Clave cambiada" }`; si no, `{ stat: false, text }`: falta la actual, nueva fuera de 8–72, "La clave actual es incorrecta" (cuenta como fallo), 10 fallos por usuario en 15 min → "Demasiados intentos". Ver detalle abajo |
 | PUT | `/profile` | sí | `{ bio }` (string o `null`) | `{ stat: true }`; `{ stat: false, text }` si la bio pasa de 280 caracteres; 400 si `bio` no es string ni `null` |
@@ -77,7 +77,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 
 ## Detalles
 
-### `u_info` (de `get_user_info` y `login`)
+### `u_info` (de `get_user_info`)
 
 ```js
 {
@@ -89,7 +89,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 }
 ```
 
-`login` devuelve el mismo `u_info` que `get_user_info`. Los datos del usuario se leen de la base en
+`login` no devuelve `u_info`: el front llama a `get_user_info` después de loguearse. Los datos del usuario se leen de la base en
 cada llamada (lista blanca de columnas de `users`; nunca `password` ni `id`): la sesión solo guarda
 el id. Desde la tarea 3.3 **no** trae `props`, `files`, `track_groups` ni `tags`: todo eso es del
 proyecto y viene de `GET /projects/:id` (el front abre el proyecto activo con `get_project`

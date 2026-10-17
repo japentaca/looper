@@ -116,15 +116,8 @@ router.post('/login', route("Error", async function (req, res) {
     req.session.isLogged = true
     req.session.u_info = { id: db_res[0].id }
     await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()))
-    let ui = await return_user_info(db_res[0].id)
-    var res_data = {
-      stat: true,
-      data: {
-        u_info: ui,
-        text: "Ingreso al sistema"
-      }
-    }
-    res.status(200).send(res_data)
+    // los datos del usuario los pide el front con get_user_info
+    res.status(200).send({ stat: true })
   }
 }))
 

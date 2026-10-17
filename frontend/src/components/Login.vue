@@ -98,9 +98,8 @@ async function doLogin() {
     if (res.stat) {
       store.loginVisible = false
       store.isLogged = true
-      store.u_info = res.data.u_info
       form.password = ""
-
+      // u_info, proyectos y proyecto activo los carga get_user_info (login solo abre la sesión)
       await store_get_user_info()
     } else {
       // cuenta pendiente: aviso, no error (la clave era correcta)
