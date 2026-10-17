@@ -466,17 +466,13 @@ function project_list_columns(db) {
     db.raw(`(select ${AUDIO_SECONDS_SQL} ${PROJECT_FILES_SQL}) as audio_seconds`)]
 }
 
-// proyectos del usuario, del más viejo al más nuevo
-async function list_projects(user_id) {
-  let rows = await global.knex("projects as p").select(project_list_columns(global.knex))
+// proyectos del usuario en la forma de la lista, del más viejo al más nuevo. Con `id`, solo ese
+// (array vacío si no es suyo)
+async function list_projects(user_id, id) {
+  let q = global.knex("projects as p").select(project_list_columns(global.knex))
     .where({ "p.user_id": user_id }).orderBy([{ column: "p.ts" }, { column: "p.name" }])
-  return rows.map(project_summary)
-}
-// un proyecto del usuario en la forma de la lista (undefined si no es suyo)
-async function get_project_summary(id, user_id) {
-  let r = await global.knex("projects as p").select(project_list_columns(global.knex))
-    .where({ "p.id": String(id), "p.user_id": user_id }).first()
-  return r && project_summary(r)
+  if (id !== undefined) q.where({ "p.id": String(id) })
+  return (await q).map(project_summary)
 }
 function project_summary(r) {
   return {
@@ -600,6 +596,21 @@ async function get_catalog_files(db, ids) {
     .select(FILE_COLUMNS).whereIn("f.id", ids)
 }
 
+// contenido de un proyecto: pistas, tags y archivos del catálogo usados en él (propios o
+// importados, con `own` y `available`, más su pista, tags y props dentro del proyecto). Lo usan
+// GET /projects/:id y GET /public/project/:id
+async function load_project_body(db, project_id, user_id) {
+  let t = await db("user_track_groups").select("id", "name", "color", "props").where({ project_id: project_id })
+    .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
+  let tags = await db("user_tags").select("id", "name", "color", "weight").where({ project_id: project_id })
+    .orderByRaw("rowid")
+  return {
+    track_groups: t.map(r => ({ ...r, props: parse_props(r.props) })),
+    tags: tags,
+    files: await list_project_files(db, project_id, user_id),
+  }
+}
+
 // proyecto completo: datos, props (config), pistas, tags y archivos (con su pista, tags y volumen
 // dentro del proyecto). Es lo que antes venía en get_user_info
 router.get("/projects/:id", require_session, route("Error GET projects/:id", async (req, res) => {
@@ -608,15 +619,7 @@ router.get("/projects/:id", require_session, route("Error GET projects/:id", asy
   if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
   let data = project_summary(p)
   data.props = parse_props(p.props)
-
-  let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
-    .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
-  data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
-  data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
-    .orderByRaw("rowid")
-
-  // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
-  data.files = await list_project_files(global.knex, p.id, user_id)
+  Object.assign(data, await load_project_body(global.knex, p.id, user_id))
   data.files_count = data.files.length
   data.audio_seconds = data.files.reduce((t, f) => t + file_audio_seconds(f), 0)
   return res.send({ stat: true, data: data })
@@ -638,7 +641,7 @@ router.put("/projects/:id", require_session, route("Error PUT projects/:id", asy
   let p = await own_project(global.knex, req.params.id, req.user.id)
   if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
   if (Object.keys(upd).length) await global.knex("projects").update(upd).where({ id: p.id, user_id: req.user.id })
-  return res.send({ stat: true, data: await get_project_summary(p.id, req.user.id) })
+  return res.send({ stat: true, data: (await list_projects(req.user.id, p.id))[0] })
 }))
 
 // borra el proyecto con sus pistas, tags y filas de project_files. Los archivos propios que usaba y
@@ -1166,14 +1169,9 @@ router.get('/public/project/:id', public_rate_limit, route("Error GET public/pro
     id: p.id, name: p.name, ts: p.ts, props: parse_props(p.props),
     creator: { name: p.creator_name, bio: p.creator_bio ?? null },
   }
-  let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
-    .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
-  data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
-  data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
-    .orderByRaw("rowid")
+  Object.assign(data, await load_project_body(global.knex, p.id, null))
   // forma de los archivos de GET /projects/:id, sin `own` (no hay usuario)
-  let files = await list_project_files(global.knex, p.id, null)
-  data.files = files.filter(f => f.available)
+  data.files = data.files.filter(f => f.available)
   for (let f of data.files) delete f.own
   return res.send({ stat: true, data: data })
 }))
