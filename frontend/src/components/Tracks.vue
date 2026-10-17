@@ -313,14 +313,12 @@ const tag_range_model = computed({
 })
 
 let files_per_TRG = {}
-let available_files_per_TRG = []
+let available_files_per_TRG = {}
 
 // el estado del TAG y de los tracks vive en TrackCtrl para que otros componentes (pads) lo lean
 let current_TAG = TrackCtrl.current_TAG
 
 let available_tags = []
-
-let available_trgs = []
 
 let tracks = TrackCtrl.tracks
 
@@ -683,7 +681,7 @@ function start() {
   TrackCtrl.isPlaying = true
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
   Tone.Transport.bpm.value = TrackCtrl.tempo
-  let temp_tag = {}
+  let tag_ids = new Set()
   tracks.splice(0)
   end_shots = []
   files_per_TRG = []
@@ -702,22 +700,18 @@ function start() {
     }
     // un archivo puede tener varios tags: cuenta en cada uno
     for (let tag of f.tags) {
-      temp_tag[tag] = tag
+      tag_ids.add(tag)
     }
   }
 
-  for (const key of Object.keys(temp_tag)) {
-    available_tags.push(tags_by_id[key])
-  }
+  for (const id of tag_ids) available_tags.push(tags_by_id[id])
   if (available_tags.length && available_tags.every(t => !(t?.weight > 0))) {
     ElMessage({ type: "warning", message: "All tags have weight 0: only files without tags will play." })
   }
 
-  available_trgs = []
   // un track por cada track group, tenga o no archivos (sin archivos queda en silencio)
   for (const trg of store.track_groups) {
     if (!files_per_TRG[trg.id]) files_per_TRG[trg.id] = []
-    available_trgs.push(trg)
     tracks.push({
       track_group: trg,
       curr_file: null,
@@ -845,8 +839,8 @@ let tag_starting = false
 // true desde START o RESET hasta que set_next_step procesa el primer beat (ahí se tiran los dados de
 // descanso de arranque, ver roll_start_rests)
 let first_step = false
-// "sin Tag": old_tag cuando el Tag que termina era null (todos los pesos en 0)
-const NO_TAG = { id: "nada", name: "vacio" }
+// "sin Tag": id del Tag que termina cuando era null (todos los pesos en 0), para tag_cuts
+const NO_TAG_ID = "nada"
 
 // sorteo de un Tag y su duración (no lo activa). Ponderado por el peso del Tag (puede repetirse el
 // actual); si todos pesan 0 sale null (no hay Tag y suenan solo los archivos sin tags). Duración:
@@ -868,7 +862,6 @@ function tag_drawable(tag) {
 // next_duration). Así se sabe de antemano qué pistas va a cortar el cambio y cuándo (ver
 // tag_cut_beats). Lo llaman start() y reset() con un sorteo nuevo y set_next_step con el preseleccionado
 function start_tag(drawn) {
-  current_TAG.old_tag = { ...(current_TAG.tag ?? NO_TAG) }
   current_TAG.tag = drawn.tag
   current_TAG.duration = drawn.duration
   // set_next_step descuenta 1 antes de procesar el beat: en el primer beat del Tag queda en duration
@@ -903,6 +896,7 @@ function tag_cuts(file, from_id, to_tag) {
 function set_next_step(time, n, downbeat) {
   if (current_TAG.remaining_beats == 1) {
     // cambio de Tag: entra el preseleccionado (y se preselecciona el siguiente)
+    let from_id = current_TAG.tag?.id ?? NO_TAG_ID
     start_tag(next_tag_entry())
     get_available_files_x_tag(current_TAG.tag?.id)
 
@@ -910,7 +904,7 @@ function set_next_step(time, n, downbeat) {
       if (!track.curr_file) continue
       // solo se cortan los loops que no tienen el tag nuevo; los que tienen varios tags (p.ej. A y B)
       // siguen sonando al pasar de A a B
-      if (tag_cuts(track.curr_file, current_TAG.old_tag.id, current_TAG.tag)) {
+      if (tag_cuts(track.curr_file, from_id, current_TAG.tag)) {
         // loop_step ve remaining_beats == 0 sin repeticiones en este mismo beat: fin de la tirada (end_run)
         track.remaining_beats = 0
         track.repeats_left = 0
@@ -1053,7 +1047,7 @@ function natural_end_beats(track) {
 // ve 1 antes de descontar y se corta en su `time`. En el 10 da 4 (10, 11, 12, 13) y en el 13 da 1
 // (último beat que suena), igual que un loop de 4 beats arrancado en el 10: remaining_beats 3 → 3 + 1 = 4
 function tag_cut_beats(track) {
-  if (!tag_cuts(track.curr_file, current_TAG.tag?.id ?? NO_TAG.id, current_TAG.next_tag)) return Infinity
+  if (!tag_cuts(track.curr_file, current_TAG.tag?.id ?? NO_TAG_ID, current_TAG.next_tag)) return Infinity
   return Math.max(1, current_TAG.remaining_beats)
 }
 
@@ -1230,26 +1224,13 @@ function cancel_tag_end_shots() {
   for (const track of tracks) track.end_points = track.end_points.filter(e => !e.tag)
 }
 
+// archivos de cada pista compatibles con el Tag activo (sin tags = compatible con cualquier tag)
 function get_available_files_x_tag(tag_id) {
-  available_files_per_TRG = []
-  for (let i = 0; i < available_trgs.length; i++) {
-    let trg = available_trgs[i]
-
-    if (!available_files_per_TRG[trg.id]) { available_files_per_TRG[trg.id] = [] }
-
-    let trg_files = files_per_TRG[trg.id] ?? []
-    for (let l = 0; l < trg_files.length; l++) {
-      let a = trg_files[l]
-      let f = files_by_id[a]
-      // sin tags = compatible con cualquier tag
-      if (f.tags.length == 0 || f.tags.includes(tag_id)) {
-        available_files_per_TRG[trg.id].push(a)
-      }
-    }
+  available_files_per_TRG = {}
+  for (const { track_group: trg } of tracks) {
+    available_files_per_TRG[trg.id] = (files_per_TRG[trg.id] ?? [])
+      .filter(id => files_by_id[id].tags.length == 0 || files_by_id[id].tags.includes(tag_id))
   }
-
-
-
 }
 
 </script>

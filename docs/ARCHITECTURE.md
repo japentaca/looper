@@ -615,7 +615,8 @@ Flujo:
    dentro del rango de los pads TAG CHANGE (`hw/RangePads.vue`, `TrackCtrl.tag_range`, guardado en
    `projects.props`) (5..9), medida en beats (la UI lo rotula "beats"; el contador se decrementa por
    beat). `start_tag(sorteo)` lo activa (`current_TAG.tag`, `duration`, `remaining_beats = duration + 1`,
-   `old_tag` = copia del anterior o `{ id: "nada" }` si no había, levanta `tag_starting`) y
+   levanta `tag_starting`; en el cambio, `set_next_step` guarda antes el id del Tag que termina, o
+   `"nada"` si no había, para `tag_cuts`) y
    **preselecciona el siguiente**: `current_TAG.next_tag` / `next_duration` se sortean al empezar
    cada Tag. En el cambio entra el preseleccionado (`next_tag_entry`) y se sortea el siguiente; así
    el motor sabe de antemano qué pistas va a cortar el cambio y cuándo (fin por corte de Tag de los

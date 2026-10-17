@@ -70,7 +70,6 @@ export const TrackCtrl = reactive({
   current_TAG: {
     duration: 0,
     tag: null,
-    old_tag: null,
     remaining_beats: 0,
     // Tag preseleccionado para el próximo cambio y su duración (se sortean al empezar el actual)
     next_tag: null,
