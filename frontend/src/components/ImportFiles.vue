@@ -8,21 +8,27 @@
         @keyup.enter="search(1)" @clear="search(1)" />
       <el-input v-model="filters.creator" class="f_text" maxlength="64" clearable placeholder="Creator (exact)"
         @keyup.enter="search(1)" @clear="search(1)" />
+      <span class="silk">Type</span>
+      <el-select v-model="filters.kind" class="f_kind" placeholder="any" clearable @change="search(1)">
+        <el-option label="loop" value="loop" />
+        <el-option label="shot" value="shot" />
+      </el-select>
       <span class="silk">BPM</span>
       <el-input-number v-model="filters.bpm" class="f_num" :min="20" :max="400" :step="1" :precision="2"
-        controls-position="right" placeholder="any" />
+        controls-position="right" placeholder="any" :disabled="is_shot" />
       <span class="silk">±</span>
       <el-input-number v-model="filters.bpm_tol" class="f_tol" :min="0" :max="50" :step="1" :precision="2"
-        controls-position="right" :disabled="filters.bpm == null" />
-      <LedButton size="small" text="= TEMPO" title="Usar el tempo del proyecto" @click="use_tempo" />
+        controls-position="right" :disabled="is_shot || filters.bpm == null" />
+      <LedButton size="small" text="= TEMPO" title="Usar el tempo del proyecto" :disabled="is_shot" @click="use_tempo" />
       <span class="silk">Beats</span>
       <el-input-number v-model="filters.beats" class="f_num" :min="1" :max="1024" :step="1" step-strictly
-        controls-position="right" placeholder="any" />
+        controls-position="right" placeholder="any" :disabled="is_shot" />
       <span class="silk">Key</span>
       <el-select v-model="filters.key" class="f_key" placeholder="any" clearable filterable @change="search(1)">
         <el-option v-for="t in KEY_TONICS" :key="t" :label="t" :value="t" />
       </el-select>
-      <el-checkbox v-model="filters.atonal" :disabled="!filters.key" @change="filters.key && search(1)">+ atonal</el-checkbox>
+      <el-checkbox v-model="filters.atonal" title="Incluir los archivos atonales (percusión, ruidos)"
+        @change="search(1)">+ atonal</el-checkbox>
       <LedButton size="small" text="SEARCH" :disabled="loading" @click="search(1)" />
       <LedButton size="small" text="CLEAR" :disabled="loading" @click="clear_filters" />
     </div>
@@ -143,8 +149,12 @@ const visible = defineModel({ type: Boolean, default: false })
 const PER_PAGE = 25
 const BPM_TOL_DEFAULT = 2
 
-// key = tónica (trae mayor y menor); atonal = sumar los atonales a ese filtro
-const filters = reactive({ q: "", creator: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null, key: "", atonal: true })
+// kind = loop | shot ("" = cualquiera); key = tónica (trae mayor y menor); atonal = incluir los atonales
+// (con key se suman a ese filtro; sin key, desmarcado los saca)
+const FILTERS_DEFAULT = { q: "", creator: "", kind: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null, key: "", atonal: true }
+const filters = reactive({ ...FILTERS_DEFAULT })
+// un shot no tiene BPM ni beats: esos filtros no aplican
+const is_shot = computed(() => filters.kind == "shot")
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -184,15 +194,16 @@ function catalog_params(p) {
   let creator = filters.creator.trim()
   if (q) params.q = q
   if (creator) params.creator = creator
-  if (filters.bpm != null) {
+  if (filters.kind) params.kind = filters.kind
+  if (filters.bpm != null && !is_shot.value) {
     params.bpm = filters.bpm
     if (filters.bpm_tol != null) params.bpm_tol = filters.bpm_tol
   }
-  if (filters.beats != null) params.beats = filters.beats
+  if (filters.beats != null && !is_shot.value) params.beats = filters.beats
   if (filters.key) {
     params.key = filters.key
     params.atonal = filters.atonal ? 1 : 0
-  }
+  } else if (!filters.atonal) params.atonal = 0
   return params
 }
 
@@ -213,7 +224,7 @@ async function search(p = 1) {
 }
 
 function clear_filters() {
-  Object.assign(filters, { q: "", creator: "", bpm: null, bpm_tol: BPM_TOL_DEFAULT, beats: null, key: "", atonal: true })
+  Object.assign(filters, FILTERS_DEFAULT)
   search(1)
 }
 function use_tempo() {
@@ -339,6 +350,10 @@ function fmt_date(ts) {
 
 .f_key {
   width: 84px;
+}
+
+.f_kind {
+  width: 90px;
 }
 
 .f_tol {

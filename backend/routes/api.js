@@ -1062,12 +1062,17 @@ function parse_catalog_query(query) {
     return { ok: true, v: v.trim() }
   }
   let f = {}
-  for (let k of ["bpm", "bpm_tol", "beats", "key", "atonal", "creator", "q", "exclude_project", "page", "per_page"]) {
+  for (let k of ["kind", "bpm", "bpm_tol", "beats", "key", "atonal", "creator", "q", "exclude_project", "page", "per_page"]) {
     let r = get(k)
     if (!r.ok) return { error: `Parámetro inválido: ${k}` }
     f[k] = r.v
   }
   let out = { page: 1, per_page: CATALOG_PER_PAGE }
+  if (f.kind) {
+    if (!FILE_KINDS.includes(f.kind)) return { error: `Tipo inválido: tiene que ser ${FILE_KINDS.join(" o ")}` }
+    out.kind = f.kind
+  }
+  if (f.atonal && !["0", "1"].includes(f.atonal)) return { error: "atonal tiene que ser 0 o 1" }
   if (f.bpm) {
     out.bpm = parse_bpm(f.bpm)
     if (out.bpm === undefined) return { error: `BPM inválido: tiene que ser un número entre ${BPM_MIN} y ${BPM_MAX}` }
@@ -1086,8 +1091,10 @@ function parse_catalog_query(query) {
     let k = utils.normalize_key(f.key)
     if (!k || k == utils.KEY_ATONAL) return { error: "Tonalidad inválida: tiene que ser una nota (C, C#, Db... B)" }
     out.key = k.replace(/m$/, "")
-    if (f.atonal && !["0", "1"].includes(f.atonal)) return { error: "atonal tiene que ser 0 o 1" }
     out.atonal = f.atonal == "1"
+  } else if (f.atonal == "0") {
+    // sin key, atonal=0 saca los atonales (sin el parámetro o con 1 no filtra)
+    out.atonal = false
   }
   if (f.creator) {
     if ([...f.creator].length > CATALOG_TEXT_MAX) return { error: "Creador inválido" }
@@ -1124,12 +1131,15 @@ function like_escape(s) {
 function catalog_query(db, f, user_id) {
   let qb = db("files as f").join("users as u", "u.id", "f.user_id")
     .where("u.status", "active").andWhere("f.hidden", 0)
+  if (f.kind !== undefined) qb.where("f.kind", f.kind)
   if (f.bpm !== undefined) qb.whereBetween("f.bpm", [f.bpm - f.bpm_tol, f.bpm + f.bpm_tol])
   if (f.beats !== undefined) qb.where("f.beats", f.beats)
   if (f.key !== undefined) {
     let keys = [f.key, f.key + "m"]
     if (f.atonal) keys.push(utils.KEY_ATONAL)
     qb.whereIn("f.music_key", keys)
+  } else if (f.atonal === false) {
+    qb.where(q => q.whereNull("f.music_key").orWhereNot("f.music_key", utils.KEY_ATONAL))
   }
   if (f.creator !== undefined) qb.whereRaw("lower(u.name) = ?", [f.creator])
   if (f.q !== undefined) qb.whereRaw("f.original_name like ? escape '\\'", ["%" + like_escape(f.q) + "%"])

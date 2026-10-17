@@ -61,7 +61,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | PUT | `/projects/:id/files` | sí | `{ add?, update?, remove? }` (ver detalle abajo) | `{ stat: true, data: [archivo del proyecto] }` (todos los del proyecto, ya actualizados); 400 `{ stat: false, text }` si algo es inválido (no se aplica nada); 404 si el proyecto no es del usuario |
 | PUT | `/files/:id` | sí | `{ original_name?, kind?, beats?, bpm?, music_key?, anchor? }` | `{ stat: true, data: archivo }` (forma del catálogo); `{ stat: false, text }` si un valor es inválido; 404 si el archivo no es del usuario o no existe |
 | DELETE | `/files/:id` | sí | — | `{ stat: true, data: { removed_from_projects } }`; borra el archivo **en cascada** de todos los proyectos (propios y ajenos), la fila, el mp3 y descuenta `users.bytes_used`; 404 si no es del usuario o no existe |
-| GET | `/catalog` | sí | query opcional: `bpm`, `bpm_tol`, `beats`, `key`, `atonal`, `creator`, `q`, `exclude_project`, `page`, `per_page` | `{ stat: true, data: { items: [archivo del catálogo con creador y usos], total, page, per_page } }` (solo archivos disponibles); 400 `{ stat: false, text }` si un parámetro es inválido. Ver detalle abajo |
+| GET | `/catalog` | sí | query opcional: `kind`, `bpm`, `bpm_tol`, `beats`, `key`, `atonal`, `creator`, `q`, `exclude_project`, `page`, `per_page` | `{ stat: true, data: { items: [archivo del catálogo con creador y usos], total, page, per_page } }` (solo archivos disponibles); 400 `{ stat: false, text }` si un parámetro es inválido. Ver detalle abajo |
 | GET | `/file/:id` | no | `id` = file_id (uuid) | archivo mp3 (soporta Range; `Cache-Control: public, max-age=31536000, immutable`); 404 si el id no es un uuid o no está en `files`. Los bytes enviados se suman a la tabla `traffic` |
 | GET | `/public/projects` | no | query opcional: `page`, `per_page` | `{ stat: true, data: { items: [proyecto de la galería], total, page, per_page } }` (proyectos no ocultos, con dueño `active` y al menos un archivo disponible); 400 si un parámetro es inválido; 429 por el límite por IP. Ver `public` abajo |
 | GET | `/public/project/:id` | no | — | `{ stat: true, data: proyecto público }` (config, pistas, tags, archivos **disponibles** y creador); 404 `{ stat: false, text: "Proyecto inexistente" }` si no existe, está oculto o su dueño no está `active` (sin distinguir); 429 por el límite por IP. Ver `public` abajo |
@@ -275,11 +275,12 @@ Query, toda opcional:
 
 | Parámetro | Valor | Filtro |
 |---|---|---|
+| `kind` | `loop` \| `shot` | `files.kind` igual |
 | `bpm` | número 20..400 | `files.bpm` entre `bpm - bpm_tol` y `bpm + bpm_tol` (los archivos sin BPM quedan afuera) |
 | `bpm_tol` | número 0..50, default 2 | tolerancia de `bpm` (sin `bpm` se ignora) |
 | `beats` | entero 1..1024 | `files.beats` igual |
 | `key` | una nota (`C`, `C#`, `Db`... `B`; si trae `m` se ignora) | `files.music_key` con esa tónica, en mayor o menor (`G` trae `G` y `Gm`); los sin dato quedan afuera |
-| `atonal` | `0` \| `1`, default 0 | con `key`, suma los archivos `atonal` (sin `key` se ignora) |
+| `atonal` | `0` \| `1` | con `key`, `1` suma los archivos `atonal` (default 0: no los suma); sin `key`, `0` saca los `atonal` (default: no filtra) |
 | `creator` | nombre público, hasta 64 caracteres | creador con ese nombre exacto, sin distinguir mayúsculas |
 | `q` | texto, hasta 64 caracteres | `original_name` contiene el texto (sin distinguir mayúsculas en ASCII; `%` y `_` son literales) |
 | `exclude_project` | id de un proyecto propio | saca los archivos que ya están en ese proyecto (lo usa el diálogo de importar con el proyecto activo); con un proyecto ajeno o inexistente no filtra nada |
