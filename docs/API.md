@@ -293,8 +293,9 @@ desempata por `id`, así el paginado es estable). Respuesta:
 
 ```js
 {
-  items: [{ id, original_name, duration, kind, bpm, beats, music_key, anchor, ts, name: "<id>.mp3",
+  items: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, name: "<id>.mp3",
             own: bool,                 // el archivo es del usuario de la sesión
+            available: true,           // siempre (el catálogo solo lista disponibles); misma forma que el resto de los archivos
             uses: n,                   // cantidad de proyectos que lo usan (filas de project_files, de cualquier usuario)
             creator: { name, bio } }], // nombre público y bio del dueño (bio null si no tiene)
   total,           // archivos que cumplen los filtros (todas las páginas)
@@ -302,7 +303,7 @@ desempata por `id`, así el paginado es estable). Respuesta:
 }
 ```
 
-Nunca trae el email, el id ni el estado del dueño, ni `size`. Una página más allá del final
+Nunca trae el email, el id ni el estado del dueño. Una página más allá del final
 responde `items: []` con el `total` real.
 
 ### `public` (acceso público de solo lectura)

@@ -1077,16 +1077,13 @@ router.get('/catalog', require_session, route("Error GET catalog", async (req, r
   let user_id = req.user.id
   let { total } = await catalog_query(global.knex, f, user_id).count({ total: "*" }).first()
   let rows = await catalog_query(global.knex, f, user_id)
-    .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.anchor",
-      "f.ts", "u.name as creator_name", "u.bio as creator_bio",
+    .select([...FILE_COLUMNS, "u.name as creator_name", "u.bio as creator_bio",
       global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
     // los más nuevos primero; los migrados sin ts al final
     .orderByRaw("f.ts is null, f.ts desc, f.id")
     .limit(f.per_page).offset((f.page - 1) * f.per_page)
   let items = rows.map(r => ({
-    id: r.id, original_name: r.original_name, duration: r.duration, kind: r.kind ?? "loop", bpm: r.bpm,
-    beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start", ts: r.ts, name: r.id + ".mp3",
-    own: r.user_id === user_id, uses: Number(r.uses) || 0,
+    ...file_out(r, user_id), uses: Number(r.uses) || 0,
     creator: { name: r.creator_name, bio: r.creator_bio ?? null },
   }))
   return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
