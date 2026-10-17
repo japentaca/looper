@@ -644,6 +644,26 @@ router.put("/projects/:id", require_session, route("Error PUT projects/:id", asy
   return res.send({ stat: true, data: (await list_projects(req.user.id, p.id))[0] })
 }))
 
+// borra las filas de `files` del usuario (`files`: [{ id, size }], ya sin filas en project_files) y
+// descuenta su tamaño de bytes_used, sin bajar de 0. Dentro de la transacción del borrado
+async function release_files(trx, user_id, files) {
+  await trx("files").delete().where({ user_id: user_id }).whereIn("id", files.map(f => f.id))
+  let size = files.reduce((t, f) => t + (f.size || 0), 0)
+  await trx("users").where({ id: user_id }).update({
+    bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [size])
+  })
+}
+
+// borra el mp3 de un archivo, con su fila ya borrada: si falla, queda un mp3 huérfano en disco
+// (inofensivo) en vez de una fila que apunta a un mp3 inexistente. Solo ids uuid (el formato se
+// valida antes de armar la ruta); si el mp3 ya no está, no es error
+async function unlink_mp3(user_id, id) {
+  if (!UUID_RE.test(id)) return
+  await fs.unlink(utils.audio_path(user_id, id)).catch(e => {
+    if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
+  })
+}
+
 // borra el proyecto con sus pistas, tags y filas de project_files. Los archivos propios que usaba y
 // que no quedan en ningún otro proyecto (de nadie) se borran también: fila de `files`, bytes_used
 // y, ya fuera de la transacción, el mp3. Los ajenos y los que siguen en otro proyecto quedan.
@@ -662,22 +682,12 @@ router.delete("/projects/:id", require_session, route("Error DELETE projects/:id
     let files = await trx("files").select("id", "size").where({ user_id: user_id }).whereIn("id", file_ids)
       .whereNotExists(q => q.select(trx.raw(1)).from("project_files as pf").whereRaw("pf.file_id = files.id"))
     if (!files.length) return []
-    await trx("files").delete().where({ user_id: user_id }).whereIn("id", files.map(f => f.id))
-    let size = files.reduce((t, f) => t + (f.size || 0), 0)
-    // se descuenta el tamaño de los archivos, sin bajar de 0 (como DELETE /files/:id)
-    await trx("users").where({ id: user_id }).update({
-      bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [size])
-    })
+    await release_files(trx, user_id, files)
     return files.map(f => f.id)
   })
   if (orphans === null) return res.status(404).send(PROJECT_NOT_FOUND)
-  // los mp3 se borran con las filas ya borradas (si falla, queda un mp3 huérfano en disco, inofensivo)
-  for (let id of orphans) {
-    if (!UUID_RE.test(id)) continue
-    await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
-      if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
-    })
-  }
+  // los mp3 se borran con las filas ya borradas
+  for (let id of orphans) await unlink_mp3(user_id, id)
   return res.send({ stat: true, data: { deleted_files: orphans.length } })
 }))
 
@@ -935,21 +945,12 @@ router.delete('/files/:id', require_session, route("Error DELETE files/:id", asy
     let file = await trx("files").select("size").where({ id: id, user_id: user_id }).first()
     if (!file) return null
     let removed = await trx("project_files").delete().where({ file_id: id })
-    await trx("files").delete().where({ id: id, user_id: user_id })
-    // se descuenta el tamaño del archivo, sin bajar de 0
-    await trx("users").where({ id: user_id }).update({
-      bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [file.size || 0])
-    })
+    await release_files(trx, user_id, [{ id: id, size: file.size }])
     return removed
   })
   if (n === null) return res.status(404).send(FILE_NOT_FOUND)
-  // el mp3 se borra con la fila ya borrada: si falla, queda un archivo huérfano en disco (inofensivo)
-  // en vez de una fila que apunta a un mp3 inexistente. El id viene de la base (es un uuid)
-  if (UUID_RE.test(id)) {
-    await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
-      if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
-    })
-  }
+  // el mp3 se borra con la fila ya borrada
+  await unlink_mp3(user_id, id)
   return res.send({ stat: true, data: { removed_from_projects: n } })
 }))
 
@@ -1510,7 +1511,7 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     let dir = global.config.storage_path + user_id
     await fs.mkdir(dir, { recursive: true })
     let file_id = uuid()
-    out_file = dir + "/" + file_id + ".mp3"
+    out_file = utils.audio_path(user_id, file_id)
     // todo se recodifica (también los mp3) a MP3 VBR V0 44.1 kHz estéreo sin metadatos, normalizado
     // a -18 LUFS / -1 dBTP con ganancia fija
     try {

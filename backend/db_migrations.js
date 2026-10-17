@@ -157,11 +157,6 @@ async function migrate_file_tags() {
     .update({ tags: global.knex.raw("json_array(tag)") })
 }
 
-// ruta en disco del mp3 de un archivo (mismo criterio que routes/api.js)
-function audio_path(file) {
-  return global.config.storage_path + file.user_id + "/" + file.id + ".mp3"
-}
-
 // `files.ts`: fecha de alta (ISO sin ms, como users.ts). Al crear la columna, los archivos que ya
 // existían toman la fecha de modificación de su mp3 (solo corre una vez).
 async function migrate_file_ts() {
@@ -170,7 +165,7 @@ async function migrate_file_ts() {
   let files = await global.knex("files").select("id", "user_id")
   for (let file of files) {
     try {
-      let st = await stat(audio_path(file))
+      let st = await stat(utils.audio_path(file.user_id, file.id))
       await global.knex("files").where({ id: file.id }).update({ ts: st.mtime.toISOString().slice(0, 19) })
     } catch {
       // sin mp3 en disco: ts queda null
@@ -187,7 +182,7 @@ async function migrate_file_durations() {
   console.log(`Calculo duration de ${files.length} archivo(s) con ffprobe`)
   let fallidos = 0
   for (let file of files) {
-    let info = await utils.probe(audio_path(file))
+    let info = await utils.probe(utils.audio_path(file.user_id, file.id))
     if (!info.is_audio) {
       fallidos++
       console.warn(`  sin duración: ${file.id} (no existe o no es audio)`)

@@ -133,6 +133,11 @@ function get_file_extension(file) {
   return ext.toLowerCase()
 }
 
+// ruta en disco del mp3 de un archivo: <storage_path><user_id>/<id>.mp3
+function audio_path(user_id, id) {
+  return global.config.storage_path + user_id + "/" + id + ".mp3"
+}
+
 // fecha y hora actual UTC en ISO sin ms ("2026-10-17T12:34:56"): el formato de las columnas `ts`
 function now_ts() {
   return new Date().toISOString().slice(0, 19)
@@ -208,4 +213,5 @@ export default {
   loudness_gain,
   get_file_extension,
   now_ts,
+  audio_path,
 }

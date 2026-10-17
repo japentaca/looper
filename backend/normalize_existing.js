@@ -91,7 +91,7 @@ async function main() {
   let count = { total: files.length, done: 0, skipped: 0, missing: 0, errors: 0, bytes_before: 0, bytes_after: 0 }
   for (let [i, f] of files.entries()) {
     let label = `[${i + 1}/${files.length}] ${f.user_id}/${f.id} (${f.original_name})`
-    let file = global.config.storage_path + f.user_id + "/" + f.id + ".mp3"
+    let file = utils.audio_path(f.user_id, f.id)
     if (!await exists(file)) {
       console.log(label, "FALTA el mp3")
       count.missing++
