@@ -60,6 +60,8 @@ frontend/src/
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
     engine_oneshot.js # motor (parte de Tracks.vue): pistas one-shot (oneshot_step, disparos "end", cancelaciones en STOP/RESET)
     engine_fx.js     # motor (parte de Tracks.vue): agenda de los FX de transición hacia el fin de cada tirada (fx_step, end_run)
+    master_dsp.js    # DSP puro del master (crossover LR4 de 3 bandas, compresor por banda, limitador con lookahead); sin Tone ni window, ver docs/PLAN_MASTER.md
+    master_dsp.test.js # tests Vitest del DSP del master (npm test)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos)
@@ -118,7 +120,7 @@ minúsculas, name único, `status = 'active'`, `role = 'user'` y el hash de la c
 `node -e "console.log(require('bcrypt').hashSync('la_clave', 10))"`.
 Con una base vacía, `db_migrations.js` crea el esquema completo al arrancar.
 
-## Verificación (no hay tests; sí hay ESLint)
+## Verificación (ESLint; tests con Vitest solo del DSP del master)
 
 Antes de dar una tarea por terminada:
 
@@ -126,12 +128,14 @@ Antes de dar una tarea por terminada:
    Lint: `cd backend && npm run lint` (idem en `frontend`). ESLint con flat config, **sin Prettier**:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
-2. Frontend: `cd frontend && npm run build` debe compilar sin errores.
+2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
+   (Vitest en Node, `vitest run`; por ahora solo `src/helpers/master_dsp.test.js`) deben pasar todos.
 3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `mixer.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 
-Si se agregan tests, preferir Vitest (ya alineado con Vite) y documentar el comando acá.
+Los tests nuevos van con Vitest, junto al archivo que prueban (`*.test.js`), importando
+`describe/it/expect` de `"vitest"` (sin globals); `npm test` los toma solos.
 
 ## Convenciones de código
 
