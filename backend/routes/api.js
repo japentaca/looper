@@ -72,6 +72,14 @@ function route(label, fn) {
   }
 }
 
+// suma 1 al contador de Redis `key` y devuelve el valor nuevo. El primero le pone vencimiento de
+// `ttl` segundos: la ventana (o el bloqueo) corre desde el primer intento
+async function bump(key, ttl) {
+  let n = await global.redisClient.incr(key)
+  if (n == 1) await global.redisClient.expire(key, ttl)
+  return n
+}
+
 // intentos de login fallidos por IP: a partir de LOGIN_MAX_FAILS se bloquea por LOGIN_BLOCK_S
 const LOGIN_MAX_FAILS = 10
 const LOGIN_BLOCK_S = 15 * 60
@@ -105,7 +113,7 @@ router.post('/login', route("Error", async function (req, res) {
   if (isValid && db_res[0].status !== "active") isValid = false
   if (!isValid) {
     // el bloqueo dura LOGIN_BLOCK_S desde el primer fallo
-    if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, LOGIN_BLOCK_S)
+    await bump(fails_key, LOGIN_BLOCK_S)
     res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
     return
   } else {
@@ -154,9 +162,8 @@ router.post('/register', route("Error register", async (req, res) => {
   if (body.accept_license !== true) return res.send({ stat: false, text: "Hay que aceptar la licencia" })
 
   let key = "looper_register:" + req.ip
-  let n = await global.redisClient.incr(key)
   // la ventana dura REGISTER_WINDOW_S desde el primer intento
-  if (n == 1) await global.redisClient.expire(key, REGISTER_WINDOW_S)
+  let n = await bump(key, REGISTER_WINDOW_S)
   if (n > REGISTER_MAX) return res.send({ stat: false, text: "Demasiados intentos, probá de nuevo más tarde" })
 
   // el hash se calcula siempre (también con email repetido) para que el tiempo de respuesta no
@@ -210,7 +217,7 @@ router.put('/change_password', require_session, route("Error change_password", a
   let ok = user && await bcrypt.compare(current, user.password)
   if (!ok) {
     // el bloqueo dura PWCHANGE_BLOCK_S desde el primer fallo
-    if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, PWCHANGE_BLOCK_S)
+    await bump(fails_key, PWCHANGE_BLOCK_S)
     return res.send({ stat: false, text: "La clave actual es incorrecta" })
   }
   await global.redisClient.del(fails_key)
@@ -1102,8 +1109,7 @@ const PUBLIC_PER_PAGE_MAX = 100
 async function public_rate_limit(req, res, next) {
   let key = "looper_public:" + req.ip
   try {
-    let n = await global.redisClient.incr(key)
-    if (n == 1) await global.redisClient.expire(key, PUBLIC_WINDOW_S)
+    let n = await bump(key, PUBLIC_WINDOW_S)
     if (n > PUBLIC_MAX) return res.status(429).send({ stat: false, text: "Demasiados pedidos, probá de nuevo en un minuto" })
     next()
   } catch (e) {
@@ -1213,8 +1219,7 @@ router.post('/report', require_session, route("Error POST report", async (req, r
   if (await open_report(global.knex)) return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: true } })
 
   let key = "looper_report:" + user_id
-  let n = await global.redisClient.incr(key)
-  if (n == 1) await global.redisClient.expire(key, REPORT_WINDOW_S)
+  let n = await bump(key, REPORT_WINDOW_S)
   if (n > REPORT_MAX) return res.status(429).send({ stat: false, text: "Llegaste al límite de denuncias por hoy" })
 
   // se vuelve a chequear dentro de la transacción (dos envíos simultáneos no duplican)
