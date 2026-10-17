@@ -21,28 +21,6 @@ function is_session_error(response) {
   return response.status == 401 || (response.status == 403 && response.data?.text == "Sin sesión")
 }
 
-// request interceptor
-service.interceptors.request.use(
-
-  config => {
-    //loadingInstance = Loading.service({ fullscreen: false, text: "cargando..." });
-
-
-
-
-    // do something before request is sent
-
-
-    return config
-  },
-  error => {
-
-    // do something with request error
-    console.log("request err", error) // for debug
-    return Promise.reject(error)
-  }
-)
-
 // response interceptor
 service.interceptors.response.use(
   /**

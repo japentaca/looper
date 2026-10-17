@@ -70,7 +70,6 @@ export const TrackCtrl = reactive({
   current_TAG: {
     duration: 0,
     tag: null,
-    curr_bar: 0,
     old_tag: null,
     remaining_beats: 0,
     // Tag preseleccionado para el próximo cambio y su duración (se sortean al empezar el actual)
@@ -122,7 +121,6 @@ export function file_timing(f, tempo, tol) {
 export function calculate_timing() {
   for (let f of store.files) {
     Object.assign(f, file_timing(f, TrackCtrl.tempo, TrackCtrl.tempo_tol))
-    f.bars = (f.play_beats / parseInt(TrackCtrl.beats_x_bar)).toFixed(2)
   }
 }
 

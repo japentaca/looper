@@ -430,14 +430,11 @@ async function install_project(p, same) {
   store.load_progress.total = store.files.length
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
-    //console.log(JSON.parse(JSON.stringify(f)))
     files_by_id[f.id] = f
 
-    //console.log("f.trg", f.track_group)
     if (f.track_group !== null) {
       f.track_group_obj = track_groups_by_id[f.track_group]
       if (f.track_group_obj == undefined) f.track_group = null
-      //console.log("vamo tgr", f.track_group, f.track_group_obj)
     }
     set_file_tags(f, f.tags)
 
@@ -452,20 +449,12 @@ async function install_project(p, same) {
     delete f.props.anchor
     if (!ANCHORS.includes(f.anchor)) f.anchor = "start"
     let url = api.file_url(f.id)
-    //console.log(url)
     f.isLoaded = false
-    f.index = i
-    f.bars = 0
-    f.currentTime = 0
-    f.original_name_short = f.original_name.substr(0, 15)
-    f.percent = 0
     prom_arr.push(getAudioPlayer(url, f))
 
   }
-  //console.log("llamo a promise.all")
   let res_prom = await Promise.allSettled(prom_arr)
   res_prom.map(prom => {
-    //console.log(prom)
     let fid = prom.value.file.id
     // si es una recarga (subida, re-login) se libera el player anterior: si no, cada recarga deja
     // todos los buffers anteriores en memoria
@@ -473,7 +462,6 @@ async function install_project(p, same) {
     audio_players[fid] = prom.value.player
   })
 
-  //console.log("res_prom", res_prom)
 
   calculate_timing()
 
@@ -489,7 +477,6 @@ async function install_project(p, same) {
 
   TrackCtrl.isReady = true
 
-  //console.log("end loading", store.files)
   store.loading = false
 
   return true
@@ -615,7 +602,6 @@ export async function delete_project_file(file) {
   if (audio_players[file.id]) dispose_player(audio_players[file.id])
   let i = store.files.findIndex(f => f.id === file.id)
   if (i >= 0) store.files.splice(i, 1)
-  for (let j = 0; j < store.files.length; j++) store.files[j].index = j
   return true
 }
 // libera un player reemplazado. Si está sonando (p.ej. una recarga con el transporte en marcha) se
@@ -631,7 +617,6 @@ async function getAudioPlayer(url, file) {
   return new Promise((resolve, reject) => {
     let player = new Tone.Player({
       url: url, onload: (buf) => {
-        //console.log("file loaded", file.id)
 
         file.isLoaded = true
         file.duration = player.buffer.duration
@@ -687,7 +672,6 @@ export function rebuildIndexes() {
   for (let i = 0; i < store.tags.length; i++) {
     tags_by_id[store.tags[i].id] = store.tags[i]
   }
-  //console.log(tags_by_id, store.tags)
 
 
 }

@@ -270,7 +270,6 @@ function reset() {
 
   tracks.map(track => {
 
-    //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
     if (track.curr_file) {
       track.remaining_beats = 0
       track.repeats_left = 0
@@ -314,7 +313,6 @@ const tag_range_model = computed({
 
 let files_per_TRG = {}
 let available_files_per_TRG = []
-let files_per_TAG = []
 
 // el estado del TAG y de los tracks vive en TrackCtrl para que otros componentes (pads) lo lean
 let current_TAG = TrackCtrl.current_TAG
@@ -572,7 +570,6 @@ function stop() {
   cancel_end_shots()
   tracks.map(track => {
 
-    //console.log("le cambio el tag al track", old_tag, track.curr_file?.tag.name)
     if (track.curr_file) {
       track.remaining_beats = 0
       stop_file(track.curr_file.id, -1)
@@ -689,11 +686,7 @@ function start() {
   tracks.splice(0)
   end_shots = []
   files_per_TRG = []
-  files_per_TAG = []
   available_tags = []
-
-
-
 
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
@@ -709,8 +702,6 @@ function start() {
     // un archivo puede tener varios tags: cuenta en cada uno
     for (let tag of f.tags) {
       temp_tag[tag] = tag
-      if (!files_per_TAG[tag]) { files_per_TAG[tag] = [] }
-      files_per_TAG[tag].push(f.id)
     }
   }
 
@@ -727,7 +718,6 @@ function start() {
     if (!files_per_TRG[trg.id]) files_per_TRG[trg.id] = []
     available_trgs.push(trg)
     tracks.push({
-      percentage: 0,
       track_group: trg,
       curr_file: null,
       remaining_beats: 0,
@@ -910,12 +900,6 @@ function tag_cuts(file, from_id, to_tag) {
 
 
 function set_next_step(time, n, downbeat) {
-
-
-
-  //console.log("current_TAG.remaining_beats", current_TAG.remaining_beats)
-
-
   if (current_TAG.remaining_beats == 1) {
     // cambio de Tag: entra el preseleccionado (y se preselecciona el siguiente)
     start_tag(next_tag_entry())
@@ -995,7 +979,6 @@ function loop_step(track, time) {
       track.curr_file = null
       track.resting = true
       track.remaining_beats = draw_rest_beats(track) - 1
-      track.percentage = 0
       track.repeat_n = 1
       track.repeats_left = 0
       return false
@@ -1008,7 +991,6 @@ function loop_step(track, time) {
     if (!candidates.length) {
       if (track.curr_file) stop_file(track.curr_file.id, time)
       track.curr_file = null
-      track.percentage = 0
       track.repeat_n = 1
       track.repeats_left = 0
       return false
@@ -1024,7 +1006,6 @@ function loop_step(track, time) {
   }
   track.remaining_beats--
   // en descanso no hay archivo: solo se cuenta
-  if (track.curr_file) track.percentage = (100 / track.curr_file.play_beats) * (track.remaining_beats)
   return !!track.curr_file && !track.resting
 }
 
@@ -1150,7 +1131,6 @@ function oneshot_step(track, time, n, tag_start, downbeat) {
   track.curr_file = null
   track.remaining_beats = 0
   track.resting = false
-  track.percentage = 0
 
   // los archivos con anchor "end" se deciden por adelantado (end_step); acá solo los "start"
   end_step(track, time, n)
@@ -1251,19 +1231,15 @@ function cancel_tag_end_shots() {
 
 function get_available_files_x_tag(tag_id) {
   available_files_per_TRG = []
-  //console.log("available_trgs.length!", available_trgs.length)
   for (let i = 0; i < available_trgs.length; i++) {
     let trg = available_trgs[i]
-    //console.log("trg", trg)
 
     if (!available_files_per_TRG[trg.id]) { available_files_per_TRG[trg.id] = [] }
 
     let trg_files = files_per_TRG[trg.id] ?? []
     for (let l = 0; l < trg_files.length; l++) {
       let a = trg_files[l]
-      //console.log(a,)
       let f = files_by_id[a]
-      //console.log("ee", f)
       // sin tags = compatible con cualquier tag
       if (f.tags.length == 0 || f.tags.includes(tag_id)) {
         available_files_per_TRG[trg.id].push(a)
@@ -1285,13 +1261,6 @@ function get_available_files_x_tag(tag_id) {
   flex-direction: column;
   gap: 12px;
   container-type: inline-size;
-}
-
-.card {
-  padding: 14px 16px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
 }
 
 .controls {

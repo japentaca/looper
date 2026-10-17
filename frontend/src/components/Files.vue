@@ -349,7 +349,6 @@ const dialogVisible = ref(false)
 const curr_edit_file = ref(null)
 
 async function editFile(file) {
-  //console.log("editFile", file)
   curr_edit_file.value = file
   dialogVisible.value = true
 }
@@ -458,7 +457,7 @@ function is_previewing(file) {
 // (lo que suena en el motor no se corta desde acá)
 function togglePreview(file) {
   if (is_previewing(file)) toneLib.playerStop()
-  else playFile(file)
+  else toneLib.playFile(file)
 }
 
 function preview_title(file) {
@@ -500,20 +499,7 @@ function deleteFile(file) {
     })
 }
 
-watch(
-  () => store.curr_file.isPreviewing,
-  (value) => {
-    //console.log("store curr_file is playing", store.curr_file.original_name, value)
-  }
-)
-async function playFile(file) {
-
-  await toneLib.playFile(file)
-  //audio_players[file.id].start()
-
-
-}
-const iconSize = ref(18)
+const iconSize = 18
 
 </script>
 <style scoped>

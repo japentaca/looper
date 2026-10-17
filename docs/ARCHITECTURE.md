@@ -446,7 +446,7 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
 - `store.files`: archivos del proyecto activo (filas de `project_files` unidas con el catálogo: `own`,
   `available`, pista, tags y volumen del proyecto), enriquecidos en el cliente con `track_group_obj`, `tag_objs`
   (objetos de `store.tags` de cada id de `tags`; se mantienen con `set_file_tags` / `toggle_file_tag`),
-  `isLoaded`, `duration`, `duration_fixed`, `play_rate`, `play_beats`, `in_tempo`, `bars`, `index`, `original_name_short`, etc.
+  `isLoaded`, `duration`, `duration_fixed`, `play_rate`, `play_beats`, `in_tempo`, etc.
   Estos campos **no** existen en la DB.
   Los tags se asignan arrastrando un pad de Tag sobre un archivo (toggle: si ya lo tiene, lo quita)
   o desde el diálogo de edición de `Files.vue` (✕ en cada chip y un select para agregar).
@@ -541,7 +541,7 @@ app, con `store.read_only = true`:
    muestra como barra de avance (cantidad de archivos, no bytes) y contador junto al LED de estado.
    Si es una recarga (después de una subida o de un re-login), el player anterior de cada archivo se
    libera con `dispose()` (si estaba sonando, recién cuando termina), para no acumular buffers.
-4. `calculate_timing()` calcula `play_rate`, `play_beats`, `in_tempo` y `bars` de cada archivo según el tempo y la tolerancia (ver "Tempo").
+4. `calculate_timing()` calcula `play_rate`, `play_beats` y `in_tempo` de cada archivo según el tempo y la tolerancia (ver "Tempo").
 5. `TrackCtrl.isReady = true` habilita START.
 
 ### Motor de reproducción (`components/Tracks.vue`)
@@ -551,8 +551,8 @@ Conceptos:
   cada track group, tenga o no archivos (sin archivos sorteables queda en silencio).
 - **Sorteables** = archivos del proyecto con buffer cargado (`isLoaded`) y `available !== false`
   (tarea 3.8). Un archivo no disponible (oculto por el admin o de un dueño bloqueado) sigue en el
-  proyecto y en `store.files` (con su player), pero `start()` lo saca de `files_per_TRG` y de
-  `files_per_TAG`: nunca se sortea ni aporta su Tag al sorteo de Tags. Una pista cuyos archivos son
+  proyecto y en `store.files` (con su player), pero `start()` lo saca de `files_per_TRG` y no
+  cuenta sus Tags: nunca se sortea ni aporta su Tag al sorteo de Tags. Una pista cuyos archivos son
   todos no disponibles queda en silencio, igual que una vacía. `Files.vue` lo muestra atenuado
   (cartucho y fila de la tabla, con la marca "unavailable"). `available` se lee al cargar el
   proyecto: si el admin oculta un archivo mientras suena, recién deja de sortearse al recargar el
