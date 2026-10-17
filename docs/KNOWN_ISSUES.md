@@ -38,7 +38,7 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   mp3 del servidor hay que subir ese número y desplegar, o los navegadores siguen con el archivo viejo.
 - 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
   descontado en `DELETE /files/:id`), pero es solo informativo: la cuota es en segundos de audio
-  (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa.
+  (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa (legado: una base nueva ya no la crea).
 - 🟡 El límite de los endpoints públicos (`looper_public:<ip>`, 120 requests por minuto, tarea 4.1)
   es por IP: visitantes detrás de la misma IP (una red con NAT) lo comparten. Si Redis no responde,
   los endpoints públicos responden 500 (no se abren sin límite). Depende de que `req.ip` sea la IP
@@ -63,7 +63,7 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 - ✅ Resuelto (oct 2026): las pistas one-shot no encendían su pad en la barra lateral y el flag
   `isPlaying` de cada archivo no bajaba cuando el archivo terminaba solo. Ahora lo baja el `onstop`
   del `Tone.Player` y el pad se enciende si suena cualquier archivo de su Track Group.
-- 🟡 `user_track_groups.silences` y la tabla `sets` no se usan (`silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
+- 🟡 `user_track_groups.silences` y la tabla `sets` no se usan (legado: una base nueva ya no las crea; `silences` ya no se devuelve en `get_user_info` ni se guarda: al guardar los
   track groups queda en null; en la base actual estaba vacía en todas las filas). Los silencios por
   pista se implementaron en `user_track_groups.props.rest` (oct 2026); `silences` queda como columna
   muerta y **no se debe reutilizar**.
