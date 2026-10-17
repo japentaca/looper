@@ -21,13 +21,14 @@
         <span class="silk">Master</span>
         <div class="master_lr">
           <span class="silk ch">L</span>
-          <LedMeter horizontal :segments="20" :value="levels.master[0].level" :peak="levels.master[0].peak" />
+          <LedMeter horizontal :segments="20" :src="levels.master[0]" />
           <span class="silk ch">R</span>
-          <LedMeter horizontal :segments="20" :value="levels.master[1].level" :peak="levels.master[1].peak" />
+          <LedMeter horizontal :segments="20" :src="levels.master[1]" />
         </div>
         <!-- reducción de ganancia del limitador master: amarillo > 1 dB, rojo > 3 dB -->
-        <div class="gr" :title="'Limiter GR: ' + levels.gr.toFixed(1) + ' dB'">
-          <Led :color="levels.gr > 3 ? 'red' : 'yellow'" :lit="levels.gr > 1" />
+        <!-- los medidores y el LED leen los niveles adentro (src): así App.vue no se re-renderiza en cada frame -->
+        <div class="gr">
+          <GrLed :src="levels" k="gr" :red="3" name="Limiter" />
           <span class="silk ch">LIM</span>
         </div>
       </div>
@@ -138,6 +139,7 @@ import Led from "./components/hw/Led.vue"
 import Lcd from "./components/hw/Lcd.vue"
 import LedButton from "./components/hw/LedButton.vue"
 import LedMeter from "./components/hw/LedMeter.vue"
+import GrLed from "./components/hw/GrLed.vue"
 import { levels } from "./helpers/mixer"
 import { TrackCtrl } from "./helpers/TrackCtrl"
 import { FX_TYPES } from "./helpers/fx"

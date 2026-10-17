@@ -8,11 +8,14 @@
 <script setup>
 // Medidor vertical de LEDs rectangulares: verde, amarillo en el último cuarto y rojo en el último segmento.
 // value va de 0 a 1. peak (0..1, opcional) enciende un solo segmento suelto: el pico retenido.
+// src = objeto reactivo { level, peak } (los de levels en mixer.js) en vez de value/peak: así el nivel, que
+// cambia en cada frame, lo lee solo el medidor y no se re-renderiza el componente padre entero
 import { computed } from "vue"
 
 const props = defineProps({
   value: { type: Number, default: 0 },
   peak: { type: Number, default: 0 },
+  src: { type: Object, default: null },
   segments: { type: Number, default: 16 },
   horizontal: { type: Boolean, default: false }
 })
@@ -20,8 +23,8 @@ const props = defineProps({
 function to_seg(v) {
   return Math.round(Math.min(1, Math.max(0, v)) * props.segments)
 }
-const lit = computed(() => to_seg(props.value))
-const peak_seg = computed(() => to_seg(props.peak))
+const lit = computed(() => to_seg(props.src ? props.src.level : props.value))
+const peak_seg = computed(() => to_seg(props.src ? props.src.peak : props.peak))
 
 function zone(i) {
   if (i == props.segments) return "red"

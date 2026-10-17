@@ -1089,7 +1089,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
   - **Controles** (`Tracks.vue`, grupo `g_comp` del panel Transport, debajo del master; oculto en modo
     lectura como delay y reverb): `LedButton` COMP (rótulo "Dynamics", LED verde = `comp.on`), knob
     GLUE (`amount` 0..1, pasos de 0.01, `title` "Glue 50%") y tres columnas LOW / MID / HIGH, cada una
-    con un `Led` de GR arriba (`levels.comp_gr[i]`: encendido con más de 1 dB, amarillo, rojo con más de
+    con un `hw/GrLed.vue` arriba (`levels.comp_gr[i]`: encendido con más de 1 dB, amarillo, rojo con más de
     6 dB; `title` "Low GR 2.3 dB") y un knob chico abajo (trim `COMP_BAND_MIN..COMP_BAND_MAX` = −6..+6 dB
     de `TrackCtrl.js`, pasos de 0.5, `title` "Low +1.5 dB"). Con COMP apagado GLUE y las bandas se
     atenúan pero se pueden mover (se guardan). Sin worklet (`!levels.dsp`: contexto no seguro, todavía
@@ -1112,7 +1112,7 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
     de `requestAnimationFrame` de los vúmetros lo pasa a `levels.gr` (limitador) y
     `levels.comp_gr` (por banda); sin worklet, `levels.gr` sale de `master_limiter.reduction` (el
     `reduction` del `DynamicsCompressorNode` nativo, dB ≤ 0) y `comp_gr` queda en 0. En la barra
-    superior, junto al vúmetro master, un `Led` rotulado LIM se enciende amarillo con más de 1 dB de
+    superior, junto al vúmetro master, un `GrLed` rotulado LIM se enciende amarillo con más de 1 dB de
     reducción y rojo con más de 3 dB (el `title` muestra el valor). Como el resto de los medidores,
     solo se actualiza mientras suena el transporte o un preview; al cortarse el loop queda en 0.
   - Respecto del `Tone.Limiter` de antes (hoy solo el respaldo): es un `DynamicsCompressorNode` con
@@ -1124,6 +1124,17 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 - `levels` (reactive) tiene `level` y `peak` 0..1 (−48 dB → 0, 0 dB → 1) con pico retenido 800 ms.
   Se actualiza con `requestAnimationFrame` solo mientras suena el transporte o un preview, y al
   parar sigue hasta que los medidores caen a cero.
+- **Los niveles los lee solo el medidor**: `LedMeter` recibe el objeto (`:src="levels.trgs[trg.id]"`,
+  `:src="levels.master[0]"`) y `GrLed` la fuente y la clave (`:src="levels.comp_gr" :k="i"`,
+  `:src="levels" k="gr"`). Si `Tracks.vue` o `App.vue` leyeran `level`/`peak`/`gr` en su template, se
+  re-renderizarían enteros en cada frame mientras suena (con knobs y faders encima, eso trababa la UI y
+  le quitaba hilo principal al scheduling de Tone). Al agregar un medidor nuevo, mantener este patrón.
+- **Mismo criterio para la lista de archivos**: `Files.vue` no lee el estado del motor. Si un cartucho
+  (vista Box) suena lo calcula `FileCart.vue` adentro (clase `playing` y el LED, vía slot), así un cambio
+  de loop re-renderiza solo los cartuchos que empiezan o dejan de sonar y no la lista entera (las dos
+  vistas están montadas con `v-show`: la tabla oculta también se re-renderizaba). El title "out of
+  tempo" usa `TrackCtrl.timing_basis` (tempo y tolerancia del último `calculate_timing`), no
+  `tempo`/`tempo_tol`, que cambian en vivo mientras se arrastran los knobs Tempo y Tol.
 - El avance dentro del loop ya no usa el `LedMeter`: lo muestra `hw/StepLeds.vue` (16 LEDs de paso).
 
 ### Preview

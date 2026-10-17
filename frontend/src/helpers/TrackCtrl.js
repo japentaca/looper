@@ -68,6 +68,10 @@ export function comp_default() {
 export const TrackCtrl = reactive({
   tempo: TEMPO_DEFAULT,
   tempo_tol: TEMPO_TOL_DEFAULT,
+  // tempo y tolerancia con los que se hizo el último calculate_timing (el in_tempo de los archivos). Los
+  // knobs cambian tempo / tempo_tol en vivo y recalculan al soltar: lo que muestra la lista de archivos
+  // (Files.vue) lee esto, así arrastrar el knob no re-renderiza la lista entera en cada movimiento
+  timing_basis: { tempo: TEMPO_DEFAULT, tol: TEMPO_TOL_DEFAULT },
   beats_x_bar: BEATS_X_BAR_DEFAULT,
   tag_range: [...TAG_RANGE_DEFAULT],
   delay: delay_default(),
@@ -128,6 +132,7 @@ export function file_timing(f, tempo, tol) {
 // recalcula el tempo de todos los archivos del proyecto (al cargar y al cambiar tempo, tolerancia o
 // compás). Los players que ya suenan toman el playbackRate nuevo en Tracks.vue (apply_rates)
 export function calculate_timing() {
+  TrackCtrl.timing_basis = { tempo: TrackCtrl.tempo, tol: TrackCtrl.tempo_tol }
   for (let f of store.files) {
     Object.assign(f, file_timing(f, TrackCtrl.tempo, TrackCtrl.tempo_tol))
   }

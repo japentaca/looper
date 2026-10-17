@@ -123,8 +123,7 @@
             :title="'Glue ' + Math.round(TrackCtrl.comp.amount * 100) + '%'"
             @update:model-value="v => set_comp('amount', Math.round(v * 100) / 100)" />
           <div v-for="(b, i) in COMP_BAND_KEYS" :key="b.key" class="comp_band">
-            <Led :color="levels.comp_gr[i] > 6 ? 'red' : 'yellow'" :lit="levels.comp_gr[i] > 1"
-              :title="b.name + ' GR ' + levels.comp_gr[i].toFixed(1) + ' dB'" />
+            <GrLed :src="levels.comp_gr" :k="i" :red="6" :name="b.name" />
             <Knob :model-value="TrackCtrl.comp[b.key]" :min="COMP_BAND_MIN" :max="COMP_BAND_MAX" :step="0.5" :size="32"
               :label="b.name" :title="b.name + ' ' + band_label(TrackCtrl.comp[b.key])"
               @update:model-value="v => set_comp(b.key, v)" />
@@ -163,8 +162,9 @@
           <!-- LED de actividad loop: destella en cada beat mientras la pista suena, en rojo al reiniciar el loop -->
           <Led v-else :color="track?.curr_file && track_beat(track) == 1 ? 'red' : 'green'"
             :pulse="track?.curr_file && TrackCtrl.isPlaying ? beat.n : null" />
-          <!-- vúmetro real de la pista (nivel RMS con pico retenido) -->
-          <LedMeter :value="levels.trgs[trg.id]?.level ?? 0" :peak="levels.trgs[trg.id]?.peak ?? 0" />
+          <!-- vúmetro real de la pista (nivel RMS con pico retenido). Se le pasa el objeto (src): si la tira
+            leyera el nivel, Tracks.vue entero se re-renderizaría en cada frame mientras suena -->
+          <LedMeter :src="levels.trgs[trg.id]" />
           <!-- one-shot: el LCD muestra cada cuántos compases se tira el dado (no hay posición de loop) -->
           <Lcd v-if="is_oneshot(trg)" small :digits="2" :value="shot_bars(trg)" unit="SHOT" :caption="NBSP" />
           <!-- en descanso no hay archivo: el LCD cuenta los compases que faltan para el próximo loop, con el rótulo REST -->
@@ -289,6 +289,7 @@ import ToggleSwitch from "./hw/ToggleSwitch.vue"
 import LedButton from "./hw/LedButton.vue"
 import Led from "./hw/Led.vue"
 import LedMeter from "./hw/LedMeter.vue"
+import GrLed from "./hw/GrLed.vue"
 import StepLeds from "./hw/StepLeds.vue"
 import {
   levels, mixer, route_player, toggle_mute, toggle_solo, set_volume, is_silenced,

@@ -17,13 +17,14 @@
       </span>
     </div>
     <div v-show="(fileListViewMode == 'Box')" class="box">
-      <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags -->
-      <div v-for="file in shown_files" :key="file.id" class="cart"
-        :class="{ playing: is_sounding(file), drag_over: drag_id === file.id, unavailable: !drawable(file) }"
+      <!-- cada archivo es un cartucho: etiqueta de papel con bandas de color del Track Group y de sus Tags.
+        FileCart calcula si suena (clase playing y el LED vía slot): Files.vue no lee el estado del motor -->
+      <FileCart v-for="file in shown_files" :key="file.id" v-slot="{ sounding }" :file="file"
+        :class="{ drag_over: drag_id === file.id, unavailable: !drawable(file) }"
         :title="not_drawable_title(file)" @dragover="ondragover($event, file)"
         @dragleave="ondragleave($event, file)" @drop="ondrop($event, file)">
         <div class="grip">
-          <Led color="green" :lit="is_sounding(file)" />
+          <Led color="green" :lit="sounding" />
         </div>
         <div class="label">
           <div class="bands">
@@ -66,7 +67,7 @@
             </el-icon>
           </span>
         </div>
-      </div>
+      </FileCart>
     </div>
     <!-- el-table no tiene eventos de drag por fila: se delegan desde el contenedor (ver row_file) -->
     <div v-show="(fileListViewMode == 'Table')" @dragover="ondragover_table" @dragleave="ondragleave_table"
@@ -269,6 +270,7 @@ import RangePads from "./hw/RangePads.vue"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
+import FileCart from "./FileCart.vue"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import { update_file, error_text } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
@@ -306,8 +308,10 @@ function drawable(file) {
 function not_drawable_title(file) {
   if (file.available === false) return unavailable_title
   if (out_of_tempo(file)) {
-    return `Out of tempo: at ${fmt_bpm(file.bpm)} BPM it is more than ±${TrackCtrl.tempo_tol}% away from `
-      + `${TrackCtrl.tempo} BPM (also at half or double time). It is not played.`
+    // timing_basis y no tempo / tempo_tol: esos cambian en vivo mientras se arrastra el knob (ver TrackCtrl.js)
+    let { tempo, tol } = TrackCtrl.timing_basis
+    return `Out of tempo: at ${fmt_bpm(file.bpm)} BPM it is more than ±${tol}% away from `
+      + `${tempo} BPM (also at half or double time). It is not played.`
   }
   return undefined
 }
@@ -460,12 +464,6 @@ function togglePreview(file) {
 
 function preview_title(file) {
   return is_previewing(file) ? "Stop preview" : "Preview"
-}
-
-// el archivo suena en el motor (algún track lo tiene) o en el preview
-function is_sounding(file) {
-  if (is_previewing(file)) return true
-  return TrackCtrl.isPlaying && TrackCtrl.tracks.some(t => t.curr_file?.id == file.id && t.curr_file.isPlaying)
 }
 
 
