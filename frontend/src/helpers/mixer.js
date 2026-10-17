@@ -57,7 +57,7 @@ export function vol_db(db, max_db = VOL_MAX_DB) {
   return db == null || db <= VOL_OFF_DB ? VOL_SILENT_DB : Math.min(max_db, db)
 }
 
-// trg id -> { channel, meter, fx_lp, fx_hp, fx_gain, send, dly_send, throw_ch, throw_send, throw_dly_send }
+// trg id -> { fx_lp, fx_hp, fx_gain, send, dly_send, throw_send, throw_dly_send, throw_ch, channel, meter }
 const channels_by_trg = {}
 // player -> track group al que está enrutado (WeakMap: si se recargan los audios, los players nuevos arrancan sin enrutar)
 const trg_of_player = new WeakMap()
@@ -232,13 +232,9 @@ function trg_props(trg) {
   return store.track_groups.find(t => t.id === trg)?.props ?? {}
 }
 
-// ganancia lineal del send según props.reverb (dB; null = sin reverb)
-function send_gain(p) {
-  return p.reverb == null ? 0 : Tone.dbToGain(Math.min(0, p.reverb))
-}
-// ganancia lineal del send al delay según props.delay (dB; null = sin delay)
-function dly_send_gain(p) {
-  return p.delay == null ? 0 : Tone.dbToGain(Math.min(0, p.delay))
+// ganancia lineal de un send según props.reverb / props.delay (dB; null = sin send)
+function send_gain(db) {
+  return db == null ? 0 : Tone.dbToGain(Math.min(0, db))
 }
 
 // mute / solo por pista: solo en memoria (no se guardan, a propósito: un solo o un mute olvidado
@@ -263,11 +259,11 @@ function get_strip(trg) {
     fx_lp.chain(fx_hp, fx_gain, channel)
     // send a la reverb, tomado de la salida del canal: post-fader, post-mute y post-solo
     // (una pista muteada o callada por otro solo no manda reverb). Ganancia lineal, 0 = nada.
-    let send = new Tone.Gain(send_gain(p))
+    let send = new Tone.Gain(send_gain(p.reverb))
     channel.connect(send)
     send.connect(reverb_in)
     // send al delay global, igual que el de la reverb: post-fader, post-mute y post-solo
-    let dly_send = new Tone.Gain(dly_send_gain(p))
+    let dly_send = new Tone.Gain(send_gain(p.delay))
     channel.connect(dly_send)
     dly_send.connect(delay_in)
     // vúmetro post-mute: muestra lo que realmente se escucha de la pista
@@ -287,14 +283,11 @@ function get_strip(trg) {
     let throw_dly_send = new Tone.Gain(0)
     throw_ch.connect(throw_dly_send)
     throw_dly_send.connect(delay_in)
-    channels_by_trg[trg] = { channel, meter, fx_lp, fx_hp, fx_gain, send, dly_send, throw_ch, throw_send, throw_dly_send }
+    // el orden de las claves es el orden en que remove_channel los libera
+    channels_by_trg[trg] = { fx_lp, fx_hp, fx_gain, send, dly_send, throw_send, throw_dly_send, throw_ch, channel, meter }
     levels.trgs[trg] = new_level()
   }
   return channels_by_trg[trg]
-}
-
-function get_channel(trg) {
-  return get_strip(trg).channel
 }
 
 function remove_channel(trg) {
@@ -303,16 +296,7 @@ function remove_channel(trg) {
   // así los demás canales dejan de quedar callados por este solo (Solo.dispose no avisa a los demás)
   ch.channel.solo = false
   ch.throw_ch.solo = false
-  ch.fx_lp.dispose()
-  ch.fx_hp.dispose()
-  ch.fx_gain.dispose()
-  ch.send.dispose()
-  ch.dly_send.dispose()
-  ch.throw_send.dispose()
-  ch.throw_dly_send.dispose()
-  ch.throw_ch.dispose()
-  ch.channel.dispose()
-  ch.meter.dispose()
+  for (const node of Object.values(ch)) node.dispose()
   delete channels_by_trg[trg]
   delete levels.trgs[trg]
   delete mixer.mute[trg]
@@ -326,7 +310,7 @@ watch(() => store.track_groups.map(t => t.id).join(","), () => {
   for (const trg of Object.keys(channels_by_trg)) {
     if (!ids.includes(trg)) remove_channel(trg)
   }
-  for (const trg of ids) get_channel(trg)
+  for (const trg of ids) get_strip(trg)
 }, { immediate: true })
 
 // enruta el player del archivo al primer nodo de la cadena de FX (y de ahí al canal) de su track group (una sola vez; si el archivo cambió
@@ -365,24 +349,22 @@ export function set_volume(trg, db) {
   save_trackGroups_debounced()
 }
 
-// nivel del send a la reverb en dB (null = sin reverb). Se aplica ya (rampa corta, sin clics). No
-// interactúa con los throws (van por throw_send / throw_dly_send)
+// nivel de un send en dB: props[key] (null = nada, en off_db o menos) y nodo ch[send_key]. Se aplica
+// ya (rampa corta, sin clics). No interactúa con los throws (van por throw_send / throw_dly_send)
+function set_send(trg, db, key, send_key, off_db) {
+  let p = trg_props(trg)
+  p[key] = db == null || db <= off_db ? null : db
+  get_strip(trg)[send_key].gain.rampTo(send_gain(p[key]), 0.05)
+  save_trackGroups_debounced()
+}
+// send a la reverb y send al delay global (mismo rango y "off")
 export function set_reverb(trg, db) {
-  let p = trg_props(trg)
-  p.reverb = db == null || db <= REV_OFF_DB ? null : db
-  get_strip(trg).send.gain.rampTo(send_gain(p), 0.05)
-  save_trackGroups_debounced()
+  set_send(trg, db, "reverb", "send", REV_OFF_DB)
 }
-export { REV_OFF_DB }
-
-// nivel del send al delay global en dB (null = nada; mismo rango y "off" que la reverb)
 export function set_delay(trg, db) {
-  let p = trg_props(trg)
-  p.delay = db == null || db <= DLY_OFF_DB ? null : db
-  get_strip(trg).dly_send.gain.rampTo(dly_send_gain(p), 0.05)
-  save_trackGroups_debounced()
+  set_send(trg, db, "delay", "dly_send", DLY_OFF_DB)
 }
-export { DLY_OFF_DB }
+export { REV_OFF_DB, DLY_OFF_DB }
 
 // --- FX de transición (instancias en trg.props.fx, ver helpers/fx.js; las dispara el motor en Tracks.vue) ---
 // Todos los tiempos son de audio (el `time` del callback del transporte), nunca Tone.now().
@@ -442,19 +424,30 @@ export function fx_schedule(trg, inst, start, end) {
   }
 }
 
+// parámetros de los FX de transición de una pista con su valor base: [[param, base, es_throw]]
+// (es_throw = send de throw, que fx_reset baja con rampa en vez de saltar). El orden es el de aplicación.
+function base_params(ch) {
+  return [
+    [ch.fx_lp.frequency, FILTER_OPEN_HZ],
+    [ch.fx_lp.Q, FILTER_BASE_Q],
+    [ch.fx_hp.frequency, HP_OPEN_HZ],
+    [ch.fx_hp.Q, FILTER_BASE_Q],
+    [ch.fx_gain.gain, 1],
+    [ch.throw_send.gain, 0, true],
+    [ch.throw_dly_send.gain, 0, true]
+  ]
+}
+
 // vuelta a la base en el beat del fin (`time`): filtros abiertos con Q base y ganancia 1 exactamente
 // en `time`; los sends de throw a 0 con una rampa corta (la cola del throw sigue sonando en la
 // reverb / el delay sobre lo que viene)
 export function fx_reset(trg, time) {
   let ch = channels_by_trg[trg]
   if (!ch) return
-  set_at(ch.fx_lp.frequency, FILTER_OPEN_HZ, time)
-  set_at(ch.fx_lp.Q, FILTER_BASE_Q, time)
-  set_at(ch.fx_hp.frequency, HP_OPEN_HZ, time)
-  set_at(ch.fx_hp.Q, FILTER_BASE_Q, time)
-  set_at(ch.fx_gain.gain, 1, time)
-  ramp_at(ch.throw_send.gain, 0, time, THROW_RETURN)
-  ramp_at(ch.throw_dly_send.gain, 0, time, THROW_RETURN)
+  for (const [param, base, is_throw] of base_params(ch)) {
+    if (is_throw) ramp_at(param, base, time, THROW_RETURN)
+    else set_at(param, base, time)
+  }
 }
 
 // STOP y RESET: todas las pistas vuelven ya a la base (rampa corta desde lo que suene ahora; rampTo
@@ -462,14 +455,7 @@ export function fx_reset(trg, time) {
 export function fx_reset_all(ramp = 0.05) {
   let now = Tone.now()
   for (const trg of Object.keys(channels_by_trg)) {
-    let ch = channels_by_trg[trg]
-    ch.fx_lp.frequency.rampTo(FILTER_OPEN_HZ, ramp, now)
-    ch.fx_lp.Q.rampTo(FILTER_BASE_Q, ramp, now)
-    ch.fx_hp.frequency.rampTo(HP_OPEN_HZ, ramp, now)
-    ch.fx_hp.Q.rampTo(FILTER_BASE_Q, ramp, now)
-    ch.fx_gain.gain.rampTo(1, ramp, now)
-    ch.throw_send.gain.rampTo(0, ramp, now)
-    ch.throw_dly_send.gain.rampTo(0, ramp, now)
+    for (const [param, base] of base_params(channels_by_trg[trg])) param.rampTo(base, ramp, now)
   }
 }
 
