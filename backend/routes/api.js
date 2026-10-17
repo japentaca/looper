@@ -47,69 +47,78 @@ export function require_admin(req, res, next) {
   next()
 }
 
+// error de validación de datos recibidos: route() lo responde como 400 con su mensaje
+class RowsError extends Error { }
+
+// envuelve un handler async: un RowsError responde 400 con su mensaje; cualquier otro error se
+// loguea con `label` y responde 500 "Error interno"
+function route(label, fn) {
+  return async (req, res) => {
+    try {
+      return await fn(req, res)
+    } catch (e) {
+      if (e instanceof RowsError) return res.status(400).send({ stat: false, text: e.message })
+      console.log(label, e)
+      return res.status(500).send({ stat: false, text: "Error interno" })
+    }
+  }
+}
+
 // intentos de login fallidos por IP: a partir de LOGIN_MAX_FAILS se bloquea por LOGIN_BLOCK_S
 const LOGIN_MAX_FAILS = 10
 const LOGIN_BLOCK_S = 15 * 60
 
-router.post('/login', async function (req, res) {
+router.post('/login', route("Error", async function (req, res) {
   //res.send(200, 'piden login')
   //console.log("piden login", req.body)
   // los emails se guardan en minúsculas (migración y registro): se compara igual
   var email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : ""
   var password = typeof req.body.password === "string" ? req.body.password : ""
   let fails_key = "looper_login_fails:" + req.ip
-  try {
-    if (!email || !password) {
-      res.status(200).send({ stat: false, text: "Por favor ingrese email o clave" })
-      return
-    }
-    let fails = Number(await global.redisClient.get(fails_key)) || 0
-    if (fails >= LOGIN_MAX_FAILS) {
-      res.status(200).send({ stat: false, text: "Demasiados intentos, probá de nuevo en 15 minutos" })
-      return
-    }
-
-    var db_res = await global.knex("users").select().where({ email: email })
-    var isValid = db_res[0] !== undefined && await bcrypt.compare(password, db_res[0].password)
-    // el estado se mira solo con la clave ya validada. `blocked` (y cualquier estado desconocido)
-    // responde y cuenta igual que una clave inválida, para no revelar que la cuenta existe
-    if (isValid && db_res[0].status === "pending") {
-      await global.redisClient.del(fails_key)
-      res.status(200).send({ stat: false, text: "Tu cuenta está pendiente de aprobación" })
-      return
-    }
-    if (isValid && db_res[0].status !== "active") isValid = false
-    if (!isValid) {
-      // el bloqueo dura LOGIN_BLOCK_S desde el primer fallo
-      if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, LOGIN_BLOCK_S)
-      res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
-      return
-    } else {
-      await global.redisClient.del(fails_key)
-      // sesión nueva al loguearse (evita fijar un id de sesión de antemano). En la sesión solo
-      // queda el id: estado, rol y datos se leen de la base en cada request
-      await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()))
-      req.session.isLogged = true
-      req.session.u_info = { id: db_res[0].id }
-      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()))
-      let ui = await return_user_info(db_res[0].id)
-      var res_data = {
-        stat: true,
-        data: {
-          u_info: ui,
-          text: "Ingreso al sistema"
-        }
-      }
-      res.status(200).send(res_data)
-    }
-
-  } catch (e) {
-
-    res.status(500).send({ stat: false, text: "Error interno" })
-    console.log("Error", e)
+  if (!email || !password) {
+    res.status(200).send({ stat: false, text: "Por favor ingrese email o clave" })
+    return
+  }
+  let fails = Number(await global.redisClient.get(fails_key)) || 0
+  if (fails >= LOGIN_MAX_FAILS) {
+    res.status(200).send({ stat: false, text: "Demasiados intentos, probá de nuevo en 15 minutos" })
+    return
   }
 
-})
+  var db_res = await global.knex("users").select().where({ email: email })
+  var isValid = db_res[0] !== undefined && await bcrypt.compare(password, db_res[0].password)
+  // el estado se mira solo con la clave ya validada. `blocked` (y cualquier estado desconocido)
+  // responde y cuenta igual que una clave inválida, para no revelar que la cuenta existe
+  if (isValid && db_res[0].status === "pending") {
+    await global.redisClient.del(fails_key)
+    res.status(200).send({ stat: false, text: "Tu cuenta está pendiente de aprobación" })
+    return
+  }
+  if (isValid && db_res[0].status !== "active") isValid = false
+  if (!isValid) {
+    // el bloqueo dura LOGIN_BLOCK_S desde el primer fallo
+    if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, LOGIN_BLOCK_S)
+    res.status(200).send({ stat: false, text: "Usuario o clave inválida" })
+    return
+  } else {
+    await global.redisClient.del(fails_key)
+    // sesión nueva al loguearse (evita fijar un id de sesión de antemano). En la sesión solo
+    // queda el id: estado, rol y datos se leen de la base en cada request
+    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()))
+    req.session.isLogged = true
+    req.session.u_info = { id: db_res[0].id }
+    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()))
+    let ui = await return_user_info(db_res[0].id)
+    var res_data = {
+      stat: true,
+      data: {
+        u_info: ui,
+        text: "Ingreso al sistema"
+      }
+    }
+    res.status(200).send(res_data)
+  }
+}))
 
 // registro público: la cuenta queda `pending` hasta que la admita un admin.
 // Intentos por IP (con datos válidos): a partir de REGISTER_MAX se rechaza por REGISTER_WINDOW_S
@@ -127,7 +136,7 @@ function valid_password(password) {
   return typeof password === "string" && password.length >= 8 && Buffer.byteLength(password) <= 72
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', route("Error register", async (req, res) => {
   let body = req.body || {}
   let email = typeof body.email === "string" ? body.email.trim().toLowerCase() : ""
   let password = typeof body.password === "string" ? body.password : ""
@@ -144,44 +153,39 @@ router.post('/register', async (req, res) => {
   if (body.accept_license !== true) return res.send({ stat: false, text: "Hay que aceptar la licencia" })
 
   let key = "looper_register:" + req.ip
+  let n = await global.redisClient.incr(key)
+  // la ventana dura REGISTER_WINDOW_S desde el primer intento
+  if (n == 1) await global.redisClient.expire(key, REGISTER_WINDOW_S)
+  if (n > REGISTER_MAX) return res.send({ stat: false, text: "Demasiados intentos, probá de nuevo más tarde" })
+
+  // el hash se calcula siempre (también con email repetido) para que el tiempo de respuesta no
+  // delate si el email ya está registrado
+  let hash = await bcrypt.hash(password, 10)
+  // nombre único sin distinguir mayúsculas (el índice de la base sí las distingue)
+  let name_taken = await global.knex("users").whereRaw("lower(name) = lower(?)", [name]).first()
+  if (name_taken) return res.send({ stat: false, text: "Ese nombre ya está en uso" })
+  // email repetido: misma respuesta que el éxito, sin tocar la cuenta existente
+  let email_taken = await global.knex("users").where({ email: email }).first()
+  if (email_taken) return res.send({ stat: true, text: REGISTER_OK_TEXT })
+
   try {
-    let n = await global.redisClient.incr(key)
-    // la ventana dura REGISTER_WINDOW_S desde el primer intento
-    if (n == 1) await global.redisClient.expire(key, REGISTER_WINDOW_S)
-    if (n > REGISTER_MAX) return res.send({ stat: false, text: "Demasiados intentos, probá de nuevo más tarde" })
-
-    // el hash se calcula siempre (también con email repetido) para que el tiempo de respuesta no
-    // delate si el email ya está registrado
-    let hash = await bcrypt.hash(password, 10)
-    // nombre único sin distinguir mayúsculas (el índice de la base sí las distingue)
-    let name_taken = await global.knex("users").whereRaw("lower(name) = lower(?)", [name]).first()
-    if (name_taken) return res.send({ stat: false, text: "Ese nombre ya está en uso" })
-    // email repetido: misma respuesta que el éxito, sin tocar la cuenta existente
-    let email_taken = await global.knex("users").where({ email: email }).first()
-    if (email_taken) return res.send({ stat: true, text: REGISTER_OK_TEXT })
-
-    try {
-      await global.knex("users").insert({
-        id: uuid(),
-        email: email,
-        password: hash,
-        name: name,
-        bio: bio || null,
-        status: "pending",
-        role: "user",
-        ts: new Date().toISOString().slice(0, 19),
-      })
-    } catch (e) {
-      // carrera con otro registro simultáneo: lo resuelven los índices únicos
-      if (e.code !== "SQLITE_CONSTRAINT_UNIQUE") throw e
-      if (String(e.message).includes("users.name")) return res.send({ stat: false, text: "Ese nombre ya está en uso" })
-    }
-    return res.send({ stat: true, text: REGISTER_OK_TEXT })
+    await global.knex("users").insert({
+      id: uuid(),
+      email: email,
+      password: hash,
+      name: name,
+      bio: bio || null,
+      status: "pending",
+      role: "user",
+      ts: new Date().toISOString().slice(0, 19),
+    })
   } catch (e) {
-    console.log("Error register", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+    // carrera con otro registro simultáneo: lo resuelven los índices únicos
+    if (e.code !== "SQLITE_CONSTRAINT_UNIQUE") throw e
+    if (String(e.message).includes("users.name")) return res.send({ stat: false, text: "Ese nombre ya está en uso" })
   }
-})
+  return res.send({ stat: true, text: REGISTER_OK_TEXT })
+}))
 
 // cambio de clave del propio usuario: pide la actual. Los fallos con la actual se cuentan por
 // usuario (no por IP, para no bloquear el login de otros en la misma red): a partir de
@@ -189,7 +193,7 @@ router.post('/register', async (req, res) => {
 const PWCHANGE_MAX_FAILS = 10
 const PWCHANGE_BLOCK_S = 15 * 60
 
-router.put('/change_password', require_session, async (req, res) => {
+router.put('/change_password', require_session, route("Error change_password", async (req, res) => {
   let body = req.body || {}
   let current = typeof body.current_password === "string" ? body.current_password : ""
   let password = typeof body.new_password === "string" ? body.new_password : ""
@@ -197,42 +201,32 @@ router.put('/change_password', require_session, async (req, res) => {
   if (!valid_password(password)) return res.send({ stat: false, text: PASSWORD_TEXT })
 
   let fails_key = "looper_pwchange_fails:" + req.user.id
-  try {
-    let fails = Number(await global.redisClient.get(fails_key)) || 0
-    if (fails >= PWCHANGE_MAX_FAILS) {
-      return res.send({ stat: false, text: "Demasiados intentos, probá de nuevo en 15 minutos" })
-    }
-    let user = await global.knex("users").select("password").where({ id: req.user.id }).first()
-    let ok = user && await bcrypt.compare(current, user.password)
-    if (!ok) {
-      // el bloqueo dura PWCHANGE_BLOCK_S desde el primer fallo
-      if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, PWCHANGE_BLOCK_S)
-      return res.send({ stat: false, text: "La clave actual es incorrecta" })
-    }
-    await global.redisClient.del(fails_key)
-    let hash = await bcrypt.hash(password, 10)
-    await global.knex("users").update({ password: hash }).where({ id: req.user.id })
-    return res.send({ stat: true, text: "Clave cambiada" })
-  } catch (e) {
-    console.log("Error change_password", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+  let fails = Number(await global.redisClient.get(fails_key)) || 0
+  if (fails >= PWCHANGE_MAX_FAILS) {
+    return res.send({ stat: false, text: "Demasiados intentos, probá de nuevo en 15 minutos" })
   }
-})
+  let user = await global.knex("users").select("password").where({ id: req.user.id }).first()
+  let ok = user && await bcrypt.compare(current, user.password)
+  if (!ok) {
+    // el bloqueo dura PWCHANGE_BLOCK_S desde el primer fallo
+    if (await global.redisClient.incr(fails_key) == 1) await global.redisClient.expire(fails_key, PWCHANGE_BLOCK_S)
+    return res.send({ stat: false, text: "La clave actual es incorrecta" })
+  }
+  await global.redisClient.del(fails_key)
+  let hash = await bcrypt.hash(password, 10)
+  await global.knex("users").update({ password: hash }).where({ id: req.user.id })
+  return res.send({ stat: true, text: "Clave cambiada" })
+}))
 
 // perfil público del propio usuario: por ahora solo la bio (el nombre no se cambia)
-router.put('/profile', require_session, async (req, res) => {
+router.put('/profile', require_session, route("Error profile", async (req, res) => {
   let body = req.body || {}
   if (typeof body.bio !== "string" && body.bio !== null) return res.status(400).send({ stat: false, text: "Datos inválidos" })
   let bio = (body.bio || "").trim()
   if ([...bio].length > BIO_MAX) return res.send({ stat: false, text: `La bio puede tener hasta ${BIO_MAX} caracteres` })
-  try {
-    await global.knex("users").update({ bio: bio || null }).where({ id: req.user.id })
-    return res.send({ stat: true })
-  } catch (e) {
-    console.log("Error profile", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  await global.knex("users").update({ bio: bio || null }).where({ id: req.user.id })
+  return res.send({ stat: true })
+}))
 
 // ---------- admin de usuarios ----------
 
@@ -250,63 +244,53 @@ const ADMIN_STATUS_ACTIONS = {
 const MAX_SECONDS_LIMIT = 24 * 60 * 60
 
 // lista de usuarios, filtrable por estado (?status=pending|active|blocked; sin status o vacío: todos)
-router.get('/admin/users', require_admin, async (req, res) => {
+router.get('/admin/users', require_admin, route("Error admin/users", async (req, res) => {
   let status = req.query.status
   if (status !== undefined && status !== "" && !USER_STATUSES.includes(status)) {
     return res.status(400).send({ stat: false, text: "Estado inválido" })
   }
-  try {
-    let q = global.knex("users").select(ADMIN_USER_COLUMNS).orderBy("ts", "desc")
-    if (status) q.where({ status: status })
-    return res.send({ stat: true, data: await q })
-  } catch (e) {
-    console.log("Error admin/users", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let q = global.knex("users").select(ADMIN_USER_COLUMNS).orderBy("ts", "desc")
+  if (status) q.where({ status: status })
+  return res.send({ stat: true, data: await q })
+}))
 
 // una acción sobre un usuario: body { action, password?, max_seconds? }
 //  admit (pending → active), reject (pending → blocked), block (active → blocked),
 //  unblock (blocked → active), reset_password (con `password`), set_max_seconds (con `max_seconds`,
 //  entero >= 0 o null = default). Los cambios de estado no se aplican a usuarios `admin` (evita que
 //  el admin se bloquee a sí mismo). Responde el usuario actualizado (sin hash).
-router.put('/admin/users/:id', require_admin, async (req, res) => {
+router.put('/admin/users/:id', require_admin, route("Error admin/users/:id", async (req, res) => {
   let id = req.params.id
   let body = req.body || {}
   let action = body.action
-  try {
-    let user = await global.knex("users").select("id", "status", "role").where({ id: id }).first()
-    if (!user) return res.status(404).send({ stat: false, text: "Usuario inexistente" })
+  let user = await global.knex("users").select("id", "status", "role").where({ id: id }).first()
+  if (!user) return res.status(404).send({ stat: false, text: "Usuario inexistente" })
 
-    if (ADMIN_STATUS_ACTIONS[action]) {
-      let { from, to } = ADMIN_STATUS_ACTIONS[action]
-      if (user.role === "admin") return res.send({ stat: false, text: "No se puede cambiar el estado de un admin" })
-      // update condicionado al estado de partida (si cambió entre la lectura y acá, no se aplica)
-      let n = await global.knex("users").update({ status: to }).where({ id: id }).whereIn("status", from)
-      if (n == 0) return res.send({ stat: false, text: `No se puede aplicar "${action}" a un usuario ${user.status}` })
-    } else if (action === "reset_password") {
-      if (!valid_password(body.password)) return res.send({ stat: false, text: PASSWORD_TEXT })
-      let hash = await bcrypt.hash(body.password, 10)
-      await global.knex("users").update({ password: hash }).where({ id: id })
-      // la clave nueva no hereda los fallos de cambio de clave anteriores
-      await global.redisClient.del("looper_pwchange_fails:" + id)
-    } else if (action === "set_max_seconds") {
-      let s = body.max_seconds
-      if (s !== null && !(Number.isInteger(s) && s >= 0 && s <= MAX_SECONDS_LIMIT)) {
-        return res.send({ stat: false, text: `La cuota debe ser un entero de 0 a ${MAX_SECONDS_LIMIT} segundos, o null (default)` })
-      }
-      await global.knex("users").update({ max_seconds: s }).where({ id: id })
-    } else {
-      return res.status(400).send({ stat: false, text: "Acción inválida" })
+  if (ADMIN_STATUS_ACTIONS[action]) {
+    let { from, to } = ADMIN_STATUS_ACTIONS[action]
+    if (user.role === "admin") return res.send({ stat: false, text: "No se puede cambiar el estado de un admin" })
+    // update condicionado al estado de partida (si cambió entre la lectura y acá, no se aplica)
+    let n = await global.knex("users").update({ status: to }).where({ id: id }).whereIn("status", from)
+    if (n == 0) return res.send({ stat: false, text: `No se puede aplicar "${action}" a un usuario ${user.status}` })
+  } else if (action === "reset_password") {
+    if (!valid_password(body.password)) return res.send({ stat: false, text: PASSWORD_TEXT })
+    let hash = await bcrypt.hash(body.password, 10)
+    await global.knex("users").update({ password: hash }).where({ id: id })
+    // la clave nueva no hereda los fallos de cambio de clave anteriores
+    await global.redisClient.del("looper_pwchange_fails:" + id)
+  } else if (action === "set_max_seconds") {
+    let s = body.max_seconds
+    if (s !== null && !(Number.isInteger(s) && s >= 0 && s <= MAX_SECONDS_LIMIT)) {
+      return res.send({ stat: false, text: `La cuota debe ser un entero de 0 a ${MAX_SECONDS_LIMIT} segundos, o null (default)` })
     }
-
-    let data = await global.knex("users").select(ADMIN_USER_COLUMNS).where({ id: id }).first()
-    return res.send({ stat: true, data: data })
-  } catch (e) {
-    console.log("Error admin/users/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+    await global.knex("users").update({ max_seconds: s }).where({ id: id })
+  } else {
+    return res.status(400).send({ stat: false, text: "Acción inválida" })
   }
-})
+
+  let data = await global.knex("users").select(ADMIN_USER_COLUMNS).where({ id: id }).first()
+  return res.send({ stat: true, data: data })
+}))
 
 // ---------- moderación (tarea 5.1) ----------
 // El admin modera, no edita: cierra o descarta denuncias, oculta o desoculta un archivo o un
@@ -354,116 +338,91 @@ function admin_report_out(r) {
 
 // denuncias, las más nuevas primero (hasta ADMIN_REPORTS_LIMIT). ?status=open|resolved|dismissed
 // (sin status o vacío: todas)
-router.get('/admin/reports', require_admin, async (req, res) => {
+router.get('/admin/reports', require_admin, route("Error admin/reports", async (req, res) => {
   let status = req.query.status
   if (status !== undefined && status !== "" && !REPORT_STATUSES.includes(status)) {
     return res.status(400).send({ stat: false, text: "Estado inválido" })
   }
-  try {
-    let q = admin_reports_query(global.knex).orderBy([{ column: "r.ts", order: "desc" }, { column: "r.id" }])
-      .limit(ADMIN_REPORTS_LIMIT)
-    if (status) q.where("r.status", status)
-    return res.send({ stat: true, data: (await q).map(admin_report_out) })
-  } catch (e) {
-    console.log("Error admin/reports", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let q = admin_reports_query(global.knex).orderBy([{ column: "r.ts", order: "desc" }, { column: "r.id" }])
+    .limit(ADMIN_REPORTS_LIMIT)
+  if (status) q.where("r.status", status)
+  return res.send({ stat: true, data: (await q).map(admin_report_out) })
+}))
 
 // cambia el estado de una denuncia: body { status: "resolved" | "dismissed" | "open" } (open la
 // reabre). Responde la denuncia actualizada (forma de GET /admin/reports)
-router.put('/admin/reports/:id', require_admin, async (req, res) => {
+router.put('/admin/reports/:id', require_admin, route("Error admin/reports/:id", async (req, res) => {
   let status = (req.body || {}).status
   if (!REPORT_STATUSES.includes(status)) {
     return res.status(400).send({ stat: false, text: "status tiene que ser open, resolved o dismissed" })
   }
   let id = String(req.params.id)
-  try {
-    let n = await global.knex("reports").update({ status: status }).where({ id: id })
-    if (n == 0) return res.status(404).send({ stat: false, text: "Denuncia inexistente" })
-    let r = await admin_reports_query(global.knex).where("r.id", id).first()
-    return res.send({ stat: true, data: admin_report_out(r) })
-  } catch (e) {
-    console.log("Error admin/reports/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let n = await global.knex("reports").update({ status: status }).where({ id: id })
+  if (n == 0) return res.status(404).send({ stat: false, text: "Denuncia inexistente" })
+  let r = await admin_reports_query(global.knex).where("r.id", id).first()
+  return res.send({ stat: true, data: admin_report_out(r) })
+}))
 
 // oculta (true) o desoculta (false) un archivo o un proyecto: body { hidden: bool }. Responde
 // { id, name, hidden } (y para archivos `available`, ya con el cambio)
-router.put('/admin/files/:id/hidden', require_admin, async (req, res) => {
+router.put('/admin/files/:id/hidden', require_admin, route("Error admin/files/:id/hidden", async (req, res) => {
   let hidden = (req.body || {}).hidden
   if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
   let id = String(req.params.id)
-  try {
-    let n = await global.knex("files").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
-    if (n == 0) return res.status(404).send(FILE_NOT_FOUND)
-    let [f] = await get_catalog_files(global.knex, [id])
-    return res.send({ stat: true, data: { id: f.id, name: f.original_name, hidden: !!f.hidden, available: file_available(f) } })
-  } catch (e) {
-    console.log("Error admin/files/:id/hidden", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let n = await global.knex("files").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
+  if (n == 0) return res.status(404).send(FILE_NOT_FOUND)
+  let [f] = await get_catalog_files(global.knex, [id])
+  return res.send({ stat: true, data: { id: f.id, name: f.original_name, hidden: !!f.hidden, available: file_available(f) } })
+}))
 
-router.put('/admin/projects/:id/hidden', require_admin, async (req, res) => {
+router.put('/admin/projects/:id/hidden', require_admin, route("Error admin/projects/:id/hidden", async (req, res) => {
   let hidden = (req.body || {}).hidden
   if (typeof hidden !== "boolean") return res.status(400).send({ stat: false, text: "hidden tiene que ser true o false" })
   let id = String(req.params.id)
-  try {
-    let n = await global.knex("projects").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
-    if (n == 0) return res.status(404).send(PROJECT_NOT_FOUND)
-    let p = await global.knex("projects").select("id", "name", "hidden").where({ id: id }).first()
-    return res.send({ stat: true, data: { id: p.id, name: p.name, hidden: !!p.hidden } })
-  } catch (e) {
-    console.log("Error admin/projects/:id/hidden", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let n = await global.knex("projects").update({ hidden: hidden ? 1 : 0 }).where({ id: id })
+  if (n == 0) return res.status(404).send(PROJECT_NOT_FOUND)
+  let p = await global.knex("projects").select("id", "name", "hidden").where({ id: id }).first()
+  return res.send({ stat: true, data: { id: p.id, name: p.name, hidden: !!p.hidden } })
+}))
 
 // estadísticas: tráfico de audio del mes UTC en curso (tabla `traffic`), disco de storage_path,
 // usuarios por estado, archivos, proyectos y denuncias abiertas
-router.get('/admin/stats', require_admin, async (req, res) => {
-  try {
-    let month = new Date().toISOString().slice(0, 7)
-    let t = await global.knex("traffic").sum({ bytes: "bytes" }).sum({ requests: "requests" })
-      .where("id", "like", month + "-%").first()
+router.get('/admin/stats', require_admin, route("Error admin/stats", async (req, res) => {
+  let month = new Date().toISOString().slice(0, 7)
+  let t = await global.knex("traffic").sum({ bytes: "bytes" }).sum({ requests: "requests" })
+    .where("id", "like", month + "-%").first()
 
-    let s = await fs.statfs(global.config.storage_path)
-    let min_free_gb = config_number("disk_min_free_gb", DEFAULT_DISK_MIN_FREE_GB)
-    let free_bytes = s.bavail * s.bsize
+  let s = await fs.statfs(global.config.storage_path)
+  let min_free_gb = config_number("disk_min_free_gb", DEFAULT_DISK_MIN_FREE_GB)
+  let free_bytes = s.bavail * s.bsize
 
-    let users = { pending: 0, active: 0, blocked: 0 }
-    for (let r of await global.knex("users").select("status").count({ n: "*" }).groupBy("status")) {
-      users[r.status ?? "null"] = Number(r.n) || 0
-    }
-    let count = async (table, where) => {
-      let q = global.knex(table).count({ n: "*" })
-      if (where) q.where(where)
-      return Number((await q.first()).n) || 0
-    }
-    return res.send({
-      stat: true,
-      data: {
-        traffic: { month: month, bytes: Number(t?.bytes) || 0, requests: Number(t?.requests) || 0 },
-        disk: {
-          free_bytes: free_bytes, total_bytes: s.blocks * s.bsize, min_free_gb: min_free_gb,
-          uploads_allowed: free_bytes >= min_free_gb * 1024 * 1024 * 1024,
-        },
-        users: users,
-        files: { total: await count("files"), hidden: await count("files", { hidden: 1 }) },
-        projects: {
-          total: await count("projects"),
-          hidden: await count("projects", { hidden: 1 }),
-        },
-        reports: { open: await count("reports", { status: "open" }) },
-      },
-    })
-  } catch (e) {
-    console.log("Error admin/stats", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+  let users = { pending: 0, active: 0, blocked: 0 }
+  for (let r of await global.knex("users").select("status").count({ n: "*" }).groupBy("status")) {
+    users[r.status ?? "null"] = Number(r.n) || 0
   }
-})
+  let count = async (table, where) => {
+    let q = global.knex(table).count({ n: "*" })
+    if (where) q.where(where)
+    return Number((await q.first()).n) || 0
+  }
+  return res.send({
+    stat: true,
+    data: {
+      traffic: { month: month, bytes: Number(t?.bytes) || 0, requests: Number(t?.requests) || 0 },
+      disk: {
+        free_bytes: free_bytes, total_bytes: s.blocks * s.bsize, min_free_gb: min_free_gb,
+        uploads_allowed: free_bytes >= min_free_gb * 1024 * 1024 * 1024,
+      },
+      users: users,
+      files: { total: await count("files"), hidden: await count("files", { hidden: 1 }) },
+      projects: {
+        total: await count("projects"),
+        hidden: await count("projects", { hidden: 1 }),
+      },
+      reports: { open: await count("reports", { status: "open" }) },
+    },
+  })
+}))
 
 
 // ---------- proyectos ----------
@@ -542,17 +501,12 @@ function serialize_project_props(body) {
   return text.length <= PROPS_MAX_LENGTH ? text : undefined
 }
 
-router.get("/projects", require_session, async (req, res) => {
-  try {
-    return res.send({ stat: true, data: await list_projects(req.user.id) })
-  } catch (e) {
-    console.log("Error projects", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+router.get("/projects", require_session, route("Error projects", async (req, res) => {
+  return res.send({ stat: true, data: await list_projects(req.user.id) })
+}))
 
 // crea un proyecto vacío: body { name, props? }. Responde el proyecto (forma de la lista)
-router.post("/projects", require_session, async (req, res) => {
+router.post("/projects", require_session, route("Error POST projects", async (req, res) => {
   let body = req.body || {}
   let name = parse_project_name(body.name)
   if (name === undefined) return res.send({ stat: false, text: PROJECT_NAME_TEXT })
@@ -565,14 +519,9 @@ router.post("/projects", require_session, async (req, res) => {
     props: props,
     ts: new Date().toISOString().slice(0, 19),
   }
-  try {
-    await global.knex("projects").insert(row)
-    return res.send({ stat: true, data: project_summary(row) })
-  } catch (e) {
-    console.log("Error POST projects", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  await global.knex("projects").insert(row)
+  return res.send({ stat: true, data: project_summary(row) })
+}))
 
 // ---------- archivos (catálogo) y archivos en proyectos ----------
 // `files` es el catálogo global (un archivo = un mp3 con su dueño); `project_files` es el uso de un
@@ -646,34 +595,29 @@ async function get_catalog_files(db, ids) {
 
 // proyecto completo: datos, props (config), pistas, tags y archivos (con su pista, tags y volumen
 // dentro del proyecto). Es lo que antes venía en get_user_info
-router.get("/projects/:id", require_session, async (req, res) => {
+router.get("/projects/:id", require_session, route("Error GET projects/:id", async (req, res) => {
   let user_id = req.user.id
-  try {
-    let p = await own_project(global.knex, req.params.id, user_id)
-    if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
-    let data = project_summary(p)
-    data.props = parse_props(p.props)
+  let p = await own_project(global.knex, req.params.id, user_id)
+  if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
+  let data = project_summary(p)
+  data.props = parse_props(p.props)
 
-    let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
-      .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
-    data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
-    data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
-      .orderByRaw("rowid")
+  let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
+    .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
+  data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
+  data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
+    .orderByRaw("rowid")
 
-    // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
-    data.files = await list_project_files(global.knex, p.id, user_id)
-    data.files_count = data.files.length
-    data.audio_seconds = data.files.reduce((t, f) => t + file_audio_seconds(f), 0)
-    return res.send({ stat: true, data: data })
-  } catch (e) {
-    console.log("Error GET projects/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  // archivos del catálogo usados en el proyecto (propios o importados), con `own` y `available`
+  data.files = await list_project_files(global.knex, p.id, user_id)
+  data.files_count = data.files.length
+  data.audio_seconds = data.files.reduce((t, f) => t + file_audio_seconds(f), 0)
+  return res.send({ stat: true, data: data })
+}))
 
 // edita el proyecto: body { name?, props? } (solo lo que venga). `props` reemplaza la
 // config completa (lista blanca). `hidden` no se edita acá (lo modera el admin). Responde el proyecto
-router.put("/projects/:id", require_session, async (req, res) => {
+router.put("/projects/:id", require_session, route("Error PUT projects/:id", async (req, res) => {
   let body = req.body || {}
   let upd = {}
   if (body.name !== undefined) {
@@ -684,65 +628,53 @@ router.put("/projects/:id", require_session, async (req, res) => {
     upd.props = serialize_project_props(body.props)
     if (upd.props === undefined) return res.status(400).send({ stat: false, text: "Datos inválidos" })
   }
-  try {
-    let p = await own_project(global.knex, req.params.id, req.user.id)
-    if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
-    if (Object.keys(upd).length) await global.knex("projects").update(upd).where({ id: p.id, user_id: req.user.id })
-    return res.send({ stat: true, data: await get_project_summary(p.id, req.user.id) })
-  } catch (e) {
-    console.log("Error PUT projects/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let p = await own_project(global.knex, req.params.id, req.user.id)
+  if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
+  if (Object.keys(upd).length) await global.knex("projects").update(upd).where({ id: p.id, user_id: req.user.id })
+  return res.send({ stat: true, data: await get_project_summary(p.id, req.user.id) })
+}))
 
 // borra el proyecto con sus pistas, tags y filas de project_files. Los archivos propios que usaba y
 // que no quedan en ningún otro proyecto (de nadie) se borran también: fila de `files`, bytes_used
 // y, ya fuera de la transacción, el mp3. Los ajenos y los que siguen en otro proyecto quedan.
 // Responde { deleted_files: n }
-router.delete("/projects/:id", require_session, async (req, res) => {
+router.delete("/projects/:id", require_session, route("Error DELETE projects/:id", async (req, res) => {
   let user_id = req.user.id
-  try {
-    let orphans = await global.knex.transaction(async trx => {
-      let p = await own_project(trx, req.params.id, user_id)
-      if (!p) return null
-      let file_ids = (await trx("project_files").select("file_id").where({ project_id: p.id })).map(r => r.file_id)
-      await trx("project_files").delete().where({ project_id: p.id })
-      await trx("user_track_groups").delete().where({ project_id: p.id })
-      await trx("user_tags").delete().where({ project_id: p.id })
-      await trx("projects").delete().where({ id: p.id, user_id: user_id })
-      if (!file_ids.length) return []
-      let files = await trx("files").select("id", "size").where({ user_id: user_id }).whereIn("id", file_ids)
-        .whereNotExists(q => q.select(trx.raw(1)).from("project_files as pf").whereRaw("pf.file_id = files.id"))
-      if (!files.length) return []
-      await trx("files").delete().where({ user_id: user_id }).whereIn("id", files.map(f => f.id))
-      let size = files.reduce((t, f) => t + (f.size || 0), 0)
-      // se descuenta el tamaño de los archivos, sin bajar de 0 (como DELETE /files/:id)
-      await trx("users").where({ id: user_id }).update({
-        bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [size])
-      })
-      return files.map(f => f.id)
+  let orphans = await global.knex.transaction(async trx => {
+    let p = await own_project(trx, req.params.id, user_id)
+    if (!p) return null
+    let file_ids = (await trx("project_files").select("file_id").where({ project_id: p.id })).map(r => r.file_id)
+    await trx("project_files").delete().where({ project_id: p.id })
+    await trx("user_track_groups").delete().where({ project_id: p.id })
+    await trx("user_tags").delete().where({ project_id: p.id })
+    await trx("projects").delete().where({ id: p.id, user_id: user_id })
+    if (!file_ids.length) return []
+    let files = await trx("files").select("id", "size").where({ user_id: user_id }).whereIn("id", file_ids)
+      .whereNotExists(q => q.select(trx.raw(1)).from("project_files as pf").whereRaw("pf.file_id = files.id"))
+    if (!files.length) return []
+    await trx("files").delete().where({ user_id: user_id }).whereIn("id", files.map(f => f.id))
+    let size = files.reduce((t, f) => t + (f.size || 0), 0)
+    // se descuenta el tamaño de los archivos, sin bajar de 0 (como DELETE /files/:id)
+    await trx("users").where({ id: user_id }).update({
+      bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [size])
     })
-    if (orphans === null) return res.status(404).send(PROJECT_NOT_FOUND)
-    // los mp3 se borran con las filas ya borradas (si falla, queda un mp3 huérfano en disco, inofensivo)
-    for (let id of orphans) {
-      if (!UUID_RE.test(id)) continue
-      await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
-        if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
-      })
-    }
-    return res.send({ stat: true, data: { deleted_files: orphans.length } })
-  } catch (e) {
-    console.log("Error DELETE projects/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+    return files.map(f => f.id)
+  })
+  if (orphans === null) return res.status(404).send(PROJECT_NOT_FOUND)
+  // los mp3 se borran con las filas ya borradas (si falla, queda un mp3 huérfano en disco, inofensivo)
+  for (let id of orphans) {
+    if (!UUID_RE.test(id)) continue
+    await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
+      if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
+    })
   }
-})
+  return res.send({ stat: true, data: { deleted_files: orphans.length } })
+}))
 
-router.put("/projects/:id/track_groups", require_session, async (req, res) => {
-  await replace_project_rows("user_track_groups", req, res)
-})
-router.put("/projects/:id/tags", require_session, async (req, res) => {
-  await replace_project_rows("user_tags", req, res)
-})
+router.put("/projects/:id/track_groups", require_session,
+  route("Error guardando user_track_groups", (req, res) => replace_project_rows("user_track_groups", req, res)))
+router.put("/projects/:id/tags", require_session,
+  route("Error guardando user_tags", (req, res) => replace_project_rows("user_tags", req, res)))
 
 // columnas que se guardan de cada objeto recibido (lista blanca): los campos que el cliente agrega
 // a los objetos (o columnas sin uso como `silences`) se ignoran, si no romperían el insert.
@@ -752,8 +684,6 @@ const PROJECT_ROWS_COLUMNS = {
   user_tags: { columns: ["id", "name", "color", "weight"], json: [] },
 }
 const ROW_ID_MAX = 36
-
-class RowsError extends Error { }
 
 // reemplaza todas las pistas o tags del proyecto por las recibidas (array con la colección
 // completa), en una transacción para no perder la colección si falla un insert. Los ids los genera
@@ -776,49 +706,43 @@ async function replace_project_rows(table, req, res) {
     ids.add(r.id)
   }
   let user_id = req.user.id
-  try {
-    let found = await global.knex.transaction(async trx => {
-      let p = await own_project(trx, req.params.id, user_id)
-      if (!p) return false
-      // un id que ya existe en otra fila (de otro proyecto o usuario) no se pisa
-      let taken = await trx(table).select("id").whereIn("id", [...ids])
-        .andWhere(q => q.whereNot({ project_id: p.id }).orWhereNull("project_id"))
-      if (taken.length) throw new RowsError("Id ya usado: " + taken[0].id)
+  let found = await global.knex.transaction(async trx => {
+    let p = await own_project(trx, req.params.id, user_id)
+    if (!p) return false
+    // un id que ya existe en otra fila (de otro proyecto o usuario) no se pisa
+    let taken = await trx(table).select("id").whereIn("id", [...ids])
+      .andWhere(q => q.whereNot({ project_id: p.id }).orWhereNull("project_id"))
+    if (taken.length) throw new RowsError("Id ya usado: " + taken[0].id)
 
-      await trx(table).delete().where({ project_id: p.id })
-      for (let r of rows) {
-        let row = { user_id: user_id, project_id: p.id }
-        for (let c of columns) {
-          if (r[c] === undefined) continue
-          row[c] = json.includes(c) ? JSON.stringify(r[c] ?? {}) : r[c]
-        }
-        await trx(table).insert(row)
+    await trx(table).delete().where({ project_id: p.id })
+    for (let r of rows) {
+      let row = { user_id: user_id, project_id: p.id }
+      for (let c of columns) {
+        if (r[c] === undefined) continue
+        row[c] = json.includes(c) ? JSON.stringify(r[c] ?? {}) : r[c]
       }
+      await trx(table).insert(row)
+    }
 
-      // limpia en project_files las referencias a filas que ya no están
-      let pfs = await trx("project_files").select("id", "track_group", "tags").where({ project_id: p.id })
-      for (let pf of pfs) {
-        if (table === "user_track_groups") {
-          if (pf.track_group && !ids.has(pf.track_group)) {
-            await trx("project_files").update({ track_group: null }).where({ id: pf.id })
-          }
-        } else {
-          let tags = parse_tags(pf.tags)
-          let kept = tags.filter(t => ids.has(t))
-          if (kept.length !== tags.length) {
-            await trx("project_files").update({ tags: JSON.stringify(kept) }).where({ id: pf.id })
-          }
+    // limpia en project_files las referencias a filas que ya no están
+    let pfs = await trx("project_files").select("id", "track_group", "tags").where({ project_id: p.id })
+    for (let pf of pfs) {
+      if (table === "user_track_groups") {
+        if (pf.track_group && !ids.has(pf.track_group)) {
+          await trx("project_files").update({ track_group: null }).where({ id: pf.id })
+        }
+      } else {
+        let tags = parse_tags(pf.tags)
+        let kept = tags.filter(t => ids.has(t))
+        if (kept.length !== tags.length) {
+          await trx("project_files").update({ tags: JSON.stringify(kept) }).where({ id: pf.id })
         }
       }
-      return true
-    })
-    if (!found) return res.status(404).send(PROJECT_NOT_FOUND)
-    return res.send({ stat: true })
-  } catch (e) {
-    if (e instanceof RowsError) return res.status(400).send({ stat: false, text: e.message })
-    console.log("Error guardando", table, e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
+    }
+    return true
+  })
+  if (!found) return res.status(404).send(PROJECT_NOT_FOUND)
+  return res.send({ stat: true })
 }
 
 // id de archivo (o de pista/tag) recibido: string no vacío de hasta FILE_ID_MAX
@@ -864,93 +788,87 @@ function parse_project_file_fields(o, file_id) {
 //  remove: [file_id]  quita archivos del proyecto (el archivo sigue en el catálogo)
 // Un mismo archivo no puede aparecer dos veces en el body. Pista y tags tienen que ser del proyecto.
 // Responde los archivos del proyecto ya actualizados (forma de GET /projects/:id)
-router.put("/projects/:id/files", require_session, async (req, res) => {
+router.put("/projects/:id/files", require_session, route("Error PUT projects/:id/files", async (req, res) => {
   let body = req.body || {}
   let add = body.add ?? [], update = body.update ?? [], remove = body.remove ?? []
   if (!Array.isArray(add) || !Array.isArray(update) || !Array.isArray(remove)) {
     return res.status(400).send({ stat: false, text: "Datos inválidos" })
   }
   let user_id = req.user.id
-  try {
-    // validación de forma (sin base)
-    let seen = new Set()
-    const check_id = id => {
-      if (!valid_row_id(id)) throw new RowsError("Datos inválidos: cada archivo necesita un id")
-      if (seen.has(id)) throw new RowsError("Archivo repetido: " + id)
-      seen.add(id)
-    }
-    let adds = add.map(a => {
-      let o = typeof a == "string" ? { id: a } : a
-      if (!o || typeof o != "object") throw new RowsError("Datos inválidos")
-      check_id(o.id)
-      return { id: o.id, fields: parse_project_file_fields(o, o.id) }
-    })
-    let updates = update.map(o => {
-      if (!o || typeof o != "object") throw new RowsError("Datos inválidos")
-      check_id(o.id)
-      return { id: o.id, fields: parse_project_file_fields(o, o.id) }
-    })
-    for (let id of remove) check_id(id)
-
-    let files = await global.knex.transaction(async trx => {
-      let p = await own_project(trx, req.params.id, user_id)
-      if (!p) return null
-      let in_project = new Set((await trx("project_files").select("file_id").where({ project_id: p.id })).map(r => r.file_id))
-
-      // importar: el archivo existe, está disponible y no está ya en el proyecto
-      if (adds.length) {
-        let catalog = new Map((await get_catalog_files(trx, adds.map(a => a.id))).map(f => [f.id, f]))
-        for (let a of adds) {
-          let f = catalog.get(a.id)
-          if (!f) throw new RowsError("Archivo inexistente: " + a.id)
-          if (!file_available(f)) throw new RowsError("Archivo no disponible: " + a.id)
-          if (in_project.has(a.id)) throw new RowsError("El archivo ya está en el proyecto: " + a.id)
-        }
-      }
-      for (let id of [...updates.map(u => u.id), ...remove]) {
-        if (!in_project.has(id)) throw new RowsError("El archivo no está en el proyecto: " + id)
-      }
-
-      // pista y tags tienen que ser de este proyecto
-      let trgs = new Set((await trx("user_track_groups").select("id").where({ project_id: p.id })).map(r => r.id))
-      let tags = new Set((await trx("user_tags").select("id").where({ project_id: p.id })).map(r => r.id))
-      for (let { id, fields } of [...adds, ...updates]) {
-        if (fields.track_group && !trgs.has(fields.track_group)) {
-          throw new RowsError("La pista no es del proyecto: " + fields.track_group + " (archivo " + id + ")")
-        }
-        let bad = (fields.tags || []).find(t => !tags.has(t))
-        if (bad) throw new RowsError("El tag no es del proyecto: " + bad + " (archivo " + id + ")")
-      }
-
-      for (let { id, fields } of adds) {
-        await trx("project_files").insert({
-          id: uuid(),
-          project_id: p.id,
-          file_id: id,
-          track_group: fields.track_group ?? null,
-          tags: JSON.stringify(fields.tags ?? []),
-          props: JSON.stringify(fields.props ?? {}),
-        })
-      }
-      for (let { id, fields } of updates) {
-        let upd = {}
-        if (fields.track_group !== undefined) upd.track_group = fields.track_group
-        if (fields.tags !== undefined) upd.tags = JSON.stringify(fields.tags)
-        if (fields.props !== undefined) upd.props = JSON.stringify(fields.props)
-        if (Object.keys(upd).length) await trx("project_files").update(upd).where({ project_id: p.id, file_id: id })
-      }
-      if (remove.length) await trx("project_files").delete().where({ project_id: p.id }).whereIn("file_id", remove)
-
-      return await list_project_files(trx, p.id, user_id)
-    })
-    if (!files) return res.status(404).send(PROJECT_NOT_FOUND)
-    return res.send({ stat: true, data: files })
-  } catch (e) {
-    if (e instanceof RowsError) return res.status(400).send({ stat: false, text: e.message })
-    console.log("Error PUT projects/:id/files", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+  // validación de forma (sin base)
+  let seen = new Set()
+  const check_id = id => {
+    if (!valid_row_id(id)) throw new RowsError("Datos inválidos: cada archivo necesita un id")
+    if (seen.has(id)) throw new RowsError("Archivo repetido: " + id)
+    seen.add(id)
   }
-})
+  let adds = add.map(a => {
+    let o = typeof a == "string" ? { id: a } : a
+    if (!o || typeof o != "object") throw new RowsError("Datos inválidos")
+    check_id(o.id)
+    return { id: o.id, fields: parse_project_file_fields(o, o.id) }
+  })
+  let updates = update.map(o => {
+    if (!o || typeof o != "object") throw new RowsError("Datos inválidos")
+    check_id(o.id)
+    return { id: o.id, fields: parse_project_file_fields(o, o.id) }
+  })
+  for (let id of remove) check_id(id)
+
+  let files = await global.knex.transaction(async trx => {
+    let p = await own_project(trx, req.params.id, user_id)
+    if (!p) return null
+    let in_project = new Set((await trx("project_files").select("file_id").where({ project_id: p.id })).map(r => r.file_id))
+
+    // importar: el archivo existe, está disponible y no está ya en el proyecto
+    if (adds.length) {
+      let catalog = new Map((await get_catalog_files(trx, adds.map(a => a.id))).map(f => [f.id, f]))
+      for (let a of adds) {
+        let f = catalog.get(a.id)
+        if (!f) throw new RowsError("Archivo inexistente: " + a.id)
+        if (!file_available(f)) throw new RowsError("Archivo no disponible: " + a.id)
+        if (in_project.has(a.id)) throw new RowsError("El archivo ya está en el proyecto: " + a.id)
+      }
+    }
+    for (let id of [...updates.map(u => u.id), ...remove]) {
+      if (!in_project.has(id)) throw new RowsError("El archivo no está en el proyecto: " + id)
+    }
+
+    // pista y tags tienen que ser de este proyecto
+    let trgs = new Set((await trx("user_track_groups").select("id").where({ project_id: p.id })).map(r => r.id))
+    let tags = new Set((await trx("user_tags").select("id").where({ project_id: p.id })).map(r => r.id))
+    for (let { id, fields } of [...adds, ...updates]) {
+      if (fields.track_group && !trgs.has(fields.track_group)) {
+        throw new RowsError("La pista no es del proyecto: " + fields.track_group + " (archivo " + id + ")")
+      }
+      let bad = (fields.tags || []).find(t => !tags.has(t))
+      if (bad) throw new RowsError("El tag no es del proyecto: " + bad + " (archivo " + id + ")")
+    }
+
+    for (let { id, fields } of adds) {
+      await trx("project_files").insert({
+        id: uuid(),
+        project_id: p.id,
+        file_id: id,
+        track_group: fields.track_group ?? null,
+        tags: JSON.stringify(fields.tags ?? []),
+        props: JSON.stringify(fields.props ?? {}),
+      })
+    }
+    for (let { id, fields } of updates) {
+      let upd = {}
+      if (fields.track_group !== undefined) upd.track_group = fields.track_group
+      if (fields.tags !== undefined) upd.tags = JSON.stringify(fields.tags)
+      if (fields.props !== undefined) upd.props = JSON.stringify(fields.props)
+      if (Object.keys(upd).length) await trx("project_files").update(upd).where({ project_id: p.id, file_id: id })
+    }
+    if (remove.length) await trx("project_files").delete().where({ project_id: p.id }).whereIn("file_id", remove)
+
+    return await list_project_files(trx, p.id, user_id)
+  })
+  if (!files) return res.status(404).send(PROJECT_NOT_FOUND)
+  return res.send({ stat: true, data: files })
+}))
 
 
 
@@ -970,7 +888,7 @@ router.put('/logout', async (req, res) => {
 // Solo el dueño: un archivo ajeno o inexistente responde 404.
 // Pista, tags y volumen son de cada proyecto (PUT /projects/:id/files). Responde el archivo
 // (forma del catálogo). Reemplaza a save_fileData
-router.put('/files/:id', require_session, async (req, res) => {
+router.put('/files/:id', require_session, route("Error PUT files/:id", async (req, res) => {
   let body = req.body || {}
   let upd = {}
   if (body.original_name !== undefined) {
@@ -989,57 +907,47 @@ router.put('/files/:id', require_session, async (req, res) => {
     upd.anchor = body.anchor
   }
   let user_id = req.user.id
-  try {
-    let id = String(req.params.id)
-    let file = await global.knex("files").select("id", "duration", "kind", "beats").where({ id: id, user_id: user_id }).first()
-    if (!file) return res.status(404).send(FILE_NOT_FOUND)
-    if (body.kind !== undefined || body.beats !== undefined || body.bpm !== undefined) {
-      let t = parse_timing(body, file.duration, file, null)
-      if (t.error) return res.send({ stat: false, text: t.error })
-      Object.assign(upd, t)
-    }
-    if (Object.keys(upd).length) await global.knex("files").update(upd).where({ id: id, user_id: user_id })
-    let [row] = await get_catalog_files(global.knex, [id])
-    return res.send({ stat: true, data: file_out(row, user_id) })
-  } catch (e) {
-    console.log("Error PUT files/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+  let id = String(req.params.id)
+  let file = await global.knex("files").select("id", "duration", "kind", "beats").where({ id: id, user_id: user_id }).first()
+  if (!file) return res.status(404).send(FILE_NOT_FOUND)
+  if (body.kind !== undefined || body.beats !== undefined || body.bpm !== undefined) {
+    let t = parse_timing(body, file.duration, file, null)
+    if (t.error) return res.send({ stat: false, text: t.error })
+    Object.assign(upd, t)
   }
-})
+  if (Object.keys(upd).length) await global.knex("files").update(upd).where({ id: id, user_id: user_id })
+  let [row] = await get_catalog_files(global.knex, [id])
+  return res.send({ stat: true, data: file_out(row, user_id) })
+}))
 
 // borra un archivo propio: en una transacción quita sus filas de project_files en **todos** los
 // proyectos (propios y ajenos que lo importaron), la fila de `files` y descuenta su tamaño de
 // bytes_used; después borra el mp3. Solo el dueño (ajeno o inexistente → 404). Responde
 // { removed_from_projects: n } (filas de project_files borradas). Reemplaza a delete_file
-router.delete('/files/:id', require_session, async (req, res) => {
+router.delete('/files/:id', require_session, route("Error DELETE files/:id", async (req, res) => {
   let user_id = req.user.id
   let id = String(req.params.id)
-  try {
-    let n = await global.knex.transaction(async trx => {
-      let file = await trx("files").select("size").where({ id: id, user_id: user_id }).first()
-      if (!file) return null
-      let removed = await trx("project_files").delete().where({ file_id: id })
-      await trx("files").delete().where({ id: id, user_id: user_id })
-      // se descuenta el tamaño del archivo, sin bajar de 0
-      await trx("users").where({ id: user_id }).update({
-        bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [file.size || 0])
-      })
-      return removed
+  let n = await global.knex.transaction(async trx => {
+    let file = await trx("files").select("size").where({ id: id, user_id: user_id }).first()
+    if (!file) return null
+    let removed = await trx("project_files").delete().where({ file_id: id })
+    await trx("files").delete().where({ id: id, user_id: user_id })
+    // se descuenta el tamaño del archivo, sin bajar de 0
+    await trx("users").where({ id: user_id }).update({
+      bytes_used: trx.raw("max(coalesce(bytes_used, 0) - ?, 0)", [file.size || 0])
     })
-    if (n === null) return res.status(404).send(FILE_NOT_FOUND)
-    // el mp3 se borra con la fila ya borrada: si falla, queda un archivo huérfano en disco (inofensivo)
-    // en vez de una fila que apunta a un mp3 inexistente. El id viene de la base (es un uuid)
-    if (UUID_RE.test(id)) {
-      await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
-        if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
-      })
-    }
-    return res.send({ stat: true, data: { removed_from_projects: n } })
-  } catch (e) {
-    console.log("Error DELETE files/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+    return removed
+  })
+  if (n === null) return res.status(404).send(FILE_NOT_FOUND)
+  // el mp3 se borra con la fila ya borrada: si falla, queda un archivo huérfano en disco (inofensivo)
+  // en vez de una fila que apunta a un mp3 inexistente. El id viene de la base (es un uuid)
+  if (UUID_RE.test(id)) {
+    await fs.unlink(global.config.storage_path + user_id + "/" + id + ".mp3").catch(e => {
+      if (e.code !== "ENOENT") console.log("Error borrando el mp3", id, e.message)
+    })
   }
-})
+  return res.send({ stat: true, data: { removed_from_projects: n } })
+}))
 
 // catálogo: archivos disponibles (no ocultos, dueño activo) de todos los usuarios, para importar.
 // Query (todo opcional): bpm + bpm_tol (± tolerancia), beats, key (tónica: trae esa tónica en mayor o
@@ -1150,31 +1058,26 @@ function catalog_query(db, f, user_id) {
   return qb
 }
 
-router.get('/catalog', require_session, async (req, res) => {
+router.get('/catalog', require_session, route("Error GET catalog", async (req, res) => {
   let { f, error } = parse_catalog_query(req.query || {})
   if (error) return res.status(400).send({ stat: false, text: error })
   let user_id = req.user.id
-  try {
-    let { total } = await catalog_query(global.knex, f, user_id).count({ total: "*" }).first()
-    let rows = await catalog_query(global.knex, f, user_id)
-      .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.anchor",
-        "f.ts", "u.name as creator_name", "u.bio as creator_bio",
-        global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
-      // los más nuevos primero; los migrados sin ts al final
-      .orderByRaw("f.ts is null, f.ts desc, f.id")
-      .limit(f.per_page).offset((f.page - 1) * f.per_page)
-    let items = rows.map(r => ({
-      id: r.id, original_name: r.original_name, duration: r.duration, kind: r.kind ?? "loop", bpm: r.bpm,
-      beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start", ts: r.ts, name: r.id + ".mp3",
-      own: r.user_id === user_id, uses: Number(r.uses) || 0,
-      creator: { name: r.creator_name, bio: r.creator_bio ?? null },
-    }))
-    return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
-  } catch (e) {
-    console.log("Error GET catalog", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let { total } = await catalog_query(global.knex, f, user_id).count({ total: "*" }).first()
+  let rows = await catalog_query(global.knex, f, user_id)
+    .select(["f.id", "f.user_id", "f.original_name", "f.duration", "f.kind", "f.bpm", "f.beats", "f.music_key", "f.anchor",
+      "f.ts", "u.name as creator_name", "u.bio as creator_bio",
+      global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
+    // los más nuevos primero; los migrados sin ts al final
+    .orderByRaw("f.ts is null, f.ts desc, f.id")
+    .limit(f.per_page).offset((f.page - 1) * f.per_page)
+  let items = rows.map(r => ({
+    id: r.id, original_name: r.original_name, duration: r.duration, kind: r.kind ?? "loop", bpm: r.bpm,
+    beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start", ts: r.ts, name: r.id + ".mp3",
+    own: r.user_id === user_id, uses: Number(r.uses) || 0,
+    creator: { name: r.creator_name, bio: r.creator_bio ?? null },
+  }))
+  return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: f.page, per_page: f.per_page } })
+}))
 
 // ---------- público (sin sesión) ----------
 // Galería de proyectos públicos y lectura de un proyecto público, para visitantes sin cuenta (y la
@@ -1218,7 +1121,7 @@ const PROJECT_AVAILABLE_SECONDS_SQL = PROJECT_AVAILABLE_FILES_SQL.replace("count
 
 // galería: proyectos públicos con al menos un archivo disponible (los vacíos no se listan, aunque
 // su link /p/<id> funcione), los más nuevos primero. Query opcional: page (desde 1) y per_page
-router.get('/public/projects', public_rate_limit, async (req, res) => {
+router.get('/public/projects', public_rate_limit, route("Error GET public/projects", async (req, res) => {
   let q = req.query || {}
   let page = 1, per_page = PUBLIC_PER_PAGE
   for (let k of ["page", "per_page"]) {
@@ -1234,56 +1137,46 @@ router.get('/public/projects', public_rate_limit, async (req, res) => {
       return res.status(400).send({ stat: false, text: `per_page tiene que ser un entero entre 1 y ${PUBLIC_PER_PAGE_MAX}` })
     }
   }
-  try {
-    let gallery_query = db => public_projects_query(db).whereRaw(`(${PROJECT_AVAILABLE_FILES_SQL}) > 0`)
-    let { total } = await gallery_query(global.knex).count({ total: "*" }).first()
-    let rows = await gallery_query(global.knex)
-      .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio",
-        global.knex.raw(`(${PROJECT_AVAILABLE_FILES_SQL}) as files`),
-        global.knex.raw(`(${PROJECT_AVAILABLE_SECONDS_SQL}) as audio_seconds`)])
-      .orderByRaw("p.ts is null, p.ts desc, p.id")
-      .limit(per_page).offset((page - 1) * per_page)
-    let items = rows.map(r => ({
-      id: r.id, name: r.name, ts: r.ts, tempo: parse_props(r.props).tempo ?? null, files: Number(r.files) || 0,
-      audio_seconds: Number(r.audio_seconds) || 0,
-      creator: { name: r.creator_name, bio: r.creator_bio ?? null },
-    }))
-    return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: page, per_page: per_page } })
-  } catch (e) {
-    console.log("Error GET public/projects", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-})
+  let gallery_query = db => public_projects_query(db).whereRaw(`(${PROJECT_AVAILABLE_FILES_SQL}) > 0`)
+  let { total } = await gallery_query(global.knex).count({ total: "*" }).first()
+  let rows = await gallery_query(global.knex)
+    .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio",
+      global.knex.raw(`(${PROJECT_AVAILABLE_FILES_SQL}) as files`),
+      global.knex.raw(`(${PROJECT_AVAILABLE_SECONDS_SQL}) as audio_seconds`)])
+    .orderByRaw("p.ts is null, p.ts desc, p.id")
+    .limit(per_page).offset((page - 1) * per_page)
+  let items = rows.map(r => ({
+    id: r.id, name: r.name, ts: r.ts, tempo: parse_props(r.props).tempo ?? null, files: Number(r.files) || 0,
+    audio_seconds: Number(r.audio_seconds) || 0,
+    creator: { name: r.creator_name, bio: r.creator_bio ?? null },
+  }))
+  return res.send({ stat: true, data: { items: items, total: Number(total) || 0, page: page, per_page: per_page } })
+}))
 
 // proyecto público para reproducir: config, pistas, tags y solo los archivos disponibles (los no
 // disponibles no se mandan: no se sortean ni se cargan), más el nombre público y la bio del dueño
-router.get('/public/project/:id', public_rate_limit, async (req, res) => {
+router.get('/public/project/:id', public_rate_limit, route("Error GET public/project/:id", async (req, res) => {
   let id = String(req.params.id)
   if (id.length > PROJECT_ID_MAX) return res.status(404).send(PROJECT_NOT_FOUND)
-  try {
-    let p = await public_projects_query(global.knex)
-      .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio"])
-      .where("p.id", id).first()
-    if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
-    let data = {
-      id: p.id, name: p.name, ts: p.ts, props: parse_props(p.props),
-      creator: { name: p.creator_name, bio: p.creator_bio ?? null },
-    }
-    let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
-      .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
-    data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
-    data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
-      .orderByRaw("rowid")
-    // forma de los archivos de GET /projects/:id, sin `own` (no hay usuario)
-    let files = await list_project_files(global.knex, p.id, null)
-    data.files = files.filter(f => f.available)
-    for (let f of data.files) delete f.own
-    return res.send({ stat: true, data: data })
-  } catch (e) {
-    console.log("Error GET public/project/:id", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+  let p = await public_projects_query(global.knex)
+    .select(["p.id", "p.name", "p.props", "p.ts", "u.name as creator_name", "u.bio as creator_bio"])
+    .where("p.id", id).first()
+  if (!p) return res.status(404).send(PROJECT_NOT_FOUND)
+  let data = {
+    id: p.id, name: p.name, ts: p.ts, props: parse_props(p.props),
+    creator: { name: p.creator_name, bio: p.creator_bio ?? null },
   }
-})
+  let t = await global.knex("user_track_groups").select("id", "name", "color", "props").where({ project_id: p.id })
+    .orderByRaw("rowid") // orden del array guardado (PUT reinserta en ese orden)
+  data.track_groups = t.map(r => ({ ...r, props: parse_props(r.props) }))
+  data.tags = await global.knex("user_tags").select("id", "name", "color", "weight").where({ project_id: p.id })
+    .orderByRaw("rowid")
+  // forma de los archivos de GET /projects/:id, sin `own` (no hay usuario)
+  let files = await list_project_files(global.knex, p.id, null)
+  data.files = files.filter(f => f.available)
+  for (let f of data.files) delete f.own
+  return res.send({ stat: true, data: data })
+}))
 
 // Denuncias (tarea 4.4): solo usuarios logueados. Se puede denunciar lo que el usuario puede ver de
 // otros: un archivo disponible del catálogo o un proyecto de la galería pública; lo propio no. Si ya
@@ -1296,7 +1189,7 @@ const REPORT_REASON_MAX = 500
 const REPORT_TARGET_TYPES = ["file", "project"]
 const REPORT_OK_TEXT = "Denuncia enviada: la va a revisar un admin"
 
-router.post('/report', require_session, async (req, res) => {
+router.post('/report', require_session, route("Error POST report", async (req, res) => {
   let user_id = req.user.id
   let body = req.body || {}
   if (!REPORT_TARGET_TYPES.includes(body.target_type)) {
@@ -1313,57 +1206,46 @@ router.post('/report', require_session, async (req, res) => {
   if (!reason || [...reason].length > REPORT_REASON_MAX) {
     return res.send({ stat: false, text: `El motivo es obligatorio (hasta ${REPORT_REASON_MAX} caracteres)` })
   }
-  try {
-    // el target tiene que existir y estar a la vista; si no, 404 igual que un id inexistente
-    let owner_id
-    if (target_type == "file") {
-      let [f] = await get_catalog_files(global.knex, [target_id])
-      if (!f || !file_available(f)) return res.status(404).send(not_found)
-      owner_id = f.user_id
-    } else {
-      let p = await public_projects_query(global.knex).select("p.user_id").where("p.id", target_id).first()
-      if (!p) return res.status(404).send(not_found)
-      owner_id = p.user_id
-    }
-    if (owner_id === user_id) return res.send({ stat: false, text: "No podés denunciar algo propio" })
-
-    let open_report = db => db("reports").select("id")
-      .where({ target_type: target_type, target_id: target_id, reporter_user_id: user_id, status: "open" }).first()
-    if (await open_report(global.knex)) return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: true } })
-
-    let key = "looper_report:" + user_id
-    let n = await global.redisClient.incr(key)
-    if (n == 1) await global.redisClient.expire(key, REPORT_WINDOW_S)
-    if (n > REPORT_MAX) return res.status(429).send({ stat: false, text: "Llegaste al límite de denuncias por hoy" })
-
-    // se vuelve a chequear dentro de la transacción (dos envíos simultáneos no duplican)
-    let duplicate = await global.knex.transaction(async trx => {
-      if (await open_report(trx)) return true
-      await trx("reports").insert({
-        id: uuid(), target_type: target_type, target_id: target_id, reporter_user_id: user_id,
-        reason: reason, status: "open", ts: new Date().toISOString().slice(0, 19),
-      })
-      return false
-    })
-    return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: duplicate } })
-  } catch (e) {
-    console.log("Error POST report", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
+  // el target tiene que existir y estar a la vista; si no, 404 igual que un id inexistente
+  let owner_id
+  if (target_type == "file") {
+    let [f] = await get_catalog_files(global.knex, [target_id])
+    if (!f || !file_available(f)) return res.status(404).send(not_found)
+    owner_id = f.user_id
+  } else {
+    let p = await public_projects_query(global.knex).select("p.user_id").where("p.id", target_id).first()
+    if (!p) return res.status(404).send(not_found)
+    owner_id = p.user_id
   }
-})
+  if (owner_id === user_id) return res.send({ stat: false, text: "No podés denunciar algo propio" })
 
-router.get('/get_user_info', async (req, res) => {
+  let open_report = db => db("reports").select("id")
+    .where({ target_type: target_type, target_id: target_id, reporter_user_id: user_id, status: "open" }).first()
+  if (await open_report(global.knex)) return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: true } })
+
+  let key = "looper_report:" + user_id
+  let n = await global.redisClient.incr(key)
+  if (n == 1) await global.redisClient.expire(key, REPORT_WINDOW_S)
+  if (n > REPORT_MAX) return res.status(429).send({ stat: false, text: "Llegaste al límite de denuncias por hoy" })
+
+  // se vuelve a chequear dentro de la transacción (dos envíos simultáneos no duplican)
+  let duplicate = await global.knex.transaction(async trx => {
+    if (await open_report(trx)) return true
+    await trx("reports").insert({
+      id: uuid(), target_type: target_type, target_id: target_id, reporter_user_id: user_id,
+      reason: reason, status: "open", ts: new Date().toISOString().slice(0, 19),
+    })
+    return false
+  })
+  return res.send({ stat: true, text: REPORT_OK_TEXT, data: { duplicate: duplicate } })
+}))
+
+router.get('/get_user_info', route("Error get_user_info", async (req, res) => {
   // sin sesión (o con una que el chequeo por request acaba de cortar) responde 200 { stat: false }
   if (!req.user) return res.send({ stat: false })
-  try {
-    let ui = await return_user_info(req.user.id)
-    return res.send({ stat: true, u_info: ui })
-  } catch (e) {
-    console.log("Error get_user_info", e)
-    return res.status(500).send({ stat: false, text: "Error interno" })
-  }
-
-})
+  let ui = await return_user_info(req.user.id)
+  return res.send({ stat: true, u_info: ui })
+}))
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

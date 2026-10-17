@@ -514,9 +514,11 @@ denuncia no oculta nada; ocultar es otra llamada.
 ## Cómo agregar un endpoint
 
 1. En `routes/api.js`: poner `require_session` (o `require_admin`) como middleware de la ruta
-   (`router.put("/x", require_session, async (req, res) => ...)`), filtrar toda query por
-   `user_id: req.user.id` (lo deja el chequeo de sesión; no usar `req.session.u_info`) y envolver en
-   `try/catch` respondiendo 500 (Express 4 no captura rechazos de funciones `async`). Nunca responder
+   (`router.put("/x", require_session, route("Error PUT x", async (req, res) => ...))`), filtrar toda query por
+   `user_id: req.user.id` (lo deja el chequeo de sesión; no usar `req.session.u_info`) y envolver el
+   handler en `route(label, fn)`: captura los errores (Express 4 no captura rechazos de funciones
+   `async`), loguea con `label` y responde 500 "Error interno"; un `RowsError` lanzado responde 400
+   con su mensaje. Nunca responder
    solo `res.status(...)` sin `send`, que deja la request colgada. Ver `DELETE /files/:id` como ejemplo.
 2. Agregar el wrapper en `frontend/src/helpers/api.js`.
 3. Documentarlo en esta tabla.
