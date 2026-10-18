@@ -1,11 +1,12 @@
 # Plan: editor gráfico de loops/samples
 
-Estado: **acordado**; se implementa por fases (ver "Fases" al final), un commit por fase. Hechas: fases 1, 2,
-3, 4, 5, 6 y 7 (lo vigente se documenta en "Preview", "Editor: pantalla de onda", "Editor: región", "Editor: anchor",
-"Loudness", "Editor: loudness y MATCH", "Editor: ediciones destructivas" y "Editor: transpose, KEY LOCK y tonalidad
-efectiva" de `ARCHITECTURE.md`; la fase 6 sin STRETCH, que pasó a la 7, y con SAVE REGION AS COPY rotulado "SAVE SEL
-AS COPY"; la fase 7 usa el WASM de Signalsmith en un Worker con su API offline, no el AudioWorklet en un
-`OfflineAudioContext`, y STRETCH solo en loops).
+Estado: **completo**: las 8 fases (ver "Fases" al final) están hechas, un commit por fase (lo vigente se documenta en
+"Preview", "Editor: pantalla de onda", "Editor: región", "Editor: anchor", "Loudness", "Editor: loudness y MATCH",
+"Editor: ediciones destructivas", "Editor: transpose, KEY LOCK y tonalidad efectiva" y "Editor: detectores" de
+`ARCHITECTURE.md`; la fase 6 sin STRETCH, que pasó a la 7, y con SAVE REGION AS COPY rotulado "SAVE SEL AS COPY"; la
+fase 7 usa el WASM de Signalsmith en un Worker con su API offline, no el AudioWorklet en un `OfflineAudioContext`, y
+STRETCH solo en loops; la fase 8 usa detectores propios, sin librerías, en un Worker). Lo marcado "para después" en
+las decisiones sigue pendiente.
 
 ## Decisiones
 

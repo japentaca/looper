@@ -40,7 +40,7 @@ frontend/src/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, filtro por tonalidad, switch SYNC; monta FileEditor y confirma los borrados
     FileCart.vue     # cartucho de la vista Box: calcula adentro si el archivo suena (Files.vue no lee el estado del motor; ver ARCHITECTURE)
-    FileEditor.vue   # editor de un archivo (diálogo de edición; lo monta Files.vue con v-model + file, emite delete y replaced): RegionEditor, EditOps, tipo/beats/key/anchor (dueño), tonalidad efectiva, "Derived from", Volume/Loudness/Transpose (+ KEY LOCK)/Weight/Repeat, pads de pista y tags, preview SYNC + MIX/IN CONTEXT/SOLO, atajos Espacio/Q/M/Esc
+    FileEditor.vue   # editor de un archivo (diálogo de edición; lo monta Files.vue con v-model + file, emite delete y replaced): RegionEditor, EditOps, tipo/beats/key/anchor (dueño), tonalidad efectiva, "Derived from", DETECT (tonalidad / nota, SET key, TUNE TO), Volume/Loudness/Transpose (+ KEY LOCK)/Weight/Repeat, pads de pista y tags, preview SYNC + MIX/IN CONTEXT/SOLO, atajos Espacio/Q/M/Esc
     WaveScreen.vue   # pantalla de onda del editor (FileEditor.vue): canvas LCD, grilla de loops/shots, cursores del preview y del motor, región con manijas, selección (docs/PLAN_EDITOR.md)
     RegionEditor.vue # región del archivo en el proyecto (editor, fase 3): monta WaveScreen + SNAP, NUDGE/AUTO, FADE, lupas, atajos G y ← / →; guarda en project_files.props. Fase 6: la selección (SNAP) y, con ediciones sin guardar, el buffer de trabajo (solo lectura)
     EditOps.vue      # ediciones destructivas del editor (fase 6): CUT/SILENCE/DUPLICATE/REVERSE/GAIN, STRETCH (fase 7, loops), UNDO/REDO, SAVE AS COPY / SAVE SEL AS COPY (render, WAV, subida), atajos Supr/Ctrl+D/R/Ctrl+Z/Ctrl+Y
@@ -83,6 +83,9 @@ frontend/src/
     master_dsp.worklet.js # AudioWorkletProcessor "looper-master" (adapta master_dsp.js; lo carga mixer.js con ?worker&url; el import va en la 1.ª línea)
     master_dsp.worklet.test.js # humo del worklet con el AudioWorkletGlobalScope simulado (npm test)
     loudness.js      # editor: lecturas de loudness/pico con el volumen del proyecto y cálculo de MATCH (puro; loudness.test.js)
+    detect.js        # detectores puros del editor (fase 8): tonalidad (cromagrama + Krumhansl), nota (YIN), cálculos de TUNE TO (tests con señales sintéticas en detect.test.js)
+    detect_job.js    # arma la señal a analizar (original, región del proyecto, mono) y la manda al Worker de los detectores
+    detect.worker.js # Worker de los detectores (lo crea detect_job.js con ?worker)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, tonalidad efectiva (key_view), play/stop y títulos del preview y de SYNC
@@ -153,7 +156,7 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js`, `edit_ops.test.js`, `transpose.test.js` y `stretch_core.test.js`) deben pasar todos.
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js`, `edit_ops.test.js`, `transpose.test.js`, `stretch_core.test.js` y `detect.test.js`) deben pasar todos.
 3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `edit_session.js`, `pitch.js`, `stretch_*.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.

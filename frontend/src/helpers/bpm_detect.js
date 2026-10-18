@@ -22,8 +22,8 @@ const MID_PENALTY = 0.4
 const YIELD_FRAMES = 200 // cada cuántas ventanas se cede el hilo (no congelar la UI)
 const MAX_SECONDS = 61
 
-// FFT radix-2 iterativa en el lugar (re, im de largo n potencia de 2)
-function make_fft(n) {
+// FFT radix-2 iterativa en el lugar (re, im de largo n potencia de 2). La reusa detect.js
+export function make_fft(n) {
   let levels = Math.log2(n)
   let rev = new Uint32Array(n)
   for (let i = 0; i < n; i++) {

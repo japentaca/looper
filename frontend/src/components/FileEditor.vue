@@ -55,7 +55,42 @@
             <span v-else>{{ key_label(curr_edit_file.music_key) }}</span>
             <span v-if="key_now.transposed" class="eff_key" :title="key_now.title">→ {{ key_now.text }}<sup>{{
               key_now.mark }}</sup></span>
+            <!-- detectores (fase 8): tonalidad en loops, nota en shots; sobre el original (la región si hay) -->
+            <LedButton size="small" led="green" text="DETECT" :lit="det_busy" :blink="det_busy"
+              :disabled="!curr_edit_file.isLoaded || det_busy" :title="detect_title" @click="run_detect" />
           </span>
+
+          <!-- resultado del detector: loops → tonalidad sugerida (el dueño la aplica a music_key); shots → nota y cents,
+            con TUNE TO (calcula el transpose del proyecto) -->
+          <template v-if="det">
+            <span class="info_label">Detected</span>
+            <span v-if="det.busy" class="silk analyzing">analyzing…</span>
+            <span v-else-if="det.error" class="det_error">{{ det.error }}</span>
+            <span v-else-if="det.type == 'key'" class="timing_row">
+              <span v-if="det.result.uncertain" class="det_text" :title="key_det_title">uncertain → atonal?</span>
+              <span v-else class="det_text" :title="key_det_title">{{ det.result.key }} · {{
+                det.result.confidence.toFixed(2) }}</span>
+              <LedButton v-if="curr_edit_file.own && !store.read_only" size="small" led="green"
+                :text="'SET ' + det.result.suggestion" :lit="curr_edit_file.music_key == det.result.suggestion"
+                :disabled="saving_timing || curr_edit_file.music_key == det.result.suggestion"
+                :title="`Set the catalog key of this file to ${det.result.suggestion}`" @click="apply_detected_key" />
+            </span>
+            <span v-else class="timing_row">
+              <span v-if="!det.result.pitched" class="det_text" :title="note_det_title">no pitch</span>
+              <template v-else>
+                <span class="det_text" :title="note_det_title">{{ det.result.note }} {{ fmt_cents(det.result.cents) }}</span>
+                <span v-if="note_now" class="eff_key" title="With this project's transpose">→ {{ note_now }}</span>
+                <template v-if="!store.read_only">
+                  <el-select v-model="tune_target" size="small" class="tune_select" :title="TUNE_HELP">
+                    <el-option v-for="t in tune_options" :key="t.midi" :value="t.midi"
+                      :label="`${t.note} (${fmt_semis(t.semis)})${t.tonic ? ' · key' : ''}`" />
+                  </el-select>
+                  <LedButton size="small" led="yellow" text="TUNE TO" :disabled="tune_semis_now == null"
+                    :title="tune_title" @click="apply_tune" />
+                </template>
+              </template>
+            </span>
+          </template>
 
           <!-- anclaje de los disparos one-shot (dato del archivo): solo el dueño lo cambia (PUT /files/:id) -->
           <span class="info_label" :title="ANCHOR_HELP">Anchor</span>
@@ -182,6 +217,8 @@
 // SAVE AS COPY emite "replaced" con la copia (Files.vue pasa a editarla)
 // Fase 7: placa Transpose (transpose y KEY LOCK en project_files.props; pre-render en helpers/pitch.js) y la
 // tonalidad efectiva al lado de la del catálogo
+// Fase 8: DETECT junto a Key (tonalidad de un loop, que el dueño puede aplicar a music_key; nota de un shot con TUNE
+// TO, que calcula el transpose), análisis en un Worker (helpers/detect_job.js)
 
 import { ref, watch, computed, onBeforeUnmount } from "vue"
 import { store, save_file, save_file_debounced, WEIGHT_MAX, REPEAT_OPTIONS } from "../helpers/composable"
@@ -196,16 +233,21 @@ import { edit, edit_open, edit_close, confirm_discard, set_selection } from "../
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import { editor_key_ok, SPACE_TAKERS } from "../helpers/utils"
 import { update_file, error_text } from "../helpers/api"
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { KEY_OPTIONS, key_label } from "../helpers/music_key"
 import {
   out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, ANCHOR_TEXT, is_previewing, is_armed, togglePreview,
   preview_title, sync_title, key_view
 } from "../helpers/file_ui"
 import {
-  TRANSPOSE_MIN, TRANSPOSE_MAX, TRANSPOSE_STEP, parse_transpose, effective_transpose, rate_semitones, fmt_semis
+  TRANSPOSE_MIN, TRANSPOSE_MAX, TRANSPOSE_STEP, parse_transpose, effective_transpose, rate_semitones, fmt_semis,
+  transpose_key
 } from "../helpers/transpose"
 import { sync_file_pitch, is_rendering } from "../helpers/pitch"
+import {
+  note_name, fmt_cents, tune_semis, tune_targets, nearest_target, dominant_key, KEY_MIN_CONFIDENCE
+} from "../helpers/detect"
+import { detect_file, detect_window } from "../helpers/detect_job"
 
 import * as toneLib from "../helpers/toneLib"
 import { fader_to_db, db_to_fader, db_label, FILE_VOL_MAX_DB, VOL_OFF_DB } from "../helpers/mixer"
@@ -322,6 +364,101 @@ function toggle_key_lock(file) {
   if (store.read_only || file.kind == "shot") return
   file.props.key_lock = !file.props.key_lock
   on_pitch_change(file)
+}
+
+// --- detectores (docs/PLAN_EDITOR.md, fase 8; algoritmos en helpers/detect.js, Worker en helpers/detect_job.js) ---
+// det = { sig, busy, error?, type, result } del último análisis; vale mientras no cambie lo que se analiza (archivo,
+// tipo, región: detect_window). null = sin analizar
+const det = ref(null)
+const det_busy = computed(() => !!det.value?.busy)
+const det_sig = computed(() => curr_edit_file.value ? detect_window(curr_edit_file.value).sig : null)
+watch(det_sig, s => {
+  if (det.value && det.value.sig !== s) det.value = null
+})
+const detect_title = computed(() => curr_edit_file.value?.kind == "shot"
+  ? "DETECT: the note of this shot (YIN pitch detection on the original audio, the region if there is one)"
+  : "DETECT: suggests the key of this loop (chromagram + Krumhansl key profiles on the original audio, the region if "
+    + "there is one). A suggestion: it can confuse relative keys (C / Am)")
+async function run_detect() {
+  let f = curr_edit_file.value
+  if (!f?.isLoaded || det_busy.value) return
+  let sig = det_sig.value
+  det.value = { sig, busy: true }
+  try {
+    let r = await detect_file(f)
+    if (det.value?.sig !== r.sig) return
+    det.value = { sig: r.sig, busy: false, type: r.type, result: r.result }
+    if (r.type == "note" && r.result.pitched) tune_target.value = nearest_target(r.result.midi)
+  } catch (e) {
+    console.log("Error en el detector", e)
+    if (det.value?.sig === sig) det.value = { sig, busy: false, error: "Could not analyze: " + (e?.message ?? e) }
+  }
+}
+// loops: confianza, segunda candidata y afinación medida
+const key_det_title = computed(() => {
+  let r = det.value?.result
+  if (!r) return undefined
+  if (!r.key) return "No tonal content found"
+  let parts = []
+  if (r.uncertain) parts.push(`Best guess ${r.key}, but the confidence (${r.confidence.toFixed(2)}) is below `
+    + `${KEY_MIN_CONFIDENCE}: probably atonal or percussive`)
+  else parts.push(`Confidence ${r.confidence.toFixed(2)} (key profile correlation ${r.r.toFixed(2)})`)
+  parts.push(`Second candidate: ${r.second.key} (${r.second.r.toFixed(2)})`)
+  if (Math.abs(r.tuning) >= 0.1) parts.push(`Tuning ${fmt_cents(r.tuning * 100)} from A440`)
+  parts.push("A suggestion: relative keys (C / Am) share notes")
+  return parts.join(". ")
+})
+// el dueño aplica la sugerencia a music_key (dato del catálogo: vale en todos los proyectos), confirmando
+async function apply_detected_key() {
+  let f = curr_edit_file.value
+  let k = det.value?.result?.suggestion
+  if (!f || !k || !f.own || store.read_only) return
+  try {
+    await ElMessageBox.confirm(`Set the catalog key of "${f.original_name}" to ${k}? It applies to every project that `
+      + "uses this file.", "Detected key", { confirmButtonText: "Set key", cancelButtonText: "Cancel", type: "info" })
+  } catch {
+    return
+  }
+  save_timing(f, { music_key: k })
+}
+// shots: frecuencia y confianza; la nota con el transpose del proyecto aplicado
+const note_det_title = computed(() => {
+  let r = det.value?.result
+  if (!r) return undefined
+  if (!r.pitched) return r.note ? `No clear pitch (closest guess ${r.note}, confidence ${r.confidence.toFixed(2)})`
+    : "No clear pitch (noise, hats, very short or silent)"
+  return `${r.freq.toFixed(1)} Hz, confidence ${r.confidence.toFixed(2)}`
+})
+const note_now = computed(() => {
+  let r = det.value?.result
+  let t = parse_transpose(curr_edit_file.value?.props?.transpose)
+  if (!r?.pitched || !t) return null
+  let m = r.midi + t
+  return `${note_name(m)} ${fmt_cents((m - Math.round(m)) * 100)}`
+})
+// TUNE TO: nota destino (por defecto la más cercana; "· key" marca la tónica de la tonalidad dominante del proyecto)
+const TUNE_HELP = "Target note: the semitones show the transpose it needs"
+const tune_target = ref(null)
+const project_key = computed(() => dominant_key(store.files
+  .filter(f => f.kind != "shot" && f.id !== curr_edit_file.value?.id)
+  .map(f => transpose_key(f.music_key, parse_transpose(f.props?.transpose)))))
+const tune_options = computed(() => det.value?.result?.pitched
+  ? tune_targets(det.value.result.midi, project_key.value?.tonic ?? null) : [])
+const tune_semis_now = computed(() => det.value?.result?.pitched && tune_target.value != null
+  ? tune_semis(det.value.result.midi, tune_target.value) : null)
+const tune_title = computed(() => {
+  if (tune_semis_now.value == null) return "TUNE TO: choose a target note"
+  let text = `TUNE TO ${note_name(tune_target.value)}: Transpose ${fmt_semis(tune_semis_now.value)} semitones in this `
+    + "project (steps of 0.1: within ±5 cents)"
+  if (project_key.value) text += `. Project key: ${project_key.value.key}`
+  return text
+})
+function apply_tune() {
+  let f = curr_edit_file.value
+  let s = tune_semis_now.value
+  if (!f || s == null || store.read_only) return
+  f.props.transpose = s
+  on_pitch_change(f)
 }
 
 // al abrir el editor (o pasar a otro archivo) la grilla vuelve a los beats del archivo
@@ -621,6 +758,24 @@ onBeforeUnmount(() => {
   to {
     opacity: 0.35;
   }
+}
+
+/* detectores (fase 8): resultado, "analyzing…" titilando y errores */
+.det_text {
+  font-family: var(--font_mono);
+  font-weight: 700;
+}
+
+.det_error {
+  color: var(--danger);
+}
+
+.analyzing {
+  animation: rendering_blink 0.8s steps(2, start) infinite;
+}
+
+.tune_select {
+  width: 150px;
 }
 
 /* tonalidad efectiva (transpuesta en este proyecto) */

@@ -1637,3 +1637,45 @@ el motor no cambia (toca un buffer como cualquier otro) y no gasta CPU mientras 
   (~21 MB por minuto estéreo, como el original) más, al calcular, la copia de entrada y la salida (temporales); el
   preview libre con KEY LOCK y el buffer de trabajo transpuesto suman uno más cada uno, solo mientras se usan. El
   aviso de memoria al abrir un proyecto (`estimate_files_memory`) no cuenta los transpuestos.
+
+### Editor: detectores (`helpers/detect.js`, `helpers/detect_job.js`, `helpers/detect.worker.js`)
+
+Fase 8 de `docs/PLAN_EDITOR.md` (decisión 5): tonalidad de los loops y nota de los shots, con detectores propios (sin
+dependencias). Son sugerencias: nada se guarda sin que alguien lo pida.
+
+- **Qué se analiza** (`detect_job.js`): el buffer **original** del archivo (`source_buffer`: ni el transpuesto del
+  motor ni el de trabajo de las ediciones destructivas) mezclado a mono y, si el proyecto tiene región, solo la ventana
+  que toca el motor (`play_window` de `region.js`: en loops con el NUDGE). Loops → `detect_key`; shots → `detect_note`.
+  La mezcla mono (una copia) se transfiere a un Worker propio (`detect.worker.js`, import `?worker`, ~6 kB en el build;
+  un Worker para todos los pedidos, sin cola: son pocos y a mano). 60 s de audio tardan ~0,7 s (medido en Node).
+- **Tonalidad** (`detect_key`): STFT con ventana Hann de ~0,37 s (16384 muestras a 44,1/48 kHz) y salto de media
+  ventana; en cada ventana, picos espectrales entre 50 y 5000 Hz (máximos locales a menos de 50 dB del más alto, los
+  60 más fuertes) con frecuencia y amplitud interpoladas (parábola sobre el logaritmo). **Criba de armónicos**
+  (`harmonic_sieve`): a un pico que cae en el 3.º, 5.º o 6.º armónico de uno más grave (±0,3 semitono) se le descuenta
+  la amplitud de ese pico; sin ella, el 5.º armónico (tercera mayor) empuja los menores a mayor y una tríada de C con
+  armónicos daba Em. **Afinación**: media circular, ponderada por amplitud, de la desviación de los picos respecto del
+  semitono (A = 440); cada pico suma su amplitud a su clase de altura corregida por esa afinación. Las ventanas más de
+  40 dB por debajo de la más fuerte no cuentan; las demás suman sin normalizar (peso de energía). El cromagrama se
+  correlaciona (Pearson) con los perfiles de **Krumhansl–Kessler** mayor y menor rotados a las 12 tónicas (24
+  tonalidades, grafía de `KEY_TONICS`). Devuelve la mejor (`key`, `r`), la segunda (`second`, a menudo la relativa o la
+  quinta), `margin`, `tuning` y `confidence` = `r` × min(1, contraste / 0,5) (contraste = desvío / media del
+  cromagrama: plano en ruido o percusión). Con `confidence` < 0,6 (`KEY_MIN_CONFIDENCE`): `uncertain` y la sugerencia
+  pasa a ser `atonal`.
+- **Nota** (`detect_note`, YIN de de Cheveigné y Kawahara): envolvente en bloques de 5 ms; se analiza desde 20 ms
+  después de su pico (se saltea el ataque) hasta que cae 30 dB (como mucho 1,5 s), en hasta 24 tramos de
+  2·τmax muestras (τmax = sr / 40 Hz; rango 40–2000 Hz). En cada tramo: diferencia cuadrática en una ventana de τmax,
+  diferencia acumulada normalizada, primer mínimo por debajo de 0,15 (bajando hasta el mínimo local) e interpolación
+  parabólica. Resultado: mediana de los tramos con período (en semitonos), `note` con octava (`C#3`, A4 = 440),
+  `cents` (−50..50), `freq` y `confidence` (aperiodicidad media de los tramos que coinciden con la mediana, fracción
+  que coincide y fracción de tramos con período). `pitched` = al menos la mitad de los tramos con período y confianza
+  ≥ 0,5; si no, "no pitch" (ruido, hats, demasiado corto o mudo).
+- **Editor** (`FileEditor.vue`): botón DETECT junto a Key (para todos, también en modo lectura) y una fila Detected
+  con "analyzing…" mientras corre, el error si falla o el resultado. Vale mientras no cambie lo analizado (archivo, tipo,
+  región: `detect_window`); si cambia, desaparece. Loops: "Am · 0.62" (o "uncertain → atonal?"); el `title` da la
+  segunda candidata, la correlación y la afinación si se aparta ≥ 10 cents. El dueño (`own` y no `read_only`) tiene
+  `SET <sugerencia>`, que confirma y guarda `music_key` con `save_timing` (`PUT /files/:id`, como el select). Shots:
+  "C#3 +12¢" (y, si el proyecto lo transpone, la nota resultante); fuera de `read_only`, un select de nota destino
+  (`tune_targets`: las alcanzables con el transpose de ±12, por defecto la más cercana; "· key" marca la tónica de la
+  tonalidad dominante de los loops del proyecto, `dominant_key`, la más repetida sin empate, con su transpose) y TUNE TO,
+  que pone `props.transpose` = destino − altura detectada (`tune_semis`, absoluto: reemplaza el que había; en pasos de
+  0,1 semitono, error de hasta ±5 cents) y dispara el pre-render como el knob (`on_pitch_change`).

@@ -209,6 +209,16 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   `_flush`): al actualizar el paquete correr `stretch_core.test.js`. No probado en navegador real desde el agente
   (Worker + WASM verificados en Node, también con el build minificado). Un preview libre con KEY LOCK, o con
   ediciones sin guardar, se vuelve a arrancar cuando llega su transpuesto.
+- 🟡 Detectores del editor (fase 8, `helpers/detect.js`; ver "Editor: detectores" en `ARCHITECTURE.md`): probados
+  solo con señales sintéticas (acordes y escalas con armónicos, progresiones con bajo y batería, senos, plucks, ruido),
+  no con un corpus real. Tonalidad: los perfiles de Krumhansl confunden relativas (C / Am) y a veces la quinta o la
+  dominante; un loop corto de un solo acorde o de un riff es ambiguo de por sí (el title da la segunda candidata).
+  Esperable con material real: acierto parcial (del orden de 6–7 de cada 10 contando la relativa como error, más si se
+  la acepta); un loop con mucha percusión baja la confianza y puede quedar "uncertain" aunque tenga armonía, y el
+  pitch de un bombo afinado se mezcla en el cromagrama. Nota: YIN puede saltar una octava en timbres raros (la mediana
+  de los tramos lo amortigua); un shot muy corto (< ~50 ms de sostenido) o sin sostenido da "no pitch"; con glissando
+  o vibrato devuelve la mediana; un bombo con caída de tono da la nota final. TUNE TO deja hasta ±5 cents de error
+  (el transpose va en pasos de 0,1). No probado en el navegador desde el agente (Worker verificado en Node con el build).
 - ✅ Resuelto (oct 2026): `files.beats` chocaba con un campo calculado del front (`calculateBars()`
   lo pisaba con duración / tempo). Ahora `beats` lo carga el creador, el backend deduce `bpm` y el
   front calcula aparte `play_rate` / `play_beats` / `in_tempo` (`calculate_timing`, ver "Tempo" en
