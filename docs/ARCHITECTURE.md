@@ -758,8 +758,8 @@ Flujo:
        inicio de la frase o al cambio de Tag).
      Se pueden combinar (dispara una sola vez si coinciden). El archivo se sortea con peso entre
      `available_files_per_TRG` de la pista, que si el Tag cambió en ese beat ya es la del Tag nuevo,
-     **solo entre los de pre-roll 0** (anchor efectivo = inicio de lo que toca el player; ver abajo).
-     Se arranca con `start_file(f, time, on_start)` (pasa por el canal: respeta mute/solo y mueve el vúmetro)
+     **solo entre los de pre-roll 0 o chico** (menos de `PREROLL_ON_BEAT`; ver abajo).
+     Se arranca con `start_file(f, time − pre-roll, on_start)` (con pre-roll 0, en el beat) (pasa por el canal: respeta mute/solo y mueve el vúmetro)
      y **suena entero** (no se le agenda `stop`, y el cambio de Tag no lo corta porque la pista no
      tiene `curr_file`), o solo su región si tiene (`region_secs`: el player la toca con offset y duración). Si ese mismo player ya está `started`, se saltea el disparo (no se reinicia).
      El nombre (`track.last_shot`) y el destello del LED (`track.shot_n`, cuenta de disparos) los
@@ -771,10 +771,18 @@ Flujo:
        one-shot ignora `props.anchor` y usa el del catálogo sobre su ventana (`play_window`: nudge y
        `region_beats`), como antes. Pre-roll = `(anchor − inicio de la ventana) / play_rate`
        (`shot_preroll`; menos de 1 ms cuenta como 0; `null` sin dato, p. ej. un `end` sin duración: no
-       participa). **Pre-roll 0** → el camino de arriba (`oneshot_step`, como los `start` de siempre).
-       **Pre-roll > 0** → se agenda por adelantado (`preroll_step`, lo que antes era `end_step`; un `end` es el
-       caso anchor = fin de la región, pre-roll = su largo, con el mismo comportamiento que antes).
-     - **Pre-roll > 0** (`preroll_step`, en cada beat antes de lo anterior): el anchor cae en el
+       participa). El camino lo elige `preroll_path` (`region.js`, con test):
+       **pre-roll 0 o chico** (`< PREROLL_ON_BEAT` = 0,1 s; `"beat"`) → el camino de arriba (`oneshot_step`, como
+       los `start` de siempre: `density`, `scatter`, frase, disparo en START y tras RESET), arrancando en
+       `time − pre-roll` para que el anchor caiga en el beat (un ataque suave de pocos ms no pierde nada de eso).
+       El umbral sale del margen con que se agenda el beat: el callback del Transport corre entre
+       `LOOK_AHEAD − updateInterval` y `LOOK_AHEAD` antes de `time` (0,25..0,3 s: `LOOK_AHEAD` = 0,3 en
+       `Tracks.vue`, `updateInterval` = 0,05 por defecto de Tone), así que `time − pre-roll` queda en el futuro
+       con ~0,15 s de resto para un hilo principal ocupado (si igual cae en el pasado, Tone lo arranca ya, como un
+       beat tardío). **Pre-roll ≥ `PREROLL_ON_BEAT`** (`"ahead"`) → se agenda por adelantado (`preroll_step`, lo que
+       antes era `end_step`; un `end` es el caso anchor = fin de la región, pre-roll = su largo, con el mismo
+       comportamiento que antes).
+     - **Pre-roll ≥ `PREROLL_ON_BEAT`** (`preroll_step`, en cada beat antes de lo anterior): el anchor cae en el
        punto de disparo (un `end` termina ahí: riser, crash invertido), así que se decide por adelantado. Puntos, cada uno
        por su lado: el próximo cambio de Tag si `on_tag_change` (faltan `b = current_TAG.remaining_beats`
        beats, ya descontado el del beat actual: el cambio ocurre en el beat que empieza con 1) y el
@@ -795,11 +803,11 @@ Flujo:
        entra ninguno (justo tras START, Tag corto, tempo lento) no dispara. Si ese player está
        `started` o tiene un disparo agendado que todavía suena en el arranque nuevo (`end_shots`), se
        saltea. Se calcula con el tempo del momento: si el tempo cambia después, el anchor ya no cae
-       justo en el punto. Una pista con archivos de pre-roll 0 y > 0 puede disparar uno de cada uno
+       justo en el punto. Una pista con archivos de los dos caminos puede disparar uno de cada uno
        en el mismo punto (dados independientes): aceptado. Un anchor intermedio sigue sonando después del
        punto; como los `end`, no lo corta el cambio de Tag.
      - Indicadores: `start_file` prende `isPlaying` en el momento si el arranque es para el beat que
-       viene (`time < Tone.now() + LOOK_AHEAD`: loops y disparos "start", como siempre) y además, para
+       viene (`time < Tone.now() + LOOK_AHEAD`: loops y disparos "start" o de pre-roll chico, como siempre) y además, para
        todos, con `Tone.Draw.schedule(..., time)` (ahí también llama `on_start`). Ese Draw se descarta si
        en el medio el archivo se cortó o se volvió a arrancar (`start_seq[id]`, lo incrementan
        `start_file` y `stop_file`): un disparo con pre-roll cancelado no prende nada.
@@ -1408,8 +1416,10 @@ start/stop). El anchor es el punto del shot que cae en el beat.
   cercano y el editor avisa (rótulo "ANCHOR 0.200 S ⚠ OUT OF REGION" en el color de aviso, con un `title` que
   dice en qué borde suena, y la lengüeta de la manija en ese color). Así, si se vuelve a agrandar la región,
   el punto original sigue valiendo.
-- **Motor y preview**: pre-roll = `(anchor − inicio de la región) / play_rate` (`shot_preroll`): ver "Pistas
-  one-shot" en el motor y "Sync, shot" en el preview.
+- **Motor y preview**: pre-roll = `(anchor − inicio de la región) / play_rate` (`shot_preroll`): menos de
+  `PREROLL_ON_BEAT` (0,1 s) se dispara con la lógica del beat arrancando antes; desde ahí se agenda por adelantado
+  (`preroll_path`; ver "Pistas one-shot" en el motor). El preview en sync no depende de esa división (corre todo
+  shot por su pre-roll, "Sync, shot"). El `title` del rótulo dice cuál de los dos toca.
 - **Manija** sobre la onda (`WaveScreen`, solo shots): línea de trazos con lengüeta triangular abajo (la
   última tocada, en rojo). Solo la lengüeta recibe el puntero: con el anchor en un borde (el default), la manija
   start/stop se sigue agarrando de arriba. Se arrastra dentro de la región. Con SNAP (el mismo `LedButton` /

@@ -729,9 +729,9 @@ const start_seq = {}
 // el archivo entero como siempre). Los cambios de región valen desde el próximo arranque
 function start_file(id, time, on_start) {
   let seq = start_seq[id] = (start_seq[id] ?? 0) + 1
-  // loops y disparos "start" se agendan para el beat que viene: isPlaying se prende ya, como siempre
-  // (con la pestaña oculta Tone.Draw descarta los eventos vencidos). Un disparo con pre-roll (anchor) se agenda
-  // segundos antes: se prende recién cuando suena
+  // loops y disparos "start" (o de pre-roll chico, hasta PREROLL_ON_BEAT antes) se agendan para el beat que
+  // viene: isPlaying se prende ya, como siempre (con la pestaña oculta Tone.Draw descarta los eventos vencidos).
+  // Un disparo con pre-roll largo (anchor) se agenda segundos antes: se prende recién cuando suena
   if (time < Tone.now() + LOOK_AHEAD) files_by_id[id].isPlaying = true
   audio_players[id].playbackRate = files_by_id[id].play_rate ?? 1
   audio_players[id].volume.value = vol_db(files_by_id[id].props.volume, FILE_VOL_MAX_DB)

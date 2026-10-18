@@ -294,6 +294,13 @@ export function seam_window(chans, sr, { from, len, fade = 0, half }) {
 
 // pre-roll por debajo de esto (s) cuenta como 0: un corrimiento inaudible no saca al disparo del camino "en el beat"
 export const PREROLL_MIN = 0.001
+// pre-roll chico (s): por debajo de esto el shot va igual por el camino "en el beat" del motor (oneshot_step:
+// density, scatter, disparo en START y tras RESET) y arranca pre-roll antes del beat para que su anchor caiga en
+// él. Tiene que quedar holgado dentro del margen con que el motor agenda cada beat: el callback del Transport
+// corre entre LOOK_AHEAD − updateInterval y LOOK_AHEAD antes del beat (0,25..0,3 s con LOOK_AHEAD = 0,3 de
+// Tracks.vue y el updateInterval de 0,05 de Tone), así que `beat − pre-roll` sigue en el futuro aunque el hilo
+// principal se atrase ~0,15 s (si igual queda en el pasado, Tone lo arranca ya, como un beat tardío)
+export const PREROLL_ON_BEAT = 0.1
 const EPS = 1e-9
 
 // anchor guardado: segundos en 0..ANCHOR_SECS_MAX; cualquier otra cosa (sin dato, el viejo "start"/"end") = null
@@ -332,6 +339,13 @@ export function shot_preroll(f) {
   if (!a) return null
   let pre = (a.at - a.start) / (f.play_rate || 1)
   return pre < PREROLL_MIN ? 0 : pre
+}
+// camino del motor one-shot (engine_oneshot.js) según el pre-roll (de shot_preroll): "beat" = oneshot_step
+// (0 o chico, menos de PREROLL_ON_BEAT: arranca en beat − pre-roll), "ahead" = preroll_step (se decide y agenda
+// por adelantado hacia el punto), null = sin dato (no participa en ninguno)
+export function preroll_path(pre) {
+  if (pre == null || !(pre >= 0)) return null
+  return pre < PREROLL_ON_BEAT ? "beat" : "ahead"
 }
 // valor a guardar de un anchor que se arrastró o movió con las flechas (s, con PRECISION). null = el default
 // del catálogo (cae justo en el borde que ya es el default: no se guarda y sigue a ese borde si se recorta)

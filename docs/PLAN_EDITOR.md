@@ -120,7 +120,8 @@ El criterio es si hace falta regenerar el audio.
   con el recorte: un anchor del catálogo podría quedar fuera de la región del proyecto.
 - **Motor** (`engine_oneshot.js`): se unifican los dos caminos. Pre-roll = `anchor − start`: 0 → se
   dispara en el beat (los `start` de hoy); > 0 → se agenda por adelantado con ese pre-roll (generaliza
-  `end_step`). `end` = caso "anchor = stop".
+  `end_step`). `end` = caso "anchor = stop". (Ajuste posterior: un pre-roll chico, menos de
+  `PREROLL_ON_BEAT` = 0,1 s, va por el camino del beat arrancando antes; ver "Pistas one-shot" en `ARCHITECTURE.md`.)
 - Si el anchor queda fuera de la región (se movió start/stop), se ajusta al borde más cercano, con aviso.
 - Los loops no llevan anchor (anacrusa): se resuelve con NUDGE y start/stop.
 

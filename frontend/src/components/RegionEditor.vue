@@ -52,7 +52,7 @@ import {
   NUDGE_MAX, FADE_MAX, MIN_LOOP_BEATS, MIN_SHOT_SECS, PREROLL_MIN, file_bpm, loop_region, shot_region, region_beats,
   beat_to_sec, sec_to_beat, snap_beat, move_marker, arrow_beat, region_to_save, zero_cross, zero_cross_dir,
   first_hit, nudge_for_hit, mono_window, seam_window, parse_anchor, anchor_in_region, anchor_to_save, onsets,
-  anchor_snap_points, nearest_point, next_point
+  anchor_snap_points, nearest_point, next_point, preroll_path
 } from "../helpers/region"
 import { editor_key_ok, ARROW_TAKERS } from "../helpers/utils"
 import WaveScreen from "./WaveScreen.vue"
@@ -189,7 +189,9 @@ const anchor_title = computed(() => {
   let r = region.value
   let pre = a.at - r.start
   let what = pre < PREROLL_MIN ? "Triggered on the beat (the anchor is the region start)"
-    : `${fmt(pre * 1000, 0)} ms of the region play before the beat (pre-roll): the engine schedules it ahead`
+    : preroll_path(pre / (props.file.play_rate || 1)) == "beat"
+      ? `${fmt(pre * 1000, 0)} ms of the region play before the beat (pre-roll): triggered like an on-beat shot, started that much earlier`
+      : `${fmt(pre * 1000, 0)} ms of the region play before the beat (pre-roll): the engine schedules it ahead`
   if (a.clamped) {
     let edge = a.at <= r.start ? "start" : "stop"
     return `The saved anchor (${fmt(a.saved, 3)} s) is outside the region: it plays at the region ${edge}. `

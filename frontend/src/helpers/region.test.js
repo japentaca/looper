@@ -4,7 +4,8 @@ import {
   parse_pair, normalize_region_props, region_props_out, loop_region, shot_region, region_beats, play_window,
   window_length, beat_to_sec, sec_to_beat, snap_beat, move_marker, arrow_beat, region_to_save, zero_cross,
   zero_cross_dir, first_hit, nudge_for_hit, bake_region, mono_window, seam_window, file_bpm, parse_anchor,
-  anchor_in_region, shot_anchor, shot_preroll, anchor_to_save, onsets, anchor_snap_points, nearest_point, next_point
+  anchor_in_region, shot_anchor, shot_preroll, anchor_to_save, onsets, anchor_snap_points, nearest_point, next_point,
+  preroll_path, PREROLL_ON_BEAT
 } from "./region.js"
 
 describe("props", () => {
@@ -217,6 +218,24 @@ describe("anchor de un shot (fase 4)", () => {
     expect(shot_preroll({ kind: "shot", anchor: "start", props: {} })).toBe(0)
     expect(shot_preroll({ kind: "shot", anchor: "end", props: {} })).toBe(null)
     expect(shot_preroll({ kind: "shot", anchor: "end", props: { region_secs: [0.1, 0.4] } })).toBeCloseTo(0.3)
+  })
+  it("preroll_path: 0 o chico → beat (oneshot_step); desde PREROLL_ON_BEAT → ahead; sin dato → null", () => {
+    expect(PREROLL_ON_BEAT).toBe(0.1)
+    expect(preroll_path(0)).toBe("beat")
+    expect(preroll_path(0.004)).toBe("beat")
+    expect(preroll_path(0.0999)).toBe("beat")
+    expect(preroll_path(0.1)).toBe("ahead")
+    expect(preroll_path(2)).toBe("ahead")
+    expect(preroll_path(null)).toBe(null)
+    expect(preroll_path(undefined)).toBe(null)
+    expect(preroll_path(NaN)).toBe(null)
+    expect(preroll_path(-0.01)).toBe(null)
+    // con shot_preroll: ataque suave de 30 ms (a ×1) va por el beat; el mismo a ×0,25 (120 ms) se agenda
+    let f = { kind: "shot", duration: 2, anchor: "start", props: { anchor: 0.03 } }
+    expect(preroll_path(shot_preroll(f))).toBe("beat")
+    f.play_rate = 0.25
+    expect(preroll_path(shot_preroll(f))).toBe("ahead")
+    expect(preroll_path(shot_preroll({ kind: "shot", duration: 2, anchor: "end", props: {} }))).toBe("ahead")
   })
   it("loop en una pista one-shot: ignora props.anchor; el del catálogo sobre su ventana, a su play_rate", () => {
     // 8 beats a 120 bpm (4 s), región [2, 6] beats y nudge 100 ms: ventana 1.1 .. 3.1 s

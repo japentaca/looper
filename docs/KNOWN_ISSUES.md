@@ -94,9 +94,10 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   (lo escala el `playbackRate`: unos % de diferencia). El SNAP de shots mira solo el canal izquierdo. Las
   ediciones valen desde el próximo arranque: un loop sonando termina su vuelta con la región vieja.
 - 🟡 Anchor de los shots (fase 4, `shot_anchor` / `shot_preroll` de `region.js`; ver "Editor: anchor" en
-  `ARCHITECTURE.md`), limitaciones aceptadas: un shot con pre-roll > 0 (aunque sea de pocos ms, desde 1 ms) va
-  por el camino de los "end" (`preroll_step`): no usa `scatter`, no dispara en el primer beat de START ni en el
-  cambio de RESET (no se anticipan) y se decide por adelantado con el tempo de ese momento. Un anchor guardado
+  `ARCHITECTURE.md`), limitaciones aceptadas: un shot con pre-roll desde `PREROLL_ON_BEAT` (0,1 s; los de menos
+  van por el camino del beat arrancando antes, `preroll_path`) va por el camino de los "end" (`preroll_step`): no
+  usa `scatter`, no dispara en el primer beat de START ni en el cambio de RESET (no se anticipan) y se decide por
+  adelantado con el tempo de ese momento. Un anchor guardado
   que queda fuera de la región no se reescribe (se toca en el borde; el editor avisa). La detección de golpes
   del SNAP (`onsets`) es por umbral simple: en material denso o con crescendos puede no marcar un golpe o
   marcar de más (sin SNAP se ubica libre).

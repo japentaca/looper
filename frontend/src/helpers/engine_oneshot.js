@@ -4,14 +4,15 @@
 // al montar el componente.
 // Anchor (fase 4 del editor, docs/PLAN_EDITOR.md decisión 7): cada shot tiene un punto que cae en el beat
 // (shot_anchor de region.js: project_files.props.anchor o, sin dato, el default del catálogo files.anchor =
-// inicio o fin de la región). Pre-roll = (anchor − inicio de la región) / play_rate (shot_preroll): con 0 se
-// dispara en el beat (oneshot_step, los "start" de siempre); con > 0 se agenda por adelantado (preroll_step,
-// que generaliza a los "end": un "end" es el caso anchor = stop, pre-roll = largo de la región).
+// inicio o fin de la región). Pre-roll = (anchor − inicio de la región) / play_rate (shot_preroll): con 0 o
+// chico (menos de PREROLL_ON_BEAT, preroll_path "beat") se dispara con la lógica del beat (oneshot_step, los
+// "start" de siempre) arrancando pre-roll antes; con más se agenda por adelantado (preroll_step, que
+// generaliza a los "end": un "end" es el caso anchor = stop, pre-roll = largo de la región).
 import * as Tone from "tone"
 import { TrackCtrl } from "./TrackCtrl"
 import { audio_players, files_by_id, pick_weighted } from "./composable"
 import { end_run } from "./engine_fx"
-import { play_window, window_length, shot_preroll } from "./region"
+import { play_window, window_length, shot_preroll, preroll_path } from "./region"
 
 const current_TAG = TrackCtrl.current_TAG
 const tracks = TrackCtrl.tracks
@@ -52,7 +53,7 @@ export function oneshot_step(track, time, n, tag_start, downbeat) {
   track.remaining_beats = 0
   track.resting = false
 
-  // los archivos con pre-roll se deciden por adelantado (preroll_step); acá solo los de pre-roll 0
+  // los archivos con pre-roll largo se deciden por adelantado (preroll_step); acá los de pre-roll 0 o chico
   preroll_step(track, time, n)
 
   let phrase_start = downbeat && Math.round(n / parseInt(TrackCtrl.beats_x_bar)) % shot_bars(track.track_group) == 0
@@ -71,13 +72,14 @@ export function oneshot_step(track, time, n, tag_start, downbeat) {
     fire = true
   }
   if (!fire) return
-  let files = draw_candidates(track).filter(id => preroll(id) === 0)
+  let files = draw_candidates(track).filter(id => preroll_path(preroll(id)) == "beat")
   if (!files.length) return
   let f = pick_weighted(files, file_weight)
   // si ese mismo player ya está sonando (un disparo anterior), se saltea: no se reinicia
   if (audio_players[f]?.state == "started") return
-  // suena entero (o su región, ver start_file): no se le agenda stop
-  start_file(f, time, () => show_shot(track, f))
+  // suena entero (o su región, ver start_file): no se le agenda stop. Arranca pre-roll antes (0 o menos de
+  // PREROLL_ON_BEAT, dentro del margen con que se agenda el beat) para que su anchor caiga en el beat
+  start_file(f, time - preroll(f), () => show_shot(track, f))
 }
 
 // nombre del último disparo en la tira y destello de su LED (se llama con Tone.Draw, al sonar)
@@ -95,8 +97,9 @@ function shot_length(id) {
   return d > 0 ? window_length(play_window(f), d) / (f.play_rate || 1) : 0
 }
 // pre-roll de un disparo en segundos (shot_preroll de region.js): lo que suena antes de que su anchor caiga en
-// el punto. 0 = se dispara en el beat (oneshot_step); > 0 = se agenda por adelantado (preroll_step); null = sin
-// dato (no participa en ninguno de los dos, como antes un "end" sin duración)
+// el punto. 0 o chico = se dispara con la lógica del beat (oneshot_step); desde PREROLL_ON_BEAT = se agenda por
+// adelantado (preroll_step); null = sin dato (no participa en ninguno de los dos, como antes un "end" sin
+// duración). Ver preroll_path de region.js
 function preroll(id) {
   let f = files_by_id[id]
   return f ? shot_preroll(f) : null
@@ -112,8 +115,8 @@ export function forget_end_shots() {
   end_shots = []
 }
 
-// disparos con pre-roll (anchor después del inicio de la región; un "end" = anchor en el fin: riser, crash
-// invertido): el anchor cae en el punto de disparo, así que el archivo arranca antes y se decide por
+// disparos con pre-roll largo (desde PREROLL_ON_BEAT; anchor después del inicio de la región; un "end" = anchor
+// en el fin: riser, crash invertido): el anchor cae en el punto de disparo, así que el archivo arranca antes y se decide por
 // adelantado. Puntos (cada uno por su lado; si caen en el mismo beat son uno solo y manda el de Tag): el
 // próximo cambio de Tag (con on_tag_change, siempre dispara) y el inicio de la próxima frase de `bars`
 // compases (con density > 0, tira el dado). Cada punto se decide una vez (track.end_points: { at: número de
@@ -123,7 +126,7 @@ export function forget_end_shots() {
 // tempo cambia después, el anchor ya no cae justo en el punto
 function preroll_step(track, time, n) {
   let p = track.track_group.props ?? {}
-  let files = draw_candidates(track).filter(id => preroll(id) > 0)
+  let files = draw_candidates(track).filter(id => preroll_path(preroll(id)) == "ahead")
   if (!files.length) return
   let spb = 60 / Tone.Transport.bpm.value
   let phrase = parseInt(TrackCtrl.beats_x_bar) * shot_bars(track.track_group)
