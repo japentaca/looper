@@ -63,6 +63,65 @@ describe("operaciones", () => {
   })
 })
 
+describe("crossfade de las uniones (cut, duplicate, reverse)", () => {
+  // seno lento (período de 200 muestras): el salto natural entre muestras es ~0,03; las uniones elegidas caen en
+  // un pico de un lado y en un valle del otro (salto de 2 sin crossfade)
+  const sine = n => Float32Array.from({ length: n }, (_, i) => Math.sin(2 * Math.PI * i / 200))
+  const max_step = c => {
+    let m = 0
+    for (let i = 1; i < c.length; i++) m = Math.max(m, Math.abs(c[i] - c[i - 1]))
+    return m
+  }
+  const X = 20
+  it("cut: sin salto en la unión, mismo largo, igual fuera del crossfade", () => {
+    let c = sine(1000)
+    let op = { type: "cut", a: 50, b: 150 }
+    let raw = apply_op([c], op)[0]
+    let out = apply_op([c], { ...op, xfade: X })[0]
+    expect(max_step(raw)).toBeGreaterThan(1.5)
+    expect(max_step(out)).toBeLessThan(0.25)
+    expect(out.length).toBe(raw.length)
+    expect(arr(out.subarray(0, 50))).toEqual(arr(raw.subarray(0, 50)))
+    expect(arr(out.subarray(50 + X))).toEqual(arr(raw.subarray(50 + X)))
+  })
+  it("cut desde el inicio o hasta el final: no hay unión, no cambia", () => {
+    let c = sine(1000)
+    for (const op of [{ type: "cut", a: 0, b: 150 }, { type: "cut", a: 50, b: 1000 }]) {
+      expect(arr(apply_op([c], { ...op, xfade: X })[0])).toEqual(arr(apply_op([c], op)[0]))
+    }
+  })
+  it("duplicate: la repetición entra sin salto; al final del archivo se funde antes de la unión", () => {
+    let c = sine(1000)
+    let op = { type: "duplicate", a: 150, b: 250 }
+    let raw = apply_op([c], op)[0]
+    let out = apply_op([c], { ...op, xfade: X })[0]
+    expect(max_step(raw)).toBeGreaterThan(1.5)
+    expect(max_step(out)).toBeLessThan(0.25)
+    expect(out.length).toBe(raw.length)
+    expect(arr(out.subarray(0, 250))).toEqual(arr(raw.subarray(0, 250)))
+    expect(arr(out.subarray(250 + X))).toEqual(arr(raw.subarray(250 + X)))
+    let end = sine(250)
+    let raw_end = apply_op([end], op)[0]
+    let out_end = apply_op([end], { ...op, xfade: X })[0]
+    expect(max_step(raw_end)).toBeGreaterThan(1.5)
+    expect(max_step(out_end)).toBeLessThan(0.25)
+    expect(arr(out_end.subarray(250))).toEqual(arr(raw_end.subarray(250)))
+  })
+  it("reverse: sin salto en las dos uniones", () => {
+    let c = sine(1000)
+    let op = { type: "reverse", a: 50, b: 350 }
+    let raw = apply_op([c], op)[0]
+    let out = apply_op([c], { ...op, xfade: X })[0]
+    expect(max_step(raw)).toBeGreaterThan(1.5)
+    expect(max_step(out)).toBeLessThan(0.25)
+    expect(arr(out.subarray(50 + X, 350 - X))).toEqual(arr(raw.subarray(50 + X, 350 - X)))
+    expect(arr(out.subarray(350))).toEqual(arr(raw.subarray(350)))
+    // rango más corto que dos crossfades: se achican a la mitad del rango
+    let short = apply_op([c], { type: "reverse", a: 50, b: 60, xfade: X })[0]
+    expect(short.length).toBe(1000)
+  })
+})
+
 describe("posiciones a través de las operaciones", () => {
   it("cut: adentro queda en el borde, después se corre", () => {
     let op = { type: "cut", a: 10, b: 20 }

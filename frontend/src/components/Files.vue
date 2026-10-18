@@ -166,7 +166,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { KEY_TONICS, key_matches } from "../helpers/music_key"
 import {
   out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, list_anchor, is_previewing, is_armed, togglePreview,
-  preview_title, sync_title, key_view
+  preview_title, sync_title, key_view, effective_key
 } from "../helpers/file_ui"
 
 import * as toneLib from "../helpers/toneLib"
@@ -175,7 +175,9 @@ const fileListViewMode = ref("Table")
 
 // filtro por tonalidad: tónica elegida (trae mayor y menor) y si se suman los atonales
 const key_filter = ref({ tonic: "", atonal: true })
-const shown_files = computed(() => store.files.filter(f => key_matches(f.music_key, key_filter.value.tonic, key_filter.value.atonal)))
+// filtra por la tonalidad efectiva (con el transpose del proyecto), la que muestran el cartucho y la tabla
+const shown_files = computed(() => store.files.filter(f => key_matches(effective_key(f), key_filter.value.tonic,
+  key_filter.value.atonal)))
 
 // la clase fid_<id> identifica el archivo de cada fila para el drag&drop (la tabla se puede ordenar)
 function row_class({ row }) {

@@ -240,18 +240,19 @@ describe("detect_note", () => {
 })
 
 describe("afinar a… (TUNE TO)", () => {
-  it("tune_semis: a la nota más cercana corrige los cents (en pasos de 0,1)", () => {
+  it("tune_semis: a la nota más cercana corrige los cents (con 0,01: menos de 0,5 cents de error)", () => {
     let midi = 69 + 0.234 // A4 +23 cents
     expect(nearest_target(midi)).toBe(69)
-    expect(tune_semis(midi, 69)).toBe(-0.2)
-    expect(tune_semis(midi, 72)).toBe(2.8)
-    expect(tune_semis(60 - 0.12, 60)).toBe(0.1)
+    expect(tune_semis(midi, 69)).toBe(-0.23)
+    expect(tune_semis(midi, 72)).toBe(2.77)
+    expect(tune_semis(60 - 0.12, 60)).toBe(0.12)
   })
   it("tune_semis: fuera de ±12 → null", () => {
     expect(tune_semis(60, 73)).toBe(null)
     expect(tune_semis(60, 47)).toBe(null)
     expect(tune_semis(60, 72)).toBe(12)
-    expect(tune_semis(60.02, 72)).toBe(12)
+    expect(tune_semis(60.02, 72)).toBe(11.98)
+    expect(tune_semis(59.98, 72)).toBe(12)
   })
   it("tune_targets: las notas alcanzables, marcando la tónica", () => {
     let t = tune_targets(69.1, 9)

@@ -21,7 +21,7 @@ import * as Tone from "tone"
 import { ElMessageBox } from "element-plus"
 import { source_buffer } from "./composable"
 import { TrackCtrl, file_timing } from "./TrackCtrl"
-import { apply_op, apply_ops, op_length, clamp_range, work_file_of, map_pos, EDGE_RAMP } from "./edit_ops"
+import { apply_op, apply_ops, op_length, clamp_range, work_file_of, map_pos, EDGE_RAMP, SEAM_XFADE } from "./edit_ops"
 import { file_bpm } from "./region"
 import { stretch_rate, stretch_length, stretch_bpm_range } from "./transpose"
 import { render_chans } from "./stretch_queue"
@@ -193,6 +193,7 @@ export function edit_do(type, opts = {}) {
   let op = { type, a: r.a, b: r.b }
   if (type == "gain") op.db = Number(opts.db) || 0
   if (type == "silence" || type == "gain") op.ramp = Math.round(EDGE_RAMP * sr)
+  if (type == "cut" || type == "duplicate" || type == "reverse") op.xfade = Math.round(SEAM_XFADE * sr)
   if (op_length(n, op) < 1) return false
   let chans = apply_op(cur, op)
   // selección después: CUT la quita; DUPLICATE pasa a la repetición (Ctrl+D otra vez la sigue repitiendo)

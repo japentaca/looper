@@ -582,7 +582,7 @@ function valid_anchor(v) {
   return Number.isFinite(v) && v >= 0 && v <= REGION_SECS_MAX
 }
 // transpose de un archivo en el proyecto (editor, fase 7): semitonos, número finito de -TRANSPOSE_MAX a TRANSPOSE_MAX (el
-// front lo usa en pasos de 0.1; el buffer transpuesto se calcula en el navegador). key_lock: booleano
+// front lo usa con hasta 2 decimales; el buffer transpuesto se calcula en el navegador). key_lock: booleano
 const TRANSPOSE_MAX = 12
 function valid_transpose(v) {
   return Number.isFinite(v) && Math.abs(v) <= TRANSPOSE_MAX

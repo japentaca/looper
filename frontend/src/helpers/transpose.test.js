@@ -2,18 +2,27 @@
 import { describe, it, expect } from "vitest"
 import {
   parse_transpose, parse_key_lock, normalize_pitch_props, pitch_props_out, rate_semitones, round_semis,
-  effective_transpose, transpose_key, fmt_semis, key_display, stretch_rate, stretch_length, stretch_bpm_range,
+  effective_transpose, transpose_key, fmt_semis, fmt_transpose, key_display, stretch_rate, stretch_length, stretch_bpm_range,
   TRANSPOSE_MIN, TRANSPOSE_MAX
 } from "./transpose.js"
 
 describe("parse_transpose / key_lock", () => {
-  it("acepta números en rango, en pasos de 0.1", () => {
+  it("acepta números en rango, con hasta 2 decimales", () => {
     expect(parse_transpose(2)).toBe(2)
     expect(parse_transpose(-1.3)).toBe(-1.3)
     expect(parse_transpose(0.30000000000000004)).toBe(0.3)
-    expect(parse_transpose(1.26)).toBe(1.3)
+    expect(parse_transpose(1.26)).toBe(1.26)
+    expect(parse_transpose(1.264)).toBe(1.26)
     expect(parse_transpose(TRANSPOSE_MIN)).toBe(TRANSPOSE_MIN)
     expect(parse_transpose(TRANSPOSE_MAX)).toBe(TRANSPOSE_MAX)
+  })
+  it("fmt_transpose: un decimal en la grilla del knob, dos si no (TUNE TO)", () => {
+    expect(fmt_transpose(0)).toBe("0.0")
+    expect(fmt_transpose(2)).toBe("+2.0")
+    expect(fmt_transpose(-1.3)).toBe("-1.3")
+    expect(fmt_transpose(0.37)).toBe("+0.37")
+    expect(fmt_transpose(-11.98)).toBe("-11.98")
+    expect(fmt_transpose(undefined)).toBe("0.0")
   })
   it("cualquier otra cosa es 0", () => {
     for (const v of [undefined, null, "2", NaN, Infinity, 12.5, -13, [], {}]) expect(parse_transpose(v)).toBe(0)

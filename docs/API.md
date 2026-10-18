@@ -274,7 +274,7 @@ son opcionales):
   - "Región inválida", "Nudge inválido", "Fade inválido" o "Anchor inválido" si no cumplen lo anterior.
   Tono (fase 7; opcionales, sin ellas suena el original; ver "Editor: transpose, KEY LOCK y tonalidad efectiva" en
   `ARCHITECTURE.md`):
-  - `transpose` = semitonos, número finito con `-12 <= transpose <= 12` (el front lo usa en pasos de 0.1 y no lo
+  - `transpose` = semitonos, número finito con `-12 <= transpose <= 12` (el front lo usa con hasta 2 decimales y no lo
     manda si es 0). El navegador calcula el buffer transpuesto (misma duración) y el motor toca ese.
   - `key_lock` = booleano (el front solo manda `true`): compensa el cambio de tono del resample del motor
     (transpose efectivo = `transpose − 12·log2(play_rate)`). Solo cuenta en loops; en shots se ignora.

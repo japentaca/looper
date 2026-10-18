@@ -191,6 +191,19 @@ ni escritura). Cada fase agrega los atajos de lo que implementa.
 - Cada atajo aparece en el `title` de su botón ("CUT (Supr)"); un "?" en el editor muestra la tabla.
 - Para después: Espacio global para START/STOP del motor (choca con el del editor y con ToggleSwitch).
 
+### 12. Ajustes posteriores a las fases (decididos e implementados el 2026-10-17)
+
+- **Uniones de CUT / DUPLICATE / REVERSE**: crossfade automático de 3 ms en cada unión, sin cambiar el largo (no
+  corre la grilla): lo que entra se funde con lo que había antes (CUT: lo quitado; DUPLICATE: lo que seguía al
+  rango; REVERSE: el audio sin invertir). Siempre activo, sin botón.
+- **Preview libre con KEY LOCK**: sigue con su buffer aparte (solo `transpose`, sin la compensación del resample).
+  Sin cambios.
+- **Filtro por tonalidad de Files**: por la tonalidad efectiva (la que muestran cartucho y tabla). El de Import sigue
+  con la del catálogo.
+- **Precisión del transpose**: el knob sigue en pasos de 0,1; TUNE TO guarda con 0,01 (afina exacto); el LCD muestra
+  dos decimales cuando el valor no es múltiplo de 0,1.
+- **Detección de tonalidad incierta**: el dueño tiene SET atonal **y** SET de la mejor candidata.
+
 ## Fases
 
 Cada fase se puede usar sola, lleva su propio commit y actualiza `ARCHITECTURE.md` / `API.md` en el

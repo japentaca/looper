@@ -360,10 +360,9 @@ export function detect_note(x, sr, { fmin = NOTE_FMIN, fmax = NOTE_FMAX, thresho
 }
 
 // --- "afinar a…" (TUNE TO) ---
-// transpose (semitonos, en pasos de TRANSPOSE_STEP) que lleva un shot de altura `midi` (con fracción, la detectada
-// en el original) a la nota `target` (entera); null si queda fuera de TRANSPOSE_MIN..TRANSPOSE_MAX. Absoluto: reemplaza
-// el transpose que tenga (la detección es sobre el original, sin transponer). El paso de 0,1 semitono deja un error de
-// hasta ±5 cents
+// transpose (semitonos, con 0,01 de precisión: parse_transpose) que lleva un shot de altura `midi` (con fracción, la
+// detectada en el original) a la nota `target` (entera); null si queda fuera de TRANSPOSE_MIN..TRANSPOSE_MAX. Absoluto:
+// reemplaza el transpose que tenga (la detección es sobre el original, sin transponer). Error de redondeo: ±0,5 cents
 export function tune_semis(midi, target) {
   let s = Number(target) - Number(midi)
   if (!Number.isFinite(s) || s < TRANSPOSE_MIN - 0.05 || s > TRANSPOSE_MAX + 0.05) return null

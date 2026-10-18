@@ -104,8 +104,9 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
 - 🟡 Ediciones destructivas (fase 6; ver "Editor: ediciones destructivas" en `ARCHITECTURE.md`), limitaciones
   aceptadas: la pila vive solo en memoria (recargar o cerrar la pestaña la pierde sin preguntar; cerrar el editor o
   cambiar de archivo sí pregunta) y se descarta al cambiar de proyecto. Mientras hay cambios, región, anchor, NUDGE
-  y FADE quedan fijos. CUT, DUPLICATE y REVERSE no llevan rampa en los bordes (con SNAP a beats en un loop la unión
-  puede hacer click; SILENCE y GAIN sí la llevan, 2 ms). El buffer de trabajo está a la frecuencia del
+  y FADE quedan fijos. El crossfade de 3 ms de las uniones de CUT, DUPLICATE y REVERSE mezcla unos ms del audio que
+  había antes en ese lugar (lo quitado, lo que seguía al rango o el original sin invertir): en una unión sobre un
+  golpe fuerte puede oírse un resto de 3 ms; un CUT desde el inicio o hasta el final no lleva (no hay unión). El buffer de trabajo está a la frecuencia del
   AudioContext (48 kHz en muchos equipos): la copia se sube así y ffmpeg la pasa a 44,1 kHz (otra conversión, más
   la generación de mp3 V0). El WAV es float de 32 bits (~21 MB por minuto estéreo) para no recortar picos sobre
   0 dBFS: una subida más pesada que con 16 bits. Un loop cuya selección o región no da beats enteros se guarda con
@@ -214,11 +215,12 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   no con un corpus real. Tonalidad: los perfiles de Krumhansl confunden relativas (C / Am) y a veces la quinta o la
   dominante; un loop corto de un solo acorde o de un riff es ambiguo de por sí (el title da la segunda candidata).
   Esperable con material real: acierto parcial (del orden de 6–7 de cada 10 contando la relativa como error, más si se
-  la acepta); un loop con mucha percusión baja la confianza y puede quedar "uncertain" aunque tenga armonía, y el
+  la acepta); un loop con mucha percusión baja la confianza y puede quedar "uncertain" aunque tenga armonía (por eso,
+  con la detección incierta, el dueño tiene SET atonal y SET de la mejor candidata), y el
   pitch de un bombo afinado se mezcla en el cromagrama. Nota: YIN puede saltar una octava en timbres raros (la mediana
   de los tramos lo amortigua); un shot muy corto (< ~50 ms de sostenido) o sin sostenido da "no pitch"; con glissando
-  o vibrato devuelve la mediana; un bombo con caída de tono da la nota final. TUNE TO deja hasta ±5 cents de error
-  (el transpose va en pasos de 0,1). No probado en el navegador desde el agente (Worker verificado en Node con el build).
+  o vibrato devuelve la mediana; un bombo con caída de tono da la nota final. No probado en el navegador desde el
+  agente (Worker verificado en Node con el build).
 - ✅ Resuelto (oct 2026): `files.beats` chocaba con un campo calculado del front (`calculateBars()`
   lo pisaba con duración / tempo). Ahora `beats` lo carga el creador, el backend deduce `bpm` y el
   front calcula aparte `play_rate` / `play_beats` / `in_tempo` (`calculate_timing`, ver "Tempo" en

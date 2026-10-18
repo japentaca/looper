@@ -3,11 +3,13 @@
 // RegionEditor.vue) y el render de las copias.
 //
 // - Operaciones sobre arrays de canales (un Float32Array por canal), en índices de muestra del buffer al que se
-//   aplican: op = { type, a, b, db?, ramp? } con 0 <= a < b <= largo (b exclusivo). Nunca modifican la entrada:
+//   aplican: op = { type, a, b, db?, ramp?, xfade? } con 0 <= a < b <= largo (b exclusivo). Nunca modifican la entrada:
 //   devuelven canales nuevos.
 //   cut = quita [a, b) (acorta); silence = [a, b) a cero (mismo largo); duplicate = repite [a, b) a continuación
 //   (alarga); reverse = invierte [a, b); gain = [a, b) × 10^(db/20). silence y gain llevan una rampa de `ramp`
-//   muestras en cada borde (adentro del rango) para no dejar un click.
+//   muestras en cada borde (adentro del rango) para no dejar un click. cut, duplicate y reverse llevan en cada unión
+//   un crossfade de `xfade` muestras sin cambiar el largo: lo nuevo entra mientras se apaga lo que había antes en ese
+//   lugar (cut: lo quitado; duplicate: lo que seguía al rango; reverse: el audio sin invertir).
 //   stretch (fase 7) = el buffer entero a otro tempo sin cambiar el tono: op = { type, a: 0, b: largo, rate (velocidad:
 //   bpm destino / bpm de antes), out }. El render es asíncrono (Signalsmith, en un Worker): lo hace edit_session.js y
 //   lo guarda en op.out (canales de round(largo / rate) muestras), que apply_op devuelve tal cual (compartidos: nadie
@@ -28,6 +30,8 @@ export const GAIN_MIN = -24
 export const GAIN_MAX = 12
 // rampa de los bordes de silence y gain (s)
 export const EDGE_RAMP = 0.002
+// crossfade de las uniones de cut, duplicate y reverse (s)
+export const SEAM_XFADE = 0.003
 
 export function db_to_gain(db) {
   return Math.pow(10, db / 20)
@@ -58,6 +62,16 @@ function ramped(i, a, b, g, ramp) {
   return k >= 1 ? g : 1 + (g - 1) * k
 }
 
+// crossfade de potencia constante sobre o[p, p + x): con `rising`, o entra (de 0 a 1) mientras src[q, q + x) se
+// apaga; sin `rising`, al revés. Los extremos quedan pegados a lo de alrededor (sin salto)
+function xfade(o, p, x, src, q, rising) {
+  for (let k = 0; k < x; k++) {
+    let t = k / x * Math.PI / 2
+    let w_in = Math.sin(t), w_out = Math.cos(t)
+    o[p + k] = rising ? o[p + k] * w_in + src[q + k] * w_out : o[p + k] * w_out + src[q + k] * w_in
+  }
+}
+
 // aplica una operación: canales nuevos (no toca `chans`)
 export function apply_op(chans, op) {
   if (op.type == "stretch") {
@@ -66,6 +80,7 @@ export function apply_op(chans, op) {
   }
   let { a, b } = op
   let len = b - a
+  let x = Math.max(0, Math.round(op.xfade ?? 0))
   return chans.map(c => {
     let n = c.length
     let o
@@ -74,17 +89,31 @@ export function apply_op(chans, op) {
         o = new Float32Array(n - len)
         o.set(c.subarray(0, a))
         o.set(c.subarray(b), a)
+        // unión en a (si hay algo antes y después): lo de después entra sobre lo quitado
+        if (a > 0) xfade(o, a, Math.min(x, n - b), c, a, true)
         return o
-      case "duplicate":
+      case "duplicate": {
         o = new Float32Array(n + len)
         o.set(c.subarray(0, b))
         o.set(c.subarray(a, b), b)
         o.set(c.subarray(b), b + len)
+        // la única unión nueva es en b (fin del rango → su repetición; la del final de la repetición es la original).
+        // La repetición entra sobre lo que seguía al rango; al final del archivo no hay qué seguía: el final del rango
+        // se funde con lo que precede a su inicio
+        let xd = Math.min(x, len)
+        if (b + xd <= n) xfade(o, b, xd, c, b, true)
+        else if (a >= xd) xfade(o, b - xd, xd, c, a - xd, false)
         return o
-      case "reverse":
+      }
+      case "reverse": {
         o = c.slice()
         o.subarray(a, b).reverse()
+        // uniones en a y en b: lo invertido entra sobre el original y vuelve a él antes de b
+        let xr = Math.min(x, Math.floor(len / 2))
+        if (a > 0) xfade(o, a, xr, c, a, true)
+        if (b < n) xfade(o, b - xr, xr, c, b - xr, false)
         return o
+      }
       case "silence":
       case "gain": {
         o = c.slice()

@@ -67,13 +67,16 @@
             <span v-if="det.busy" class="silk analyzing">analyzing…</span>
             <span v-else-if="det.error" class="det_error">{{ det.error }}</span>
             <span v-else-if="det.type == 'key'" class="timing_row">
-              <span v-if="det.result.uncertain" class="det_text" :title="key_det_title">uncertain → atonal?</span>
+              <span v-if="det.result.uncertain" class="det_text" :title="key_det_title">uncertain{{ det.result.key
+                ? ` · ${det.result.key}?` : "" }}</span>
               <span v-else class="det_text" :title="key_det_title">{{ det.result.key }} · {{
                 det.result.confidence.toFixed(2) }}</span>
-              <LedButton v-if="curr_edit_file.own && !store.read_only" size="small" led="green"
-                :text="'SET ' + det.result.suggestion" :lit="curr_edit_file.music_key == det.result.suggestion"
-                :disabled="saving_timing || curr_edit_file.music_key == det.result.suggestion"
-                :title="`Set the catalog key of this file to ${det.result.suggestion}`" @click="apply_detected_key" />
+              <!-- incierta: SET atonal (baterías, ruido) y SET de la mejor candidata (armonía con mucha percusión) -->
+              <template v-if="curr_edit_file.own && !store.read_only">
+                <LedButton v-for="k in key_choices" :key="k" size="small" led="green" :text="'SET ' + k"
+                  :lit="curr_edit_file.music_key == k" :disabled="saving_timing || curr_edit_file.music_key == k"
+                  :title="`Set the catalog key of this file to ${k}`" @click="apply_detected_key(k)" />
+              </template>
             </span>
             <span v-else class="timing_row">
               <span v-if="!det.result.pitched" class="det_text" :title="note_det_title">no pitch</span>
@@ -237,11 +240,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { KEY_OPTIONS, key_label } from "../helpers/music_key"
 import {
   out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, ANCHOR_TEXT, is_previewing, is_armed, togglePreview,
-  preview_title, sync_title, key_view
+  preview_title, sync_title, key_view, effective_key
 } from "../helpers/file_ui"
 import {
   TRANSPOSE_MIN, TRANSPOSE_MAX, TRANSPOSE_STEP, parse_transpose, effective_transpose, rate_semitones, fmt_semis,
-  transpose_key
+  fmt_transpose
 } from "../helpers/transpose"
 import { sync_file_pitch, is_rendering } from "../helpers/pitch"
 import {
@@ -335,10 +338,6 @@ function apply_match(file) {
 
 // --- tono (docs/PLAN_EDITOR.md, decisión 5; lógica en helpers/transpose.js, pre-render en helpers/pitch.js) ---
 const key_now = computed(() => curr_edit_file.value ? key_view(curr_edit_file.value) : { transposed: false })
-function fmt_transpose(t) {
-  let n = Math.round((Number(t) || 0) * 10) / 10
-  return n > 0 ? "+" + n.toFixed(1) : n.toFixed(1)
-}
 const key_lock_title = computed(() => curr_edit_file.value?.kind == "shot"
   ? "KEY LOCK: only for loops (shots play at their original speed)"
   : "KEY LOCK: keeps the pitch when the engine speeds the loop up or down to the project tempo (re-rendered when the "
@@ -408,10 +407,15 @@ const key_det_title = computed(() => {
   parts.push("A suggestion: relative keys (C / Am) share notes")
   return parts.join(". ")
 })
-// el dueño aplica la sugerencia a music_key (dato del catálogo: vale en todos los proyectos), confirmando
-async function apply_detected_key() {
+// lo que el dueño puede guardar: la sugerencia; si es incierta (sugiere atonal), también la mejor candidata
+const key_choices = computed(() => {
+  let r = det.value?.result
+  if (!r) return []
+  return r.uncertain && r.key && r.key != r.suggestion ? [r.suggestion, r.key] : [r.suggestion]
+})
+// el dueño aplica una de las opciones a music_key (dato del catálogo: vale en todos los proyectos), confirmando
+async function apply_detected_key(k) {
   let f = curr_edit_file.value
-  let k = det.value?.result?.suggestion
   if (!f || !k || !f.own || store.read_only) return
   try {
     await ElMessageBox.confirm(`Set the catalog key of "${f.original_name}" to ${k}? It applies to every project that `
@@ -441,7 +445,7 @@ const TUNE_HELP = "Target note: the semitones show the transpose it needs"
 const tune_target = ref(null)
 const project_key = computed(() => dominant_key(store.files
   .filter(f => f.kind != "shot" && f.id !== curr_edit_file.value?.id)
-  .map(f => transpose_key(f.music_key, parse_transpose(f.props?.transpose)))))
+  .map(effective_key)))
 const tune_options = computed(() => det.value?.result?.pitched
   ? tune_targets(det.value.result.midi, project_key.value?.tonic ?? null) : [])
 const tune_semis_now = computed(() => det.value?.result?.pitched && tune_target.value != null
@@ -449,7 +453,7 @@ const tune_semis_now = computed(() => det.value?.result?.pitched && tune_target.
 const tune_title = computed(() => {
   if (tune_semis_now.value == null) return "TUNE TO: choose a target note"
   let text = `TUNE TO ${note_name(tune_target.value)}: Transpose ${fmt_semis(tune_semis_now.value)} semitones in this `
-    + "project (steps of 0.1: within ±5 cents)"
+    + "project"
   if (project_key.value) text += `. Project key: ${project_key.value.key}`
   return text
 })

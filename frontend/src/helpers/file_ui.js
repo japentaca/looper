@@ -4,7 +4,7 @@ import { toggle_file_tag, save_file, file_anchor } from "./composable"
 import { TrackCtrl } from "./TrackCtrl"
 import * as toneLib from "./toneLib"
 import { shot_anchor } from "./region"
-import { key_display, rate_semitones, parse_key_lock } from "./transpose"
+import { key_display, rate_semitones, parse_key_lock, transpose_key, parse_transpose } from "./transpose"
 
 // archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
 // no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
@@ -41,6 +41,11 @@ export async function toggleTag(file, id) {
 export function key_view(file) {
   let resample = file.kind != "shot" && !parse_key_lock(file.props?.key_lock) ? rate_semitones(file.play_rate) : 0
   return key_display(file.music_key, file.props?.transpose, resample)
+}
+// tonalidad efectiva como dato (la de key_view, sin formato): la usan el filtro de la lista y la tonalidad
+// dominante del proyecto (TUNE TO). Sin dato o atonal: tal cual
+export function effective_key(file) {
+  return transpose_key(file.music_key, parse_transpose(file.props?.transpose))
 }
 
 // --- anclaje de los disparos one-shot (ver file_anchor en composable.js) ---

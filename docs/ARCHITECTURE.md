@@ -503,7 +503,8 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   o desde el editor del archivo (`FileEditor.vue`: un pad por Tag que lo prende o lo apaga).
   `Files.vue` muestra la tonalidad (`music_key`; el dueño la cambia en el diálogo de edición) y filtra
   la lista por tónica, con "+ atonal" (`key_matches` de `helpers/music_key.js`, misma regla que el
-  catálogo). El filtro solo cambia lo que se muestra: el motor sortea todos los archivos.
+  catálogo), sobre la tonalidad efectiva en el proyecto (`effective_key` de `file_ui.js`: con el transpose; ver
+  "Editor: transpose, KEY LOCK y tonalidad efectiva"). El filtro solo cambia lo que se muestra: el motor sortea todos los archivos.
   Anclaje de los disparos one-shot: `file_anchor(file)` de `composable.js` da el del catálogo
   (`anchor ?? "start"`, dato del archivo); es el default: el proyecto puede guardar su propio punto
   (`props.anchor`, segundos) y el anchor efectivo lo da `shot_anchor` de `region.js` (ver "Editor: anchor"). En el diálogo de edición
@@ -1518,7 +1519,12 @@ candidatos al cambiar la lista de archivos (ver `start()` en el motor). No hay n
 - **Operaciones** (`edit_ops.js`, puras, sobre un `Float32Array` por canal, en muestras): CUT (quita el rango),
   SILENCE (a cero), DUPLICATE (repite el rango a continuación; la selección pasa a la repetición, así Ctrl+D la
   sigue repitiendo), REVERSE, GAIN (dB del knob, −24..+12). SILENCE y GAIN llevan una rampa de 2 ms adentro de cada
-  borde (sin click). CUT y SILENCE piden selección (CUT no del buffer entero); sin selección, REVERSE, GAIN y
+  borde (sin click). CUT, DUPLICATE y REVERSE llevan en cada unión un crossfade de potencia constante de 3 ms
+  (`SEAM_XFADE`, `op.xfade` en muestras) que **no cambia el largo** (no corre la grilla): después de la unión, lo
+  nuevo entra mientras se apaga lo que había antes en ese lugar (CUT: lo quitado; DUPLICATE: lo que seguía al rango;
+  REVERSE: el audio sin invertir; en el fin del rango invertido, el crossfade va antes de la unión y vuelve al
+  original). Sin unión no hay crossfade (CUT desde el inicio o hasta el final, REVERSE del borde); un DUPLICATE al
+  final del archivo funde el final del rango con lo que precede a su inicio, antes de la unión. CUT y SILENCE piden selección (CUT no del buffer entero); sin selección, REVERSE, GAIN y
   DUPLICATE valen para todo el archivo. El buffer de trabajo no pasa de 2 minutos (`WORK_MAX_SECS`).
 - **Pila** (`edit_session.js`, una sesión: el archivo del editor abierto): lista de operaciones con UNDO/REDO. No
   se guarda una foto por paso: al deshacer se recalcula desde la base; rehacer y cada operación nueva se aplican
@@ -1589,7 +1595,8 @@ Fase 7 de `docs/PLAN_EDITOR.md` (decisión 5). Cambio de tono sin cambiar la vel
 el motor no cambia (toca un buffer como cualquier otro) y no gasta CPU mientras suena.
 
 - **Props** (`project_files.props`, por proyecto; `transpose.js`, funciones puras con tests): `transpose` en
-  semitonos (−12..+12, pasos de 0.1; 0 o sin dato = el original) y `key_lock` (booleano). `prepare_file` las
+  semitonos (−12..+12, hasta 2 decimales: el knob va en pasos de 0.1 y TUNE TO guarda con 0.01; 0 o sin dato = el
+  original) y `key_lock` (booleano). `prepare_file` las
   normaliza al cargar (`normalize_pitch_props`) y `save_file` manda solo lo que tiene valor (`pitch_props_out`).
 - **Transpose efectivo** (`effective_transpose`): `transpose`, menos `12·log2(play_rate)` con KEY LOCK (solo loops:
   compensa el resample del motor; p. ej. un loop de 128 BPM en un proyecto de 138 sube ~1,3 semitonos → −1,3),
@@ -1623,7 +1630,8 @@ el motor no cambia (toca un buffer como cualquier otro) y no gasta CPU mientras 
   `TrackCtrl.timing_basis` (cada `calculate_timing`: carga, alta de una copia, knob Tempo al soltarlo, Tol, compás,
   región, beats) y sobre la lista de ids: solo se recalcula lo que cambió (con KEY LOCK, los loops cuyo `play_rate`
   cambió). TRANSPOSE (al soltar el knob, o con rueda / flechas) y KEY LOCK llaman a `sync_file_pitch(file, true)`.
-- **Editor** (`FileEditor.vue`): placa Transpose con el knob (−12..+12, paso 0.1) y su LCD en semitonos, LedButton
+- **Editor** (`FileEditor.vue`): placa Transpose con el knob (−12..+12, paso 0.1) y su LCD en semitonos (un decimal; dos
+  si el valor no cae en la grilla del knob, como los de TUNE TO: `fmt_transpose`), LedButton
   KEY LOCK (deshabilitado en shots) y "rendering…" titilando mientras hay un render de ese archivo
   (`is_rendering`). Al lado de la tonalidad del catálogo, la efectiva. En `store.read_only` se ve pero no se edita
   (los transpuestos del proyecto público se calculan igual al cargar).
@@ -1631,7 +1639,8 @@ el motor no cambia (toca un buffer como cualquier otro) y no gasta CPU mientras 
   semitono más cercano con la grafía de `KEY_TONICS` (`C#m` + 2 → `Ebm`) y el transpose como superíndice (`+2`; si
   redondea a 0, el valor con decimal). El `title` da el valor exacto si tiene fracción y, en un loop sin KEY LOCK,
   cuánto agrega el resample del motor. Se muestra en el editor, el cartucho y la columna Key de la tabla (que ordena
-  por la efectiva). El filtro por tonalidad de la lista sigue usando la del catálogo.
+  por la efectiva). El filtro por tonalidad de la lista también usa la efectiva (`effective_key`, sin la del resample);
+  el de Import, la del catálogo.
 - **Costo**: CPU al cargar (en el Worker, fuera del hilo principal): ~1,1 s por minuto de audio estéreo (medido en
   Node con el mismo WASM; un loop de 8 s ≈ 0,15 s), uno a la vez. Memoria: un buffer extra por archivo transpuesto
   (~21 MB por minuto estéreo, como el original) más, al calcular, la copia de entrada y la salida (temporales); el
@@ -1671,11 +1680,13 @@ dependencias). Son sugerencias: nada se guarda sin que alguien lo pida.
   ≥ 0,5; si no, "no pitch" (ruido, hats, demasiado corto o mudo).
 - **Editor** (`FileEditor.vue`): botón DETECT junto a Key (para todos, también en modo lectura) y una fila Detected
   con "analyzing…" mientras corre, el error si falla o el resultado. Vale mientras no cambie lo analizado (archivo, tipo,
-  región: `detect_window`); si cambia, desaparece. Loops: "Am · 0.62" (o "uncertain → atonal?"); el `title` da la
+  región: `detect_window`); si cambia, desaparece. Loops: "Am · 0.62" (o "uncertain · Am?"); el `title` da la
   segunda candidata, la correlación y la afinación si se aparta ≥ 10 cents. El dueño (`own` y no `read_only`) tiene
-  `SET <sugerencia>`, que confirma y guarda `music_key` con `save_timing` (`PUT /files/:id`, como el select). Shots:
+  `SET <sugerencia>`, que confirma y guarda `music_key` con `save_timing` (`PUT /files/:id`, como el select); con la
+  detección incierta, dos: `SET atonal` y `SET <mejor candidata>` (`key_choices`). Shots:
   "C#3 +12¢" (y, si el proyecto lo transpone, la nota resultante); fuera de `read_only`, un select de nota destino
   (`tune_targets`: las alcanzables con el transpose de ±12, por defecto la más cercana; "· key" marca la tónica de la
   tonalidad dominante de los loops del proyecto, `dominant_key`, la más repetida sin empate, con su transpose) y TUNE TO,
-  que pone `props.transpose` = destino − altura detectada (`tune_semis`, absoluto: reemplaza el que había; en pasos de
-  0,1 semitono, error de hasta ±5 cents) y dispara el pre-render como el knob (`on_pitch_change`).
+  que pone `props.transpose` = destino − altura detectada (`tune_semis`, absoluto: reemplaza el que había; con 0,01
+  semitono de precisión, error de ±0,5 cents; el LCD del knob muestra entonces dos decimales: `fmt_transpose`, y
+  tocar el knob lo vuelve a su grilla de 0,1) y dispara el pre-render como el knob (`on_pitch_change`).

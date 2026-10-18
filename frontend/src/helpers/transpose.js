@@ -3,7 +3,8 @@
 // (toneLib.js), el editor (FileEditor.vue, EditOps.vue), la lista (Files.vue) y las ediciones destructivas (edit_ops.js).
 //
 // Props del proyecto (project_files.props, opcionales; sin ninguna el archivo suena como siempre):
-// - transpose: semitonos (número de TRANSPOSE_MIN a TRANSPOSE_MAX, pasos de TRANSPOSE_STEP). El navegador calcula
+// - transpose: semitonos (número de TRANSPOSE_MIN a TRANSPOSE_MAX, con hasta 2 decimales: el knob va en pasos de
+//   TRANSPOSE_STEP y TUNE TO guarda con SEMIS_PRECISION, para afinar exacto). El navegador calcula
 //   offline (Signalsmith) un buffer con ese cambio de tono y la misma duración, y el motor lo toca en lugar del original;
 // - key_lock: true = compensa el cambio de tono del resample del motor (playbackRate = play_rate, ver file_timing en
 //   TrackCtrl.js): el buffer se transpone además −12·log2(play_rate). Solo en loops (los shots van a velocidad original).
@@ -11,6 +12,7 @@ import { KEY_ATONAL, KEY_TONICS, normalize_key, key_label } from "./music_key"
 
 export const TRANSPOSE_MIN = -12
 export const TRANSPOSE_MAX = 12
+// paso del knob TRANSPOSE (TUNE TO guarda valores más finos: ver parse_transpose)
 export const TRANSPOSE_STEP = 0.1
 // precisión del transpose efectivo (semitonos): define cuándo cambió (y hay que volver a calcular el buffer) y la
 // clave del cache. Por debajo de la mitad de esto se toca el original
@@ -24,11 +26,17 @@ function clean(v) {
   return Math.round(v * 100) / 100
 }
 
-// transpose guardado → número en rango, en pasos de TRANSPOSE_STEP; cualquier otra cosa = 0 (sin transponer)
+// transpose guardado → número en rango, redondeado a SEMIS_PRECISION; cualquier otra cosa = 0 (sin transponer)
 export function parse_transpose(v) {
   let n = Number(v)
   if (typeof v != "number" || !Number.isFinite(n) || n < TRANSPOSE_MIN || n > TRANSPOSE_MAX) return 0
-  return clean(round_to(n, TRANSPOSE_STEP))
+  return clean(round_to(n, SEMIS_PRECISION))
+}
+// texto del LCD del knob: un decimal, o dos si el valor no cae en la grilla del knob (lo puso TUNE TO)
+export function fmt_transpose(t) {
+  let n = parse_transpose(t)
+  let s = clean(round_to(n, TRANSPOSE_STEP)) == n ? n.toFixed(1) : n.toFixed(2)
+  return n > 0 ? "+" + s : s
 }
 export function parse_key_lock(v) {
   return v === true
