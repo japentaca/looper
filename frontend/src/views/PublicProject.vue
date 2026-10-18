@@ -31,6 +31,9 @@
           <span class="value">{{ info.creator.name }}</span>
           <span class="silk">Loops</span>
           <span class="value">{{ info.files }}</span>
+          <span class="silk">RAM</span>
+          <span class="value" :class="{ mem_warn: info.memory > memory_warning_limit() }" :title="memory_title">{{
+            fmt_memory(info.memory) }}</span>
         </div>
         <p v-if="info.creator.bio" class="bio">{{ info.creator.bio }}</p>
         <div v-if="store.tags.length" class="row">
@@ -48,7 +51,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onBeforeUnmount } from "vue"
+import { ref, computed, watch, onBeforeUnmount } from "vue"
 import { useRoute } from "vue-router"
 import PublicBar from "../components/PublicBar.vue"
 import Tracks from "../components/Tracks.vue"
@@ -57,20 +60,24 @@ import Led from "../components/hw/Led.vue"
 import ReportDialog from "../components/ReportDialog.vue"
 import { get_user_info } from "../helpers/api"
 import {
-  store, load_public_project, unload_public_project, request_open_project
+  store, load_public_project, unload_public_project, request_open_project, estimate_files_memory,
+  memory_warning_limit, fmt_memory
 } from "../helpers/composable"
 import { TrackCtrl, stop_transport } from "../helpers/TrackCtrl"
 import { url_autostart } from "../helpers/utils"
 
 const route = useRoute()
 
-// datos para mostrar (lo que suena vive en el store): { id, name, creator: { name, bio }, files }
+// datos para mostrar (lo que suena vive en el store): { id, name, creator: { name, bio }, files,
+// memory (bytes estimados de los audios decodificados, la misma cuenta del aviso de memoria) }
 const info = ref(null)
 const loading = ref(false)
 const error = ref("")
 const is_owner = ref(false)
 const logged = ref(false)
 const report_visible = ref(false)
+const memory_title = computed(() => "Estimated browser RAM to load this project"
+  + (info.value?.memory > memory_warning_limit() ? " (more than recommended for this device)" : ""))
 
 // el router reusa este componente si cambia solo el :id, por eso se observa el parámetro.
 // Antes de cargar otro proyecto se hace STOP (el motor quedaría sonando con los archivos del anterior)
@@ -113,7 +120,8 @@ async function load(id, retry = false) {
     return
   }
   info.value = {
-    id: store.project.id, name: store.project.name, creator: res.creator, files: store.files.length
+    id: store.project.id, name: store.project.name, creator: res.creator, files: store.files.length,
+    memory: estimate_files_memory(store.files)
   }
   check_owner(id, n)
 }
@@ -221,6 +229,10 @@ onBeforeUnmount(() => {
 
 .value {
   margin-right: 14px;
+}
+
+.mem_warn {
+  color: var(--hw_yellow);
 }
 
 .bio {

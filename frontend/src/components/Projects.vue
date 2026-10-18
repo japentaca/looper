@@ -24,7 +24,7 @@
           </p>
           <p class="specs">
             <span :class="{ mem_warn: project_memory_warn(row) }" :title="memory_title(row)">
-              {{ fmt_memory(project_memory(row)) }}</span>
+              RAM {{ fmt_memory(project_memory(row)) }}</span>
             · {{ row.files_count ?? 0 }} {{ row.files_count == 1 ? "file" : "files" }}
             <template v-if="row.ts"> · {{ fmt_date(row.ts) }}</template>
           </p>

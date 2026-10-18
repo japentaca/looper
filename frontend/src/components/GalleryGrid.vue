@@ -18,7 +18,7 @@
           </div>
           <div class="meta">
             <span class="silk">{{ p.files }} {{ p.files == 1 ? 'loop' : 'loops' }}
-              · <span :class="{ mem_warn: project_memory_warn(p) }" :title="project_memory_title(p)">{{
+              · <span :class="{ mem_warn: project_memory_warn(p) }" :title="project_memory_title(p)">RAM {{
                 fmt_memory(project_memory(p)) }}</span></span>
             <span class="silk">{{ fmt_date(p.ts) }}</span>
           </div>

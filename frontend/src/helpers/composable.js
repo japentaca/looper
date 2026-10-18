@@ -643,7 +643,7 @@ export function project_memory_warn(p) {
   return project_memory(p) > memory_warning_limit()
 }
 export function project_memory_title(p, what = "this project") {
-  return `Estimated memory to load ${what}`
+  return `Estimated browser RAM to load ${what}`
     + (project_memory_warn(p) ? " (more than recommended for this device)" : "")
 }
 // límite (bytes) a partir del cual se avisa

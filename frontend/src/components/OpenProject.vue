@@ -9,7 +9,7 @@
         <p class="name">{{ p.name }}</p>
         <p class="specs">
           <span :class="{ mem_warn: project_memory_warn(p) }" :title="project_memory_title(p)">
-            {{ fmt_memory(project_memory(p)) }}</span>
+            RAM {{ fmt_memory(project_memory(p)) }}</span>
           · {{ p.files_count ?? 0 }} {{ p.files_count == 1 ? "file" : "files" }}
           <template v-if="p.ts"> · {{ fmt_date(p.ts) }}</template>
         </p>
