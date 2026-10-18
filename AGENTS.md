@@ -57,7 +57,7 @@ frontend/src/
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
     PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
-    hw/              # controles de "aparato físico" en SVG/CSS: Knob, Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, GrLed (LED de reducción de ganancia), StepLeds, RangePads (rango [min, max] sobre una lista de valores)
+    hw/              # controles de "aparato físico" en SVG/CSS: Knob (prop disabled: atenuado y sin respuesta), Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, GrLed (LED de reducción de ganancia), StepLeds, RangePads (rango [min, max] sobre una lista de valores)
   helpers/
     composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases

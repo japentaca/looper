@@ -10,14 +10,14 @@
       <!-- NUDGE (solo loops): corre la grilla entera; AUTO = primer golpe -->
       <div v-if="!is_shot" class="hw_plate mini" :title="NUDGE_TITLE">
         <span class="silk">Nudge</span>
-        <Knob v-if="editable" :model-value="file.props.nudge ?? 0" :min="0" :max="NUDGE_MAX" :size="40"
+        <Knob :disabled="!editable" :model-value="file.props.nudge ?? 0" :min="0" :max="NUDGE_MAX" :size="40"
           @update:model-value="v => set_prop(file, 'nudge', v)" @change="save_props" />
         <Lcd small :digits="3" :value="file.props.nudge ?? 0" unit="ms" />
         <LedButton v-if="editable" size="small" text="AUTO" :disabled="!chans" :title="AUTO_TITLE" @click="auto_nudge" />
       </div>
       <div class="hw_plate mini" :title="FADE_TITLE">
         <span class="silk">Fade</span>
-        <Knob v-if="editable" :model-value="file.props.fade ?? 0" :min="0" :max="FADE_MAX" :size="40"
+        <Knob :disabled="!editable" :model-value="file.props.fade ?? 0" :min="0" :max="FADE_MAX" :size="40"
           @update:model-value="v => set_prop(file, 'fade', v)" @change="save_props" />
         <Lcd small :digits="2" :value="file.props.fade ?? 0" unit="ms" />
       </div>
@@ -33,7 +33,7 @@
 // volume / weight / repeat (save_file_debounced), al soltar: no en cada píxel del arrastre ni del knob.
 // Atajos (solo con el editor abierto; reglas de foco de editor_key_ok en utils.js): G = SNAP, ← / → mueven
 // el último marcador tocado (un beat con SNAP, 1 ms sin SNAP; Shift invierte). En store.read_only se ve
-// todo y no se edita. Los cambios valen desde el próximo arranque del archivo en el motor o en el preview.
+// todo y no se edita (knobs con disabled). Los cambios valen desde el próximo arranque del archivo en el motor o en el preview.
 import { ref, computed, watch, onBeforeUnmount } from "vue"
 import { store, audio_players, save_file_debounced } from "../helpers/composable"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
