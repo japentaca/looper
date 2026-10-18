@@ -205,7 +205,17 @@
           </span>
           <LedButton size="small" text="DELETE" class="danger" @click="emit('delete', curr_edit_file)" />
         </span>
-        <LedButton size="small" text="CLOSE" title="Close (Esc)" @click="request_close" />
+        <span class="dialog_nav">
+          <!-- recorrer la lista de Files sin cerrar el editor (Files.vue: filtro y orden de la tabla) -->
+          <template v-if="nav">
+            <LedButton size="small" text="◀ PREV" :disabled="!can_nav(-1)" title="Previous file in the list (Page Up)"
+              @click="emit('nav', -1)" />
+            <span class="silk nav_pos">{{ nav.index >= 0 ? nav.index + 1 : "–" }} / {{ nav.count }}</span>
+            <LedButton size="small" text="NEXT ▶" :disabled="!can_nav(1)" title="Next file in the list (Page Down)"
+              @click="emit('nav', 1)" />
+          </template>
+          <LedButton size="small" text="CLOSE" title="Close (Esc)" @click="request_close" />
+        </span>
       </div>
     </template>
   </el-dialog>
@@ -259,8 +269,11 @@ import { level_with_volume, match_volume, fmt_level, LOUDNESS_SILENCE } from "..
 const props = defineProps({
   modelValue: { type: Boolean, default: false }, // diálogo visible
   file: { type: Object, default: null }, // archivo que se edita (de store.files)
+  // posición en la lista de Files para PREV / NEXT: { index (-1 = no está en la lista), count }; null = sin botones
+  nav: { type: Object, default: null },
 })
-const emit = defineEmits(["update:modelValue", "delete", "replaced"])
+// nav: -1 / +1 (PREV / NEXT; el cambio de archivo lo hace Files.vue)
+const emit = defineEmits(["update:modelValue", "delete", "replaced", "nav"])
 
 const dialogVisible = computed({
   get: () => props.modelValue,
@@ -507,6 +520,14 @@ const LISTEN_MODES = [
 // el modo de escucha solo cuenta con sync y el motor andando
 const listen_active = computed(() => toneLib.preview_opts.sync && TrackCtrl.isPlaying)
 
+// hay archivo antes (-1) o después (+1) en la lista; fuera de la lista, se entra por el primero o el último
+function can_nav(dir) {
+  let n = props.nav
+  if (!n || n.count == 0) return false
+  if (n.index < 0) return true
+  return dir < 0 ? n.index > 0 : n.index < n.count - 1
+}
+
 // --- cerrar: con ediciones destructivas sin guardar, pregunta antes de descartarlas ---
 async function request_close() {
   if (await confirm_discard()) dialogVisible.value = false
@@ -517,7 +538,7 @@ async function before_close(done) {
 }
 
 // --- atajos del editor (docs/PLAN_EDITOR.md, decisión 11): Espacio = play/stop del preview, Q = SYNC, M = modo
-// de escucha, Esc = quita la selección o, sin selección, cierra (el Esc propio del el-dialog está apagado) (reglas
+// de escucha, RePág / AvPág = archivo anterior / siguiente, Esc = quita la selección o, sin selección, cierra (el Esc propio del el-dialog está apagado) (reglas
 // de foco en editor_key_ok de utils.js; G y las flechas de la región, en RegionEditor.vue; los de las ediciones
 // destructivas, en EditOps.vue) ---
 function on_editor_key(e) {
@@ -530,6 +551,13 @@ function on_editor_key(e) {
     return
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return
+  if ((e.key == "PageUp" || e.key == "PageDown") && !e.shiftKey) {
+    if (!editor_key_ok(e)) return
+    e.preventDefault()
+    let dir = e.key == "PageUp" ? -1 : 1
+    if (!e.repeat && can_nav(dir)) emit("nav", dir)
+    return
+  }
   let key = e.code == "Space" ? "space" : e.key?.toLowerCase()
   if (!["space", "q", "m"].includes(key)) return
   if (!editor_key_ok(e, key == "space" ? SPACE_TAKERS : null)) return
@@ -801,6 +829,18 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+}
+
+.dialog_nav {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.nav_pos {
+  min-width: 52px;
+  padding-bottom: 6px;
+  text-align: center;
 }
 
 .dialog_actions {

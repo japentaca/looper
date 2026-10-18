@@ -77,7 +77,7 @@
     <!-- el-table no tiene eventos de drag por fila: se delegan desde el contenedor (ver row_file) -->
     <div v-show="(fileListViewMode == 'Table')" @dragover="ondragover_table" @dragleave="ondragleave_table"
       @drop="ondrop_table">
-      <el-table :data="shown_files" style="width: 100%" :row-class-name="row_class">
+      <el-table :data="shown_files" style="width: 100%" :row-class-name="row_class" @sort-change="on_sort_change">
         <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
         <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
         <el-table-column sortable prop="beats" label="Beats" width="80">
@@ -151,7 +151,8 @@
 
 
   <!-- editor del archivo (diálogo de edición): lápiz del cartucho o de la fila, o store.edit_file_id -->
-  <FileEditor v-model="dialogVisible" :file="curr_edit_file" @delete="deleteFile" @replaced="f => curr_edit_file = f" />
+  <FileEditor v-model="dialogVisible" :file="curr_edit_file" :nav="nav_pos" @delete="deleteFile"
+    @replaced="f => curr_edit_file = f" @nav="nav_edit" />
 </template>
 <script setup>
 
@@ -201,11 +202,51 @@ function timing_text(file) {
 const dialogVisible = ref(false)
 const curr_edit_file = ref(null)
 
-// con el editor abierto en otro archivo con ediciones destructivas sin guardar, pregunta antes de descartarlas
+// con el editor abierto en otro archivo con ediciones destructivas sin guardar, pregunta antes de descartarlas.
+// false = no se cambió (siguen las ediciones)
 async function editFile(file) {
-  if (dialogVisible.value && curr_edit_file.value?.id !== file.id && !(await confirm_discard())) return
+  if (dialogVisible.value && curr_edit_file.value?.id !== file.id && !(await confirm_discard())) return false
   curr_edit_file.value = file
   dialogVisible.value = true
+  return true
+}
+
+// --- PREV / NEXT del editor: recorre la lista como se ve (filtro por tonalidad y, en la vista Table, su orden) ---
+// orden de la tabla ({ column, order } del sort-change de el-table) o null
+const table_sort = ref(null)
+function on_sort_change({ column, order }) {
+  table_sort.value = order && column ? { column, order } : null
+}
+// valor por el que ordena una columna, como el-table: sort-by (función o prop) o la prop de la columna
+function sort_value(column, row, i) {
+  let by = column.sortBy
+  if (typeof by == "function") return by(row, i)
+  return row[typeof by == "string" ? by : column.property]
+}
+const nav_files = computed(() => {
+  let list = shown_files.value
+  let ts = table_sort.value
+  if (fileListViewMode.value != "Table" || !ts || !(ts.column.sortBy || ts.column.property)) return list
+  let dir = ts.order == "descending" ? -1 : 1
+  return list.map((row, i) => ({ row, i, v: sort_value(ts.column, row, i) }))
+    .sort((a, b) => (a.v < b.v ? -1 : a.v > b.v ? 1 : a.i - b.i) * dir)
+    .map(x => x.row)
+})
+// posición del archivo editado en la lista: { index (0 = primero; -1 = no está, p. ej. lo saca el filtro), count }
+const nav_pos = computed(() => ({
+  index: nav_files.value.findIndex(f => f.id === curr_edit_file.value?.id),
+  count: nav_files.value.length,
+}))
+// pasa al anterior (-1) o al siguiente (+1). Si el preview del archivo que se deja sonaba, sigue con el nuevo
+async function nav_edit(dir) {
+  let list = nav_files.value
+  let i = nav_pos.value.index
+  let next = i < 0 ? (dir > 0 ? list[0] : list[list.length - 1]) : list[i + dir]
+  let prev = curr_edit_file.value
+  if (!next || next.id === prev?.id) return
+  let was_previewing = prev && is_previewing(prev)
+  if (!(await editFile(next))) return
+  if (was_previewing && next.isLoaded) toneLib.playFile(next)
 }
 
 // pedido de edición desde otro componente (store.edit_file_id, ver composable.js)

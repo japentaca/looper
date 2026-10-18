@@ -1380,8 +1380,16 @@ DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo q
 - **Preview** (fase 2): al pie del editor, PLAY/STOP (LED que titila mientras está armado), SYNC y el
   selector MIX / IN CONTEXT / SOLO (atenuado sin sync o con el motor parado, donde no cuenta). Cerrar el
   editor corta el preview del archivo editado.
+- **PREV / NEXT** (al pie, junto a CLOSE, con la posición `n / total`): pasan al archivo anterior o siguiente sin
+  cerrar el editor. La lista es la que se ve en `Files.vue` (`nav_files`): la filtrada por tonalidad y, en la vista
+  Table, en el orden de la tabla (se replica el `sort-change` de el-table: `sort-by` o la prop de la columna). El
+  cambio lo hace `Files.vue` (`nav_edit`, con `prop nav` = `{ index, count }` y evento `nav`) por el mismo camino
+  que el lápiz (`editFile`: con ediciones destructivas sin guardar pregunta antes). Si el preview del archivo que
+  se deja sonaba, arranca el del nuevo. Si el archivo editado sale de la lista (el filtro), PREV / NEXT entran por
+  el último / el primero.
 - **Atajos** (listeners de `window` solo con el editor abierto: `on_editor_key` en `FileEditor.vue` y `on_key` en
-  `RegionEditor.vue`): Espacio = play/stop del preview, Q = SYNC, M = rota MIX → IN CONTEXT → SOLO, G = SNAP,
+  `RegionEditor.vue`): Espacio = play/stop del preview, Q = SYNC, M = rota MIX → IN CONTEXT → SOLO, RePág / AvPág =
+  archivo anterior / siguiente (PREV / NEXT), G = SNAP,
   ← / → = mueven el último marcador tocado; figuran en el `title` de cada botón. Reglas de foco comunes
   (`editor_key_ok` de `helpers/utils.js`): solo si el foco está en el editor (o en ninguna parte; no con otro
   diálogo encima), nunca en un campo de texto (input, select...); Espacio tampoco en un botón o un control hw
