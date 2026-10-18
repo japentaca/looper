@@ -89,6 +89,13 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   motor es en tiempo real (`fadeIn` / `fadeOut` del player) y el del preview en sync está horneado en la copia
   (lo escala el `playbackRate`: unos % de diferencia). El SNAP de shots mira solo el canal izquierdo. Las
   ediciones valen desde el próximo arranque: un loop sonando termina su vuelta con la región vieja.
+- 🟡 Anchor de los shots (fase 4, `shot_anchor` / `shot_preroll` de `region.js`; ver "Editor: anchor" en
+  `ARCHITECTURE.md`), limitaciones aceptadas: un shot con pre-roll > 0 (aunque sea de pocos ms, desde 1 ms) va
+  por el camino de los "end" (`preroll_step`): no usa `scatter`, no dispara en el primer beat de START ni en el
+  cambio de RESET (no se anticipan) y se decide por adelantado con el tempo de ese momento. Un anchor guardado
+  que queda fuera de la región no se reescribe (se toca en el borde; el editor avisa). La detección de golpes
+  del SNAP (`onsets`) es por umbral simple: en material denso o con crescendos puede no marcar un golpe o
+  marcar de más (sin SNAP se ubica libre).
 - 🟡 Un loop que queda fuera de tolerancia mientras suena (por mover el tempo o la tolerancia) termina
   su vuelta con el `playbackRate` nuevo; recién en el próximo sorteo deja de elegirse.
 

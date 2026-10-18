@@ -336,8 +336,9 @@ function reset() {
   start_tag(draw_tag())
   // los disponibles tienen que ser los del Tag nuevo (antes RESET seguía sorteando con los del anterior)
   get_available_files_x_tag(current_TAG.tag?.id)
-  // los disparos "end" hacia el cambio de Tag que ya no ocurre: se cancelan los que no arrancaron (los
-  // que ya suenan terminan donde terminen). El cambio de RESET no se anticipa: no lleva "end"
+  // los disparos con pre-roll ("end" o anchor intermedio) hacia el cambio de Tag que ya no ocurre: se cancelan
+  // los que no arrancaron (los que ya suenan terminan donde terminen). El cambio de RESET no se anticipa: no
+  // lleva pre-roll
   cancel_tag_end_shots()
   first_step = true
   //set_next_step(-1)
@@ -638,7 +639,7 @@ function stop() {
   Tone.Transport.stop()
   fx_reset_all() // filtros, ganancia y sends de los FX de transición vuelven ya a la base
   current_TAG.remaining_beats = 0
-  // disparos "end" agendados (aún no arrancaron o ya suenan, aunque la pista haya pasado a loop): el
+  // disparos con pre-roll agendados (aún no arrancaron o ya suenan, aunque la pista haya pasado a loop): el
   // filtro por state de abajo no ve los agendados a futuro (state mira el presente)
   cancel_end_shots()
   tracks.map(track => {
@@ -729,7 +730,7 @@ const start_seq = {}
 function start_file(id, time, on_start) {
   let seq = start_seq[id] = (start_seq[id] ?? 0) + 1
   // loops y disparos "start" se agendan para el beat que viene: isPlaying se prende ya, como siempre
-  // (con la pestaña oculta Tone.Draw descarta los eventos vencidos). Un disparo "end" se agenda
+  // (con la pestaña oculta Tone.Draw descarta los eventos vencidos). Un disparo con pre-roll (anchor) se agenda
   // segundos antes: se prende recién cuando suena
   if (time < Tone.now() + LOOK_AHEAD) files_by_id[id].isPlaying = true
   audio_players[id].playbackRate = files_by_id[id].play_rate ?? 1
@@ -803,7 +804,7 @@ function start() {
       repeats_left: 0, // pasadas que le faltan después de la actual
       last_shot: null, // one-shot: último archivo disparado (para la tira)
       shot_n: null, // one-shot: cuenta de disparos (cada cambio hace destellar el LED de la tira)
-      end_points: [], // one-shot: puntos ya decididos para los disparos "end" ({ at, tag }, ver end_step)
+      end_points: [], // one-shot: puntos ya decididos para los disparos con pre-roll ({ at, tag }, ver preroll_step)
       pending_shot: null, // one-shot: beat absoluto del disparo de density corrido por props.scatter
       // FX de transición (ver fx_step): dado de descanso anticipado (null = sin sortear), ids de las
       // instancias ya evaluadas en la tirada actual e ids sonando (para los chips; vía Tone.Draw)

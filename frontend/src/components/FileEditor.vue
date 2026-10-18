@@ -224,8 +224,10 @@ function weight_title(file) {
 }
 
 // --- anclaje de los disparos one-shot (ver file_anchor en composable.js) ---
-const ANCHOR_HELP = "Where a one-shot track places the file relative to its trigger point (Tag change or phrase "
-  + "start). Loop tracks ignore it."
+// default del catálogo (files.anchor); cada proyecto puede guardar su punto con la manija del anchor (RegionEditor.vue)
+const ANCHOR_HELP = "Catalog default of where a one-shot track places the file relative to its trigger point (Tag "
+  + "change or phrase start): the START or END of the region falls on the beat. Each project can set its own point "
+  + "by dragging the anchor marker on the waveform. Loop tracks ignore it."
 
 function repeat_label(r) {
   if (!r) return ""

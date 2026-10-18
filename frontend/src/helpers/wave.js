@@ -31,11 +31,11 @@ export function compute_peaks(data, columns) {
 //   inicio. Sin `spb`, repartidas sobre sus `beats`; con `spb` (largo del beat: 60 / bpm del archivo, como
 //   lo toca el motor) y `nudge` (s; la grilla entera corrida a la derecha, ver region.js), beat i en
 //   nudge + i × spb (las que caen después del final no van).
-// - shot: al tempo del proyecto (`tempo`, el shot suena a velocidad original), desde el anchor: "start" =
-//   desde el inicio hacia adelante, "end" = desde el final hacia atrás. bar se cuenta desde el anchor y
-//   anchor = true marca la línea del punto de disparo.
-// Sin datos válidos devuelve []
-export function grid_lines({ kind, duration, beats, beats_x_bar, tempo, anchor, nudge = 0, spb = 0 }) {
+// - shot: al tempo del proyecto (`tempo`, el shot suena a velocidad original), desde el anchor efectivo
+//   (`anchor_t`, s desde el inicio del archivo: el punto que cae en el beat, ver shot_anchor en region.js) hacia
+//   los dos lados. bar se cuenta desde el anchor y anchor = true marca la línea del punto de disparo.
+// Ordenadas por t. Sin datos válidos devuelve []
+export function grid_lines({ kind, duration, beats, beats_x_bar, tempo, anchor_t = 0, nudge = 0, spb = 0 }) {
   let d = Number(duration)
   let bpb = Math.max(1, parseInt(beats_x_bar) || 4)
   if (!(d > 0)) return []
@@ -43,10 +43,10 @@ export function grid_lines({ kind, duration, beats, beats_x_bar, tempo, anchor, 
   if (kind == "shot") {
     let spb = 60 / Number(tempo)
     if (!(spb > 0) || !Number.isFinite(spb)) return []
-    let from_end = anchor == "end"
-    // con un margen de redondeo para no perder la línea que cae justo en el borde opuesto
-    for (let k = 0; k * spb <= d + 1e-9; k++) {
-      lines.push({ t: from_end ? Math.max(0, d - k * spb) : Math.min(d, k * spb), bar: k % bpb == 0, anchor: k == 0 })
+    let a = Math.min(d, Math.max(0, Number(anchor_t) || 0))
+    // k = beats desde el anchor (negativos antes); con un margen de redondeo para no perder las de los bordes
+    for (let k = -Math.floor(a / spb + 1e-9); a + k * spb <= d + 1e-9; k++) {
+      lines.push({ t: Math.min(d, Math.max(0, a + k * spb)), bar: (k % bpb + bpb) % bpb == 0, anchor: k == 0 })
     }
     return lines
   }

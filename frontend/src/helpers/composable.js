@@ -32,7 +32,9 @@ export function parse_rest_len(v) {
 }
 // --- anclaje de los disparos one-shot ---
 // "start" = el archivo empieza en el punto de disparo; "end" = termina en él (riser, crash invertido).
-// Es dato del archivo (files.anchor, lo cambia el dueño). Las pistas de loops lo ignoran.
+// Es dato del archivo (files.anchor, lo cambia el dueño) y es el default del catálogo: cada proyecto puede
+// guardar su propio punto en project_files.props.anchor (segundos; ver shot_anchor en region.js, que da el
+// anchor efectivo). Las pistas de loops lo ignoran.
 export const ANCHORS = ["start", "end"]
 export function file_anchor(file) {
   return file.anchor ?? "start"
@@ -504,9 +506,8 @@ async function install_project(p, same) {
     if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
     f.props.weight = parse_weight(f.props.weight)
     f.props.repeat = parse_repeat(f.props.repeat)
+    // región y anchor del editor; un viejo props.anchor "start" / "end" se descarta (desaparece al guardar)
     normalize_region_props(f.props)
-    // el override del anclaje por proyecto se quitó: se descarta (y desaparece de la base al guardar el archivo)
-    delete f.props.anchor
     if (!ANCHORS.includes(f.anchor)) f.anchor = "start"
     let url = api.file_url(f.id)
     f.isLoaded = false

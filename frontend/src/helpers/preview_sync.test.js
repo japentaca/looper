@@ -33,16 +33,16 @@ describe("shot_period_beats", () => {
 
 describe("shot_sync_start", () => {
   const base = { now: 10, first: 10.25, spb: 0.5 }
-  it("anchor start con el motor: arranca en el próximo beat, sin relleno", () => {
-    let s = shot_sync_start({ ...base, dur: 1.2, anchor: "start", engine: true })
+  it("anchor start (pre 0) con el motor: arranca en el próximo beat, sin relleno", () => {
+    let s = shot_sync_start({ ...base, dur: 1.2, pre: 0, engine: true })
     expect(s.time).toBe(10.25)
     expect(s.offset).toBe(0)
     expect(s.pad).toBe(0)
     expect(s.period).toBe(1.5)
   })
-  it("anchor end con el motor: termina en el primer beat posible", () => {
+  it("anchor end (pre = dur) con el motor: termina en el primer beat posible", () => {
     // beats: 10.25, 10.75, 11.25, 11.75... primer B con B - 1.2 >= 10 → 11.25. period 1.5, pad 0.3
-    let s = shot_sync_start({ ...base, dur: 1.2, anchor: "end", engine: true })
+    let s = shot_sync_start({ ...base, dur: 1.2, pre: 1.2, engine: true })
     expect(s.pad).toBeCloseTo(0.3)
     // el buffer con relleno "empezaría" en 11.25 - 1.5 = 9.75 (ya pasó): arranca ahora con offset 0.25
     expect(s.time).toBe(10)
@@ -52,15 +52,33 @@ describe("shot_sync_start", () => {
   })
   it("anchor end con el motor y tiempo de sobra: el buffer arranca en un beat", () => {
     // dur 0.3: period 0.5, pad 0.2; primer B con B - 0.3 >= 10 → 10.75; inicio 10.25 (>= now)
-    let s = shot_sync_start({ ...base, dur: 0.3, anchor: "end", engine: true })
+    let s = shot_sync_start({ ...base, dur: 0.3, pre: 0.3, engine: true })
     expect(s.time).toBe(10.25)
     expect(s.offset).toBe(0)
     expect(s.time + s.period).toBe(10.75)
   })
+  it("anchor intermedio con el motor: el anchor cae en un beat, el shot arranca en el futuro", () => {
+    // dur 1.2, anchor a 0.3 s: en el buffer el anchor va en 0.5 (pad 0.2), vuelta de 3 beats
+    let s = shot_sync_start({ ...base, dur: 1.2, pre: 0.3, engine: true })
+    expect(s.pad).toBeCloseTo(0.2)
+    expect(s.period).toBeCloseTo(1.5)
+    // primer B con B - 0.3 >= 10 → 10.75; el buffer arranca en 10.25
+    expect(s.time).toBeCloseTo(10.25)
+    expect(s.offset).toBe(0)
+    expect(s.time + s.pad + 0.3).toBeCloseTo(10.75)
+  })
+  it("anchor intermedio: si el inicio del buffer ya pasó, arranca ahora dentro del silencio", () => {
+    // B = 10.55 (10.55 - 0.3 >= 10.1); el buffer empezaría en 10.55 - 0.5 = 10.05, que ya pasó
+    let s = shot_sync_start({ now: 10.1, first: 10.55, spb: 0.5, dur: 1.2, pre: 0.3, engine: true })
+    expect(s.time).toBe(10.1)
+    expect(s.offset).toBeCloseTo(0.05)
+    // el anchor suena en time + (pad + pre - offset) = el beat
+    expect(s.time + s.pad + 0.3 - s.offset).toBeCloseTo(10.55)
+  })
   it("motor parado: arranca ya con el shot sonando", () => {
-    let st = shot_sync_start({ ...base, dur: 1.2, anchor: "start", engine: false })
+    let st = shot_sync_start({ ...base, dur: 1.2, pre: 0, engine: false })
     expect(st).toMatchObject({ time: 10, offset: 0, pad: 0 })
-    let en = shot_sync_start({ ...base, dur: 1.2, anchor: "end", engine: false })
+    let en = shot_sync_start({ ...base, dur: 1.2, pre: 1.2, engine: false })
     expect(en.time).toBe(10)
     expect(en.offset).toBeCloseTo(0.3) // saltea el silencio de adelante
   })

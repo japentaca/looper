@@ -7,6 +7,13 @@
       <span class="region_len" :class="{ warn: fractional }" :title="len_title">{{ len_text }}</span>
       <LedButton v-if="editable" size="small" text="SNAP" led="yellow" :lit="snap" :title="snap_title + ' (G)'"
         @click="toggle_snap" />
+      <!-- anchor (solo shots): el punto que cae en el beat; aviso si el guardado quedó fuera de la región.
+        DEFAULT = vuelve al del catálogo (borra el del proyecto) -->
+      <template v-if="anchor">
+        <span class="region_len" :class="{ warn: anchor.clamped }" :title="anchor_title">{{ anchor_text }}</span>
+        <LedButton v-if="editable" size="small" text="DEFAULT" :disabled="!anchor.custom" :title="DEFAULT_TITLE"
+          @click="reset_anchor" />
+      </template>
       <!-- NUDGE (solo loops): corre la grilla entera; AUTO = primer golpe -->
       <div v-if="!is_shot" class="hw_plate mini" :title="NUDGE_TITLE">
         <span class="silk">Nudge</span>
@@ -34,13 +41,18 @@
 // Atajos (solo con el editor abierto; reglas de foco de editor_key_ok en utils.js): G = SNAP, ← / → mueven
 // el último marcador tocado (un beat con SNAP, 1 ms sin SNAP; Shift invierte). En store.read_only se ve
 // todo y no se edita (knobs con disabled). Los cambios valen desde el próximo arranque del archivo en el motor o en el preview.
+// Fase 4 (decisión 7): en shots, el anchor (props.anchor, segundos: el punto que cae en el beat; sin dato, el
+// default del catálogo files.anchor = inicio o fin de la región). Manija arrastrable con SNAP a los golpes
+// (onsets de region.js) y a los bordes de la región; también lo mueven las flechas si fue el último tocado.
+// Un anchor guardado fuera de la región no se reescribe: se toca en el borde más cercano y se avisa.
 import { ref, computed, watch, onBeforeUnmount } from "vue"
 import { store, audio_players, save_file_debounced } from "../helpers/composable"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import {
-  NUDGE_MAX, FADE_MAX, MIN_LOOP_BEATS, MIN_SHOT_SECS, file_bpm, loop_region, shot_region, region_beats,
+  NUDGE_MAX, FADE_MAX, MIN_LOOP_BEATS, MIN_SHOT_SECS, PREROLL_MIN, file_bpm, loop_region, shot_region, region_beats,
   beat_to_sec, sec_to_beat, snap_beat, move_marker, arrow_beat, region_to_save, zero_cross, zero_cross_dir,
-  first_hit, nudge_for_hit, mono_window, seam_window
+  first_hit, nudge_for_hit, mono_window, seam_window, parse_anchor, anchor_in_region, anchor_to_save, onsets,
+  anchor_snap_points, nearest_point, next_point
 } from "../helpers/region"
 import { editor_key_ok, ARROW_TAKERS } from "../helpers/utils"
 import WaveScreen from "./WaveScreen.vue"
@@ -65,6 +77,7 @@ const START_ZOOM = 0.3 // s que muestra la lupa de inicio (el nudge llega a 250 
 const SEAM_HALF = 0.03 // s a cada lado de la costura
 const ZERO_RADIUS = 0.005 // s: el SNAP de un shot busca un cruce por cero a no más de esto
 const SNAP_KEY = "looper_editor_snap"
+const DEFAULT_TITLE = "Back to the catalog anchor (START or END of the region, set by the file owner)"
 
 const editable = computed(() => !store.read_only)
 const is_shot = computed(() => props.file.kind == "shot")
@@ -80,7 +93,8 @@ function toggle_snap() {
   try { localStorage.setItem(SNAP_KEY, snap.value ? "1" : "0") } catch { /* solo en memoria */ }
 }
 const snap_title = computed(() => is_shot.value
-  ? "Snap: markers stick to the nearest zero crossing (hold Shift while dragging to invert)"
+  ? "Snap: start/stop stick to the nearest zero crossing, the anchor to the nearest hit or region edge "
+    + "(hold Shift while dragging to invert)"
   : "Snap: markers stick to the beat lines (hold Shift while dragging to invert)")
 
 // --- grilla de un loop: beats (los del input mientras se editan), largo del beat y nudge ---
@@ -98,10 +112,13 @@ const max_unit = computed(() => is_shot.value ? duration.value : beats_now.value
 
 // región mientras se arrastra (en beats o segundos), o null
 const draft = ref(null)
-// último marcador tocado ("start" | "stop"): lo mueven las flechas
+// anchor de un shot mientras se arrastra (s), o null
+const anchor_draft = ref(null)
+// último marcador tocado ("start" | "stop" | "anchor"): lo mueven las flechas
 const last_marker = ref(null)
 watch(() => props.file, () => {
   draft.value = null
+  anchor_draft.value = null
   last_marker.value = null
 })
 
@@ -116,11 +133,24 @@ const region = computed(() => {
 function to_sec(v) {
   return is_shot.value ? v : beat_to_sec(v, spb.value, nudge_s.value)
 }
+// anchor de un shot sobre la región que se ve (también mientras se arrastra start/stop): { at (efectivo, s),
+// clamped (el guardado quedó fuera: se toca en el borde), custom (guardado en el proyecto o arrastrándose),
+// saved }; null en loops
+const anchor = computed(() => {
+  let r = region.value
+  if (!is_shot.value || !r) return null
+  let saved = anchor_draft.value ?? parse_anchor(props.file.props.anchor)
+  return { ...anchor_in_region(saved, props.file.anchor, r), custom: saved != null, saved }
+})
 // lo que muestra la pantalla, en segundos (ver WaveScreen.vue)
 const view = computed(() => {
   let r = region.value
   if (!r) return null
-  return { start: to_sec(r.start), stop: to_sec(r.stop), nudge: nudge_s.value, spb: is_shot.value ? 0 : spb.value }
+  let a = anchor.value
+  return {
+    start: to_sec(r.start), stop: to_sec(r.stop), nudge: nudge_s.value, spb: is_shot.value ? 0 : spb.value,
+    anchor: a ? a.at : null, anchor_out: !!a?.clamped, anchor_custom: !!a?.custom,
+  }
 })
 
 // --- largo de la región ---
@@ -147,6 +177,26 @@ const len_title = computed(() => {
   }
   return "Beats the region takes in the engine (the BPM does not change)"
 })
+// rótulo del anchor: el del proyecto en segundos (con aviso si quedó fuera de la región) o el del catálogo
+const anchor_text = computed(() => {
+  let a = anchor.value
+  if (a.clamped) return `ANCHOR ${fmt(a.saved, 3)} S ⚠ OUT OF REGION`
+  if (a.custom) return `ANCHOR ${fmt(a.at, 3)} S`
+  return props.file.anchor == "end" ? "ANCHOR END" : "ANCHOR START"
+})
+const anchor_title = computed(() => {
+  let a = anchor.value
+  let r = region.value
+  let pre = a.at - r.start
+  let what = pre < PREROLL_MIN ? "Triggered on the beat (the anchor is the region start)"
+    : `${fmt(pre * 1000, 0)} ms of the region play before the beat (pre-roll): the engine schedules it ahead`
+  if (a.clamped) {
+    let edge = a.at <= r.start ? "start" : "stop"
+    return `The saved anchor (${fmt(a.saved, 3)} s) is outside the region: it plays at the region ${edge}. `
+      + "Drag it or press DEFAULT. " + what
+  }
+  return (a.custom ? "Anchor of this project. " : "Catalog anchor (no point saved in this project). ") + what
+})
 
 // --- audio del archivo (para el SNAP de shots, AUTO y las lupas) ---
 // canales (máximo 2) del buffer ya cargado, o null. audio_players no es reactivo: se relee al terminar la carga
@@ -171,6 +221,12 @@ function zero_t(t, dir = 0) {
   return k / a.sr
 }
 
+// golpes del shot (s), para el SNAP del anchor (onsets: umbral como AUTO). Se calculan al usarlos
+const hits = computed(() => is_shot.value && chans.value ? onsets(chans.value.data, chans.value.sr) : [])
+function anchor_points(r) {
+  return anchor_snap_points(hits.value, r)
+}
+
 // --- edición de los marcadores ---
 // largo mínimo: con SNAP en un loop, un beat
 function min_len(snap_on) {
@@ -179,6 +235,7 @@ function min_len(snap_on) {
 function on_marker({ which, t, shift, done }) {
   let r = region.value
   if (!editable.value || !r) return
+  if (which == "anchor") return on_anchor(r, t, shift, done)
   // soltar sin haber arrastrado (clic para elegir el marcador de las flechas): no se mueve ni se re-pega
   if (done && !draft.value) return
   let snap_on = snap.value !== shift
@@ -198,6 +255,34 @@ function commit_region() {
   if (save) set_prop(f, key, save)
   else delete f.props[key]
   calculate_timing()
+  save_file_debounced(f)
+}
+// anchor: dentro de la región; con SNAP al golpe o borde más cercano, sin SNAP libre
+function on_anchor(r, t, shift, done) {
+  if (done && anchor_draft.value == null) return
+  let v = Math.min(r.stop, Math.max(r.start, t))
+  if (snap.value !== shift) v = nearest_point(anchor_points(r), v)
+  anchor_draft.value = v
+  if (done) commit_anchor()
+}
+// guarda el anchor que se arrastró (o movió con las flechas); en el borde que ya es el default del catálogo no se
+// guarda (sigue a ese borde si después se recorta la región)
+function commit_anchor() {
+  let v = anchor_draft.value
+  anchor_draft.value = null
+  let r = region.value
+  if (v == null || !r) return
+  let f = props.file
+  let save = anchor_to_save(v, f.anchor, r)
+  if (save != null) set_prop(f, "anchor", save)
+  else delete f.props.anchor
+  save_file_debounced(f)
+}
+// DEFAULT: vuelve al anchor del catálogo
+function reset_anchor() {
+  let f = props.file
+  if (f.props.anchor === undefined) return
+  delete f.props.anchor
   save_file_debounced(f)
 }
 function set_prop(f, key, v) {
@@ -258,6 +343,15 @@ function on_key(e) {
   e.preventDefault()
   let dir = e.key == "ArrowRight" ? 1 : -1
   let snap_on = snap.value !== e.shiftKey
+  if (which == "anchor") {
+    // con SNAP al golpe o borde siguiente en esa dirección; sin SNAP, 1 ms
+    let a = anchor.value
+    if (!a) return
+    let v = snap_on ? next_point(anchor_points(r), a.at, dir) ?? a.at : a.at + dir * 0.001
+    anchor_draft.value = Math.min(r.stop, Math.max(r.start, v))
+    commit_anchor()
+    return
+  }
   let v = is_shot.value
     ? (snap_on ? zero_t(r[which] + dir * 0.001, dir) : r[which] + dir * 0.001)
     : arrow_beat(r[which], dir, snap_on, spb.value)

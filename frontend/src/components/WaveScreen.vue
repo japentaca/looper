@@ -1,12 +1,14 @@
 <template>
   <div ref="box" class="wave_screen" role="img" tabindex="-1" :aria-label="`Waveform of ${file.original_name}`">
     <canvas ref="cv" class="wave_canvas"></canvas>
-    <!-- región: lo de afuera atenuado y las manijas start/stop (arrastrables si editable) -->
+    <!-- región: lo de afuera atenuado y las manijas start/stop (arrastrables si editable); en shots, el anchor
+      (lengüeta abajo; out = el guardado quedó fuera de la región y se toca en el borde) -->
     <template v-if="has_buffer && marks">
       <div class="dim" :style="{ left: 0, width: marks.start + '%' }"></div>
       <div class="dim" :style="{ left: marks.stop + '%', right: 0 }"></div>
-      <div v-for="m in ['start', 'stop']" :key="m" class="handle" :class="[m, { editable, selected: selected === m }]"
-        :style="{ left: marks[m] + '%' }" :title="editable ? HANDLE_TITLE[m] : undefined"
+      <div v-for="m in handles" :key="m" class="handle"
+        :class="[m, { editable, selected: selected === m, out: m == 'anchor' && view.anchor_out }]"
+        :style="{ left: marks[m] + '%' }" :title="editable ? HANDLE_TITLE[m] : m == 'anchor' ? ANCHOR_TITLE : undefined"
         @pointerdown="on_handle_down(m, $event)">
         <span class="grip"></span>
       </div>
@@ -38,14 +40,15 @@
 // los cursores se mueven tocando el DOM en cada frame, sin reactividad. El clic en la onda no hace nada.
 // Fase 3: muestra la región que le pasa RegionEditor.vue (`view`, en segundos: afuera atenuado, grilla
 // corrida por el nudge) y sus manijas; al arrastrarlas emite "marker" con el tiempo bajo el puntero (la
-// conversión a beats, el SNAP y el guardado son de RegionEditor).
+// conversión a beats, el SNAP y el guardado son de RegionEditor). Fase 4: en shots, además la manija del
+// anchor (el punto que cae en el beat) y la grilla al tempo del proyecto desde ese punto.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
 import * as Tone from "tone"
 import { audio_players, engine_starts } from "../helpers/composable"
 import { TrackCtrl, file_timing } from "../helpers/TrackCtrl"
 import * as toneLib from "../helpers/toneLib"
 import { compute_peaks, grid_lines, rate_label } from "../helpers/wave"
-import { region_beats } from "../helpers/region"
+import { region_beats, shot_anchor } from "../helpers/region"
 
 const props = defineProps({
   file: { type: Object, required: true },
@@ -55,13 +58,15 @@ const props = defineProps({
   // diálogo abierto: sin esto no se anima (el diálogo cerrado queda montado, oculto)
   active: { type: Boolean, default: false },
   // región a mostrar, en segundos del archivo: { start, stop, nudge (beat 0 de la grilla de un loop), spb
-  // (largo del beat del archivo; 0 = repartir la grilla sobre la duración) }; null = sin región (fase 1)
+  // (largo del beat del archivo; 0 = repartir la grilla sobre la duración), y en shots anchor (efectivo, s),
+  // anchor_out (el guardado quedó fuera de la región) y anchor_custom (guardado en el proyecto; si no, el
+  // default del catálogo) }; null = sin región (fase 1)
   view: { type: Object, default: null },
   // región de un loop en beats ({ start, stop }) o null: para el rótulo ×2 / ×½ con los beats efectivos
   loop_region: { type: Object, default: null },
   // manijas arrastrables (fuera de store.read_only)
   editable: { type: Boolean, default: false },
-  // último marcador tocado ("start" | "stop" | null): se resalta (lo mueven las flechas)
+  // último marcador tocado ("start" | "stop" | "anchor" | null): se resalta (lo mueven las flechas)
   selected: { type: String, default: null },
 })
 // marker: { which, t (s del archivo bajo el puntero; puede salir de [0, duración] si el puntero sale de la
@@ -72,7 +77,9 @@ const RATE_TITLE = "The engine plays this loop at double or half time to fit the
 const HANDLE_TITLE = {
   start: "Region start: drag (Shift inverts SNAP); ← / → move it",
   stop: "Region stop: drag (Shift inverts SNAP); ← / → move it",
+  anchor: "Anchor: this point falls on the beat. Drag (SNAP: hits and region edges; Shift inverts); ← / → move it",
 }
+const ANCHOR_TITLE = "Anchor: this point falls on the beat"
 const box = ref(null)
 const cv = ref(null)
 const cur_preview = ref(null)
@@ -84,15 +91,19 @@ const stereo = ref(false)
 const shown_beats = computed(() => props.beats ?? props.file.beats)
 const is_shot = computed(() => props.file.kind == "shot")
 
+// anchor efectivo de un shot (s): el de la región que se ve (también mientras se arrastra) o, sin región, el
+// del archivo (shot_anchor de region.js)
+const anchor_t = computed(() => is_shot.value ? props.view?.anchor ?? shot_anchor(props.file)?.at ?? 0 : 0)
+
 // líneas de la grilla (helpers/wave.js). El tempo solo se lee en un shot: mover el knob Tempo no
-// redibuja la pantalla de un loop
+// redibuja la pantalla de un loop. En un shot, desde el anchor efectivo
 const lines = computed(() => grid_lines({
   kind: is_shot.value ? "shot" : "loop",
   duration: props.file.duration,
   beats: shown_beats.value,
   beats_x_bar: TrackCtrl.beats_x_bar,
   tempo: is_shot.value ? TrackCtrl.tempo : 0,
-  anchor: props.file.anchor,
+  anchor_t: anchor_t.value,
   nudge: is_shot.value ? 0 : props.view?.nudge ?? 0,
   spb: is_shot.value ? 0 : props.view?.spb ?? 0,
 }))
@@ -103,12 +114,18 @@ const marks = computed(() => {
   let d = Number(props.file.duration)
   if (!v || !(d > 0)) return null
   const pct = t => Math.min(100, Math.max(0, t / d * 100))
-  return { start: pct(v.start), stop: pct(v.stop) }
+  return { start: pct(v.start), stop: pct(v.stop), anchor: v.anchor == null ? null : pct(v.anchor) }
 })
+// manijas que se muestran: start/stop y, en shots, el anchor
+const handles = computed(() => is_shot.value && marks.value?.anchor != null ? ["start", "stop", "anchor"] : ["start", "stop"])
 
-const caption = computed(() => is_shot.value
-  ? `GRID ${TrackCtrl.tempo} BPM · ${props.file.anchor == "end" ? "⇥END" : "START⇤"}`
-  : `${shown_beats.value ?? "?"} BEATS`)
+// en un shot: el anchor guardado en el proyecto (en segundos) o el default del catálogo
+const caption = computed(() => {
+  if (!is_shot.value) return `${shown_beats.value ?? "?"} BEATS`
+  let a = props.view?.anchor_custom ? `ANCHOR ${Math.round(anchor_t.value * 1000) / 1000} S`
+    : props.file.anchor == "end" ? "⇥END" : "START⇤"
+  return `GRID ${TrackCtrl.tempo} BPM · ${a}`
+})
 
 // rótulo si el motor lo toca a ×2 o ×½ (play_beats ≠ beats efectivos: los de la región, si tiene). Se
 // calcula igual que lo hará el motor (file_timing), con la región que se ve (también mientras se arrastra) y
@@ -140,7 +157,9 @@ function on_handle_down(which, e) {
   box.value.focus({ preventScroll: true })
   emit("touch", which)
   let el = e.currentTarget
-  el.setPointerCapture(e.pointerId)
+  // captura en lo que se tocó (la lengüeta del anchor, que es lo único de esa manija que recibe el puntero):
+  // move / up suben hasta la manija
+  e.target.setPointerCapture(e.pointerId)
   // agarre: lo que el puntero quedó corrido de la línea de la manija (como mucho unos píxeles)
   let d = Number(props.file.duration)
   let max_grab = css_w > 0 ? 8 / css_w * d : 0
@@ -520,5 +539,37 @@ onBeforeUnmount(() => {
 .handle.selected::before,
 .handle.selected .grip {
   background: var(--hw_red);
+}
+
+/* anchor (shots): línea de trazos y lengüeta triangular abajo (arriba están las de start/stop y el triángulo de
+   la grilla); fuera de la región (se toca en el borde) en el color de aviso. Solo la lengüeta recibe el puntero:
+   con el anchor en un borde (el default) la manija de start/stop sigue agarrándose de arriba */
+.handle.anchor {
+  pointer-events: none;
+}
+
+.handle.anchor .grip {
+  pointer-events: auto;
+}
+
+.handle.anchor::before {
+  background: repeating-linear-gradient(180deg, var(--hw_lcd_ink) 0 5px, transparent 5px 8px);
+}
+
+.handle.anchor .grip {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 14px;
+  height: 12px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.handle.anchor.selected::before {
+  background: repeating-linear-gradient(180deg, var(--hw_red) 0 5px, transparent 5px 8px);
+}
+
+.handle.anchor.out .grip {
+  background: #7a1a0c;
 }
 </style>

@@ -6,7 +6,7 @@ const EPS = 1e-6
 
 // primer punto de la grilla first + k·step (k entero ≥ 0) tal que punto − lead ≥ now; devuelve el punto.
 // first = el próximo beat (o compás) del transporte a partir de now; lead = cuánto antes del punto tiene que
-// arrancar el audio (0 = arranca en el punto; la duración de un shot con anchor end, que termina en él)
+// arrancar el audio (0 = arranca en el punto; el pre-roll de un shot, que tiene su anchor en el punto)
 export function next_grid_point(now, first, step, lead = 0) {
   if (!(step > 0)) return Math.max(first, now + lead)
   let k = Math.max(0, Math.ceil((now + lead - first) / step - EPS))
@@ -14,26 +14,28 @@ export function next_grid_point(now, first, step, lead = 0) {
 }
 
 // beats que ocupa cada vuelta de un shot en sync: los que hacen falta para que entre entero (mínimo 1).
-// Así las vueltas no se pisan y cada una empieza (anchor start) o termina (anchor end) en un beat
+// Así las vueltas no se pisan y en cada una el anchor cae en un beat
 export function shot_period_beats(dur, spb) {
   if (!(dur > 0) || !(spb > 0)) return 1
   return Math.max(1, Math.ceil(dur / spb - EPS))
 }
 
-// arranque de un shot en sync. Se toca en loop un buffer de `period` segundos con el shot al principio
-// (anchor start) o al final, con silencio adelante (anchor end, `pad` segundos): cada vuelta empieza o
-// termina en un beat sin agendar nada más. Con el motor andando (engine), first = el próximo beat:
-// - start: el buffer arranca en ese beat;
-// - end: el shot termina en el primer beat B con B − dur ≥ now; el buffer "empezaría" en B − period, y si
-//   eso ya pasó arranca ahora con el offset equivalente (cae dentro del silencio de adelante).
-// Con el motor parado arranca ya, con el shot sonando (en end, saltea el silencio).
+// arranque de un shot en sync. Se toca en loop un buffer de `period` segundos con el shot (largo `dur`) corrido
+// `pad` segundos de silencio, de modo que su anchor (a `pre` segundos de su inicio: el pre-roll, 0..dur; ver
+// shot_preroll en region.js) caiga en un beat del buffer (`at` = pad + pre, múltiplo de spb): cada vuelta pone el
+// anchor en un beat sin agendar nada más. pre = 0 (anchor start): sin relleno, el shot al principio; pre = dur
+// (anchor end): el shot al final, con el silencio adelante. Con el motor andando (engine), first = el próximo beat:
+// el anchor cae en el primer beat B con B − pre ≥ now (el shot arranca en el futuro); el buffer "empezaría" en
+// B − at, y si eso ya pasó arranca ahora con el offset equivalente (cae dentro del silencio de adelante).
+// Con el motor parado arranca ya, con el shot sonando (saltea el silencio).
 // Devuelve { time, offset, pad, period } (offset = dentro del buffer con relleno)
-export function shot_sync_start({ now, first, spb, dur, anchor, engine }) {
-  let period = shot_period_beats(dur, spb) * spb
-  let pad = anchor == "end" ? Math.max(0, period - dur) : 0
+export function shot_sync_start({ now, first, spb, dur, pre = 0, engine }) {
+  let p = Math.min(Math.max(0, pre), Math.max(0, dur))
+  let at = spb > 0 ? Math.ceil(p / spb - EPS) * spb : p
+  let pad = Math.max(0, at - p)
+  let period = shot_period_beats(pad + dur, spb) * spb
   if (!engine) return { time: now, offset: pad, pad, period }
-  if (anchor != "end") return { time: next_grid_point(now, first, spb), offset: 0, pad, period }
-  let start = next_grid_point(now, first, spb, dur) - period
+  let start = next_grid_point(now, first, spb, p) - at
   if (start >= now) return { time: start, offset: 0, pad, period }
   return { time: now, offset: Math.min(pad, now - start), pad, period }
 }

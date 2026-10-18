@@ -3,18 +3,18 @@
 // Dos modos (docs/PLAN_EDITOR.md, decisiones 1 y 2; switch SYNC global, recordado en este navegador):
 // - libre (sync off): velocidad original, una vez, directo a Destination (como siempre);
 // - sync: a play_rate (tempo del proyecto), en loop hasta STOP; con el motor andando arranca en el próximo
-//   compás (shots: en el próximo beat; anchor end: termina en un beat) y suena según el modo de escucha
+//   compás (shots: con su anchor en un beat, ver shot_preroll en region.js) y suena según el modo de escucha
 //   (MIX / IN CONTEXT / SOLO, ver route_preview y gate_engine en mixer.js); con el motor parado, ya.
 // Un archivo del proyecto suena con su región (play_window de region.js: start/stop, nudge y fade) en los dos
 // modos: lo mismo que toca el motor y que se edita en RegionEditor.vue.
 import * as Tone from 'tone'
 import { reactive, watch } from "vue"
-import { store, audio_players, files_by_id, file_anchor } from "../helpers/composable"
+import { store, audio_players, files_by_id } from "../helpers/composable"
 import { file_url } from "./api"
 import { vol_db, FILE_VOL_MAX_DB, preview_input, route_preview, gate_engine } from "./mixer"
 import { TrackCtrl } from "./TrackCtrl"
 import { shot_sync_start, preview_pos } from "./preview_sync"
-import { play_window, window_length, bake_region } from "./region"
+import { play_window, window_length, bake_region, shot_preroll } from "./region"
 
 // --- opciones del preview: se recuerdan por navegador (localStorage puede no estar o fallar: defaults) ---
 const SYNC_KEY = "looper_preview_sync"
@@ -143,11 +143,12 @@ function start_sync(file, tone_buffer, volume, w) {
   let p, t, offset = 0
   if (shot) {
     // a velocidad original (como en el motor), repetido cada los beats que ocupa la región: el buffer lleva
-    // relleno de silencio (después del shot, o antes con anchor end) hasta un largo entero en beats
+    // relleno de silencio antes del shot (para que su anchor caiga en un beat) y después, hasta un largo entero
+    // en beats. pre = el pre-roll del motor (anchor efectivo − inicio de la región)
     let dur = window_length(w, buf.duration)
     let spb = 60 / (engine ? Tone.Transport.bpm.value : TrackCtrl.tempo)
     let first = engine ? Math.max(now, Tone.Transport.nextSubdivision("4n")) : now
-    let s = shot_sync_start({ now, first, spb, dur, anchor: file_anchor(file), engine })
+    let s = shot_sync_start({ now, first, spb, dur, pre: shot_preroll(file) ?? 0, engine })
     p = new_player(region_buffer(buf, { from: w.offset, len: dur, fade: w.fade, at: s.pad, total: s.period }), volume)
     p.loop = true
     t = s.time

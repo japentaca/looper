@@ -3,7 +3,8 @@ import { describe, it, expect } from "vitest"
 import {
   parse_pair, normalize_region_props, region_props_out, loop_region, shot_region, region_beats, play_window,
   window_length, beat_to_sec, sec_to_beat, snap_beat, move_marker, arrow_beat, region_to_save, zero_cross,
-  zero_cross_dir, first_hit, nudge_for_hit, bake_region, mono_window, seam_window, file_bpm
+  zero_cross_dir, first_hit, nudge_for_hit, bake_region, mono_window, seam_window, file_bpm, parse_anchor,
+  anchor_in_region, shot_anchor, shot_preroll, anchor_to_save, onsets, anchor_snap_points, nearest_point, next_point
 } from "./region.js"
 
 describe("props", () => {
@@ -172,5 +173,99 @@ describe("buffers del preview y lupas", () => {
   it("seam_window pega el final de la región a su inicio", () => {
     let out = seam_window([ch], 1, { from: 2, len: 5, half: 2 })
     expect(Array.from(out)).toEqual([6, 7, 3, 4])
+  })
+})
+
+describe("anchor de un shot (fase 4)", () => {
+  it("parse_anchor, normalize y region_props_out: segundos válidos; el viejo start/end por proyecto se borra", () => {
+    expect(parse_anchor(0)).toBe(0)
+    expect(parse_anchor(0.25)).toBe(0.25)
+    expect(parse_anchor("end")).toBe(null)
+    expect(parse_anchor(-0.1)).toBe(null)
+    expect(parse_anchor(500)).toBe(null)
+    expect(normalize_region_props({ anchor: "end" })).toEqual({ nudge: 0, fade: 0 })
+    expect(normalize_region_props({ anchor: 0.3 }).anchor).toBe(0.3)
+    expect(region_props_out({ anchor: 0 })).toEqual({ anchor: 0 })
+    expect(region_props_out({ anchor: "start" })).toEqual({})
+  })
+  it("anchor_in_region: default del catálogo en los bordes, guardado recortado con aviso", () => {
+    let r = { start: 0.5, stop: 1.5 }
+    expect(anchor_in_region(null, "start", r)).toEqual({ at: 0.5, clamped: false })
+    expect(anchor_in_region(null, "end", r)).toEqual({ at: 1.5, clamped: false })
+    expect(anchor_in_region(0.8, "end", r)).toEqual({ at: 0.8, clamped: false })
+    expect(anchor_in_region(0.2, "start", r)).toEqual({ at: 0.5, clamped: true })
+    expect(anchor_in_region(1.9, "start", r)).toEqual({ at: 1.5, clamped: true })
+  })
+  it("shot_preroll: start = 0, end = largo de la región, intermedio = anchor − inicio", () => {
+    expect(shot_preroll({ kind: "shot", duration: 2, anchor: "start", props: {} })).toBe(0)
+    expect(shot_preroll({ kind: "shot", duration: 2, anchor: "end", props: {} })).toBe(2)
+    expect(shot_preroll({ kind: "shot", duration: 2, anchor: "end", props: { region_secs: [0.5, 1.5] } })).toBe(1)
+    expect(shot_preroll({ kind: "shot", duration: 2, anchor: "start", props: { region_secs: [0.5, 1.5], anchor: 0.8 } })).toBeCloseTo(0.3)
+    // con play_rate (hoy los shots suenan a 1): en segundos de reloj
+    expect(shot_preroll({ kind: "shot", duration: 2, anchor: "end", play_rate: 2, props: {} })).toBe(1)
+  })
+  it("shot_preroll: anchor fuera de la región → borde más cercano; menos de 1 ms = 0", () => {
+    let f = { kind: "shot", duration: 2, anchor: "start", props: { region_secs: [0.5, 1.5], anchor: 0.2 } }
+    expect(shot_anchor(f)).toMatchObject({ at: 0.5, clamped: true, saved: 0.2 })
+    expect(shot_preroll(f)).toBe(0)
+    f.props.anchor = 1.9
+    expect(shot_preroll(f)).toBe(1)
+    f.props.anchor = 0.5004
+    expect(shot_preroll(f)).toBe(0)
+  })
+  it("sin duración: el default start sigue en el beat; lo que depende del final no participa", () => {
+    expect(shot_preroll({ kind: "shot", anchor: "start", props: {} })).toBe(0)
+    expect(shot_preroll({ kind: "shot", anchor: "end", props: {} })).toBe(null)
+    expect(shot_preroll({ kind: "shot", anchor: "end", props: { region_secs: [0.1, 0.4] } })).toBeCloseTo(0.3)
+  })
+  it("loop en una pista one-shot: ignora props.anchor; el del catálogo sobre su ventana, a su play_rate", () => {
+    // 8 beats a 120 bpm (4 s), región [2, 6] beats y nudge 100 ms: ventana 1.1 .. 3.1 s
+    let f = { kind: "loop", duration: 4, beats: 8, bpm: 120, anchor: "end", play_rate: 2,
+      props: { region_beats: [2, 6], nudge: 100, anchor: 2 } }
+    expect(shot_anchor(f)).toMatchObject({ start: 1.1, saved: null, clamped: false })
+    expect(shot_preroll(f)).toBeCloseTo(1) // 2 s de ventana a ×2
+    f.anchor = "start"
+    expect(shot_preroll(f)).toBe(0)
+  })
+  it("anchor_to_save: el borde que ya es el default no se guarda", () => {
+    let r = { start: 0.5, stop: 1.5 }
+    expect(anchor_to_save(0.5, "start", r)).toBe(null)
+    expect(anchor_to_save(1.5, "end", r)).toBe(null)
+    expect(anchor_to_save(1.5, "start", r)).toBe(1.5)
+    expect(anchor_to_save(0.812345, "start", r)).toBe(0.8123)
+    expect(anchor_to_save(3, "start", r)).toBe(1.5)
+  })
+})
+
+describe("golpes (SNAP del anchor)", () => {
+  it("el primero coincide con first_hit; otro golpe después de silencio", () => {
+    let l = new Float32Array(1000)
+    let r = new Float32Array(1000)
+    l[0] = 0.001
+    l[300] = 0.8
+    r[200] = -0.5
+    let h = onsets([l, r], 1000)
+    expect(h[0]).toBeCloseTo(first_hit([l, r], 1000))
+    expect(h.map(t => Math.round(t * 1000))).toEqual([200, 300])
+  })
+  it("golpe nuevo encima de una cola: cuando duplica lo que venía sonando; el ataque no cuenta dos veces", () => {
+    let ch = new Float32Array(1000)
+    for (let i = 100; i < 500; i++) ch[i] = i % 2 ? 0.2 : -0.2
+    ch[300] = 0.9
+    ch[302] = -0.95
+    expect(onsets([ch], 1000).map(t => Math.round(t * 1000))).toEqual([100, 300])
+  })
+  it("silencio: sin golpes", () => {
+    expect(onsets([new Float32Array(100)], 1000)).toEqual([])
+  })
+  it("puntos de SNAP: bordes y golpes de adentro; más cercano y siguiente en una dirección", () => {
+    let pts = anchor_snap_points([0.1, 0.6, 0.9, 1.7], { start: 0.5, stop: 1.5 })
+    expect(pts).toEqual([0.5, 0.6, 0.9, 1.5])
+    expect(nearest_point(pts, 0.7)).toBe(0.6)
+    expect(nearest_point(pts, 1.3)).toBe(1.5)
+    expect(next_point(pts, 0.6, 1)).toBe(0.9)
+    expect(next_point(pts, 0.6, -1)).toBe(0.5)
+    expect(next_point(pts, 0.5, -1)).toBe(null)
+    expect(next_point(pts, 0.75, 1)).toBe(0.9)
   })
 })

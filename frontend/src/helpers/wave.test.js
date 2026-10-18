@@ -34,16 +34,22 @@ describe("grid_lines", () => {
     expect(grid_lines({ kind: "loop", duration: 4, beats: 0, beats_x_bar: "4" })).toEqual([])
     expect(grid_lines({ kind: "loop", duration: 0, beats: 4, beats_x_bar: "4" })).toEqual([])
   })
-  it("shot start: al tempo desde el inicio", () => {
-    let l = grid_lines({ kind: "shot", duration: 1.1, beats_x_bar: "3", tempo: 120, anchor: "start" })
+  it("shot con anchor al inicio: al tempo desde el inicio", () => {
+    let l = grid_lines({ kind: "shot", duration: 1.1, beats_x_bar: "3", tempo: 120, anchor_t: 0 })
     expect(l.map(x => x.t)).toEqual([0, 0.5, 1])
     expect(l[0].anchor).toBe(true)
     expect(l.filter(x => x.anchor).length).toBe(1)
   })
-  it("shot end: al tempo hacia atrás desde el final", () => {
-    let l = grid_lines({ kind: "shot", duration: 1.2, beats_x_bar: "4", tempo: 120, anchor: "end" })
-    expect(l.map(x => Math.round(x.t * 100) / 100)).toEqual([1.2, 0.7, 0.2])
-    expect(l[0].anchor && l[0].bar).toBe(true)
+  it("shot con anchor al final: al tempo hacia atrás desde el final", () => {
+    let l = grid_lines({ kind: "shot", duration: 1.2, beats_x_bar: "4", tempo: 120, anchor_t: 1.2 })
+    expect(l.map(x => Math.round(x.t * 100) / 100)).toEqual([0.2, 0.7, 1.2])
+    expect(l[2].anchor && l[2].bar).toBe(true)
+  })
+  it("shot con anchor intermedio: hacia los dos lados, compases contados desde el anchor", () => {
+    let l = grid_lines({ kind: "shot", duration: 3, beats_x_bar: "2", tempo: 120, anchor_t: 1.2 })
+    expect(l.map(x => Math.round(x.t * 100) / 100)).toEqual([0.2, 0.7, 1.2, 1.7, 2.2, 2.7])
+    expect(l.findIndex(x => x.anchor)).toBe(2)
+    expect(l.map(x => x.bar)).toEqual([true, false, true, false, true, false])
   })
 })
 

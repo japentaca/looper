@@ -65,7 +65,7 @@ frontend/src/
     preview_sync.js  # funciones puras del preview en sync: arranque en la grilla, repetición de shots, cursor (tests en preview_sync.test.js)
     mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición + dinámica del master (worklet, con Tone.Limiter de respaldo)
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
-    engine_oneshot.js # motor (parte de Tracks.vue): pistas one-shot (oneshot_step, disparos "end", cancelaciones en STOP/RESET)
+    engine_oneshot.js # motor (parte de Tracks.vue): pistas one-shot (oneshot_step, disparos con pre-roll según el anchor, cancelaciones en STOP/RESET)
     engine_fx.js     # motor (parte de Tracks.vue): agenda de los FX de transición hacia el fin de cada tirada (fx_step, end_run)
     master_dsp.js    # DSP puro del master (crossover LR4 de 3 bandas, compresor por banda, limitador con lookahead); sin Tone ni window, ver docs/PLAN_MASTER.md
     master_dsp.test.js # tests Vitest del DSP del master (npm test)

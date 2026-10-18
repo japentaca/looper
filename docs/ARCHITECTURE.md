@@ -385,11 +385,11 @@ las escribe y una base nueva no las crea (tampoco se borran de las existentes).
 | Tabla | Columnas | Notas |
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded` (legado), `props` (legado), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` una migración (ya quitada) dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin` y pasó a minúsculas los emails; en una base nueva el primer admin se pone a mano (`role = 'admin'`). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` (**obsoleta** desde la fase 3: la migración a proyectos la copió a `projects.props` del primer proyecto del usuario; queda como respaldo; nada la lee ni la escribe: la config sale de `GET /projects/:id` y se guarda con `PUT /projects/:id`; `save_user_props` se eliminó en la tarea 3.6) = era la config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer) |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (legado), `tags` (legado), `size`, `props` (legado), `tag` (legado), `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna una migración (ya quitada) la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `anchor` = anclaje de un disparo one-shot: `start` (empieza en el punto de disparo) \| `end` (termina en él: riser, crash invertido) (`NOT NULL DEFAULT 'start'`); las pistas de loops lo ignoran; no se pisa por proyecto. Una migración (ya quitada) completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos que ya existían tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: una migración lo copió a `tags`. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: la migración a proyectos las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; los archivos nuevos las dejan en null). Metadatos (`original_name`, `kind`, `beats`, `music_key`, `anchor`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (legado), `tags` (legado), `size`, `props` (legado), `tag` (legado), `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna una migración (ya quitada) la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `anchor` = anclaje de un disparo one-shot: `start` (empieza en el punto de disparo) \| `end` (termina en él: riser, crash invertido) (`NOT NULL DEFAULT 'start'`); las pistas de loops lo ignoran; es el default del catálogo: cada proyecto puede guardar su propio punto en `project_files.props.anchor` (fase 4 del editor, ver "Editor: anchor"). Una migración (ya quitada) completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos que ya existían tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: una migración lo copió a `tags`. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: la migración a proyectos las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; los archivos nuevos las dejan en null). Metadatos (`original_name`, `kind`, `beats`, `music_key`, `anchor`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` (legado), `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), pan: −1..1 (default 0 = centro), rest: 0..1 (default 0), rest_again: 0..0.9 (default null = el valor de rest, con el mismo tope), rest_len: [min, max] de 4 \| 8 \| 16 \| 32 compases (default [4, 4]), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), bars: 1 \| 2 \| 4 \| 8 \| 16 \| 32 \| 64 (default 1), scatter: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), delay: dB \| null (default null = sin delay), fx: [instancia] (default []) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop) y `rest_len` el rango de duración de ese descanso; `on_tag_change`, `density`, `bars` y `scatter` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `fx` (FX de transición: `{ id, type, lead, prob, cond, ...parámetros }`, ver "FX de transición") son de los efectos (ver mixer). Un `drift` guardado de antes (el drift se eliminó) se ignora: no se migra ni se borra. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice), `weight` | `weight` = peso en el sorteo del próximo Tag (entero 0..32, `NOT NULL DEFAULT 16`: los existentes quedaron en 16; 0 = no sale nunca). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
 | `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility` (legado), `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files`, y también los archivos del dueño que usaba y que ya no quedan en ningún proyecto (fila de `files`, `bytes_used` y mp3); los ajenos no se tocan. La migración a proyectos creó uno por usuario existente (nombre `My project`). `visibility` (legado: todos los proyectos son públicos) era `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay) más `tempo_tol`, `reverb` (`{ ir, level }`, ver "Reverb compartida") (tolerancia de tempo en %, 0..12, default 6) y `master` (volumen master en dB, −60 = silencio .. +6, default 0) y `comp` (compresor multibanda del master, `{ on, amount, low, mid, high }`, ver "Dinámica del master"), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
-| `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (la migración a proyectos cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume, weight, repeat? }` (`weight` = peso en el sorteo de su pista, entero 0..32; sin dato = 16, lo completa el front; `repeat` = `[min, max]` de 1, 2, 4, 8, 16, veces seguidas que suena al salir sorteado; sin dato = `[1, 1]`, el front no lo guarda si es `[1, 1]`; filas viejas pueden tener `anchor`, un override del anclaje que se quitó: el front lo descarta al cargar y desaparece al guardar el archivo). Reemplazan a `files.track_group/tags/props` |
+| `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (la migración a proyectos cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume, weight, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor? }` (`weight` = peso en el sorteo de su pista, entero 0..32; sin dato = 16, lo completa el front; `repeat` = `[min, max]` de 1, 2, 4, 8, 16, veces seguidas que suena al salir sorteado; sin dato = `[1, 1]`, el front no lo guarda si es `[1, 1]`; región y `anchor` del editor: ver "Editor: región" y "Editor: anchor"; `anchor` es un número (segundos): filas viejas pueden tener `anchor` = `"start"` / `"end"`, un override del anclaje que se quitó antes de la fase 4: el front lo descarta al cargar y desaparece al guardar el archivo). Reemplazan a `files.track_group/tags/props` |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | **legado**: tabla prevista, nunca usada |
 | `reports` | `id` PK, `target_type`, `target_id` (índice), `reporter_user_id` (índice), `reason`, `status`, `ts` | Denuncias (tarea 4.4, `POST /report`). `target_type` = `file` \| `project`; `target_id` = id de `files` o de `projects`; `reporter_user_id` = quien denuncia; `reason` = texto (1 a 500 caracteres); `status` = `open` \| `resolved` \| `dismissed` (`NOT NULL DEFAULT 'open'`; el admin lo cambia con `PUT /admin/reports/:id`, tarea 5.1; solo las `open` cuentan para no duplicar en `POST /report`); `ts` = fecha (ISO sin ms). Sin claves foráneas: borrar el archivo o el proyecto no borra sus denuncias (`GET /admin/reports` las devuelve con `target: null`) |
 | `traffic` | `id` PK (`"YYYY-MM-DD"`, día UTC), `bytes`, `requests` | audio servido por `GET /file/:id`. Total del mes: `select sum(bytes) from traffic where id like '2026-10-%'` |
@@ -451,9 +451,10 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   `Files.vue` muestra la tonalidad (`music_key`; el dueño la cambia en el diálogo de edición) y filtra
   la lista por tónica, con "+ atonal" (`key_matches` de `helpers/music_key.js`, misma regla que el
   catálogo). El filtro solo cambia lo que se muestra: el motor sortea todos los archivos.
-  Anclaje de los disparos one-shot: `file_anchor(file)` de `composable.js` lo da
-  (`anchor ?? "start"`; es dato del archivo, no hay override por proyecto). En el diálogo de edición
-  el dueño lo cambia con Start/End (`PUT /files/:id`); los demás solo lo ven. El cartucho (vista Box) marca "⇥end" y la tabla tiene la columna Anchor (solo marca END);
+  Anclaje de los disparos one-shot: `file_anchor(file)` de `composable.js` da el del catálogo
+  (`anchor ?? "start"`, dato del archivo); es el default: el proyecto puede guardar su propio punto
+  (`props.anchor`, segundos) y el anchor efectivo lo da `shot_anchor` de `region.js` (ver "Editor: anchor"). En el diálogo de edición
+  el dueño cambia el del catálogo con Start/End (`PUT /files/:id`); los demás solo lo ven. El cartucho (vista Box) marca "⇥end" y la tabla tiene la columna Anchor (solo marca END);
   `ImportFiles.vue` marca con "⇥" los del catálogo con anclaje end.
 - `store.track_groups`: al cargar se completa `props` con los defaults (`trg_default_props()` en
   `composable.js`) más lo guardado. Las pistas nuevas (`addTrackGroup` en `App.vue`) nacen con los
@@ -563,7 +564,7 @@ app, con `store.read_only = true`:
 
 El motor vive en `Tracks.vue` (transporte, Tags, pistas loop, `start_file` / `stop_file`) más dos
 módulos movidos tal cual desde ahí: `helpers/engine_oneshot.js` (pistas one-shot: `oneshot_step`,
-`end_step`, `end_shots`, `cancel_end_shots`, `cancel_tag_end_shots`, `shot_bars`) y
+`preroll_step`, `end_shots`, `cancel_end_shots`, `cancel_tag_end_shots`, `shot_bars`) y
 `helpers/engine_fx.js` (FX de transición: `fx_step`, `beats_to_end`, `end_run`, `fx_back_to_base`,
 `clear_fx_state`). Lo que usan de `Tracks.vue` se les pasa al montar el componente con
 `bind_oneshot({ start_file, stop_file, draw_candidates, file_weight })` y
@@ -719,44 +720,56 @@ Flujo:
        se sortea recién ahí (entre los del Tag que suene entonces) y la posición sigue al tempo
        aunque cambie en el medio. Al empezar cada frase se descarta un pendiente que no llegó (se
        achicó `bars` a mitad de frase); STOP y el cambio de modo (`toggle_mode`) lo borran; RESET no
-       (las frases se cuentan desde el inicio del transporte, como los puntos de frase de los "end").
-       `scatter` no mueve los disparos `on_tag_change` ni los de anchor `end` (siguen apuntando al
+       (las frases se cuentan desde el inicio del transporte, como los puntos de frase de los de pre-roll).
+       `scatter` no mueve los disparos `on_tag_change` ni los de pre-roll (siguen apuntando al
        inicio de la frase o al cambio de Tag).
      Se pueden combinar (dispara una sola vez si coinciden). El archivo se sortea con peso entre
      `available_files_per_TRG` de la pista, que si el Tag cambió en ese beat ya es la del Tag nuevo,
-     **solo entre los de anchor efectivo `start`** (`file_anchor`, ver modelo de datos).
+     **solo entre los de pre-roll 0** (anchor efectivo = inicio de lo que toca el player; ver abajo).
      Se arranca con `start_file(f, time, on_start)` (pasa por el canal: respeta mute/solo y mueve el vúmetro)
      y **suena entero** (no se le agenda `stop`, y el cambio de Tag no lo corta porque la pista no
      tiene `curr_file`), o solo su región si tiene (`region_secs`: el player la toca con offset y duración). Si ese mismo player ya está `started`, se saltea el disparo (no se reinicia).
      El nombre (`track.last_shot`) y el destello del LED (`track.shot_n`, cuenta de disparos) los
      actualiza `show_shot` desde el `Tone.Draw.schedule(..., time)` de `start_file`.
-     - **Anchor `end`** (`end_step`, en cada beat antes de lo anterior): el archivo **termina** en el
-       punto de disparo (riser, crash invertido), así que se decide por adelantado. Puntos, cada uno
+     - **Anchor y pre-roll** (fase 4 del editor, `docs/PLAN_EDITOR.md` decisión 7): cada archivo tiene un
+       anchor, el punto que cae en el beat (`shot_anchor` de `region.js`): en un shot, `props.anchor` del
+       proyecto (segundos desde el inicio del archivo) recortado a la región, o sin dato el default del
+       catálogo (`files.anchor`: `start` = inicio de la región, `end` = fin); un loop que sortea una pista
+       one-shot ignora `props.anchor` y usa el del catálogo sobre su ventana (`play_window`: nudge y
+       `region_beats`), como antes. Pre-roll = `(anchor − inicio de la ventana) / play_rate`
+       (`shot_preroll`; menos de 1 ms cuenta como 0; `null` sin dato, p. ej. un `end` sin duración: no
+       participa). **Pre-roll 0** → el camino de arriba (`oneshot_step`, como los `start` de siempre).
+       **Pre-roll > 0** → se agenda por adelantado (`preroll_step`, lo que antes era `end_step`; un `end` es el
+       caso anchor = fin de la región, pre-roll = su largo, con el mismo comportamiento que antes).
+     - **Pre-roll > 0** (`preroll_step`, en cada beat antes de lo anterior): el anchor cae en el
+       punto de disparo (un `end` termina ahí: riser, crash invertido), así que se decide por adelantado. Puntos, cada uno
        por su lado: el próximo cambio de Tag si `on_tag_change` (faltan `b = current_TAG.remaining_beats`
        beats, ya descontado el del beat actual: el cambio ocurre en el beat que empieza con 1) y el
        inicio de la próxima frase si `density > 0` (`b = bpb*bars - n % (bpb*bars)`). No se mira solo
        el más cercano: un riser largo hacia el cambio de Tag no entraría nunca si hay una frase por
        compás. Si los dos caen en el mismo beat son uno solo y manda el de Tag. Cada punto (número de
        beat absoluto `n + b`, en `track.end_points` como `{ at, tag }`) se decide una vez: en el
-       primer beat en que `b * spb < d_max + spb` (`spb` = segundos por beat al tempo actual, `d_max` =
-       el "end" más largo de los candidatos: es el último beat en que todavía entra) o en el último
+       primer beat en que `b * spb < p_max + spb` (`spb` = segundos por beat al tempo actual, `p_max` =
+       el pre-roll más largo de los candidatos: es el último beat en que todavía entra) o en el último
        beat antes del punto (`b == 1`). Se tira el dado (punto de Tag: siempre; de frase: `density`),
-       se sortea con peso entre los candidatos "end" de la pista (`draw_candidates`, o sea los del Tag
-       que suena ahora) **cuya duración entra** (`d <= b * spb`) y se agenda
-       `start_file(f, time + b*spb - d)`. Duración efectiva (`shot_length`) `d` = lo que suena del buffer
+       se sortea con peso entre los candidatos con pre-roll de la pista (`draw_candidates`, o sea los del Tag
+       que suena ahora) **cuyo pre-roll entra** (`p <= b * spb`) y se agenda
+       `start_file(f, time + b*spb - p)`. Duración efectiva (`shot_length`) = lo que suena del buffer
        / `play_rate`: la `duration` del objeto del front (la del buffer decodificado; `composable.js` la pisa
        con `player.buffer.duration` al cargar) o, con región, su largo (`window_length(play_window(f))` de
-       `region.js`): así termina en el punto el fin de la región. Sin dato (0) el archivo no participa como "end". Si no
+       `region.js`); con ella se anota cuándo deja de sonar (`end` = `max(punto, arranque + duración)`: en un
+       `end`, el punto). Si no
        entra ninguno (justo tras START, Tag corto, tempo lento) no dispara. Si ese player está
-       `started` o tiene un "end" agendado que todavía suena en el arranque nuevo (`end_shots`), se
-       saltea. Se calcula con el tempo del momento: si el tempo cambia después, el final ya no cae
-       justo en el punto. Una pista con archivos de los dos anclajes puede disparar uno "end" y uno
-       "start" en el mismo punto (dados independientes): aceptado.
+       `started` o tiene un disparo agendado que todavía suena en el arranque nuevo (`end_shots`), se
+       saltea. Se calcula con el tempo del momento: si el tempo cambia después, el anchor ya no cae
+       justo en el punto. Una pista con archivos de pre-roll 0 y > 0 puede disparar uno de cada uno
+       en el mismo punto (dados independientes): aceptado. Un anchor intermedio sigue sonando después del
+       punto; como los `end`, no lo corta el cambio de Tag.
      - Indicadores: `start_file` prende `isPlaying` en el momento si el arranque es para el beat que
        viene (`time < Tone.now() + LOOK_AHEAD`: loops y disparos "start", como siempre) y además, para
        todos, con `Tone.Draw.schedule(..., time)` (ahí también llama `on_start`). Ese Draw se descarta si
        en el medio el archivo se cortó o se volvió a arrancar (`start_seq[id]`, lo incrementan
-       `start_file` y `stop_file`): un "end" cancelado no prende nada.
+       `start_file` y `stop_file`): un disparo con pre-roll cancelado no prende nada.
      - Región: `start_file` toca lo que dice `play_window(f)` (`region.js`): `start(time, offset, duration)` y
        `fadeIn` / `fadeOut` del player; sin región ni nudge ni fade, `start(time, 0)` como siempre (ver "Región").
      - Cursor del editor: `start_file` anota además el arranque con `note_engine_start(id, time, rate, offset,
@@ -766,11 +779,11 @@ Flujo:
        el cursor de `WaveScreen.vue` (ver "Editor: pantalla de onda").
      Si la pista pasa de loop a one-shot con un loop sonando, ese
      loop se corta en el beat siguiente; de one-shot a loop, la pista sortea un loop en el beat
-     siguiente (`remaining_beats` quedó en 0; los "end" ya agendados suenan igual). RESET no corta los
+     siguiente (`remaining_beats` quedó en 0; los de pre-roll ya agendados suenan igual). RESET no corta los
      disparos que suenan (solo elige Tag y recalcula los disponibles); su cambio es inmediato y no se
-     anticipa (no lleva "end"), y `cancel_tag_end_shots` cancela los "end" hacia el cambio de Tag que
+     anticipa (no lleva pre-roll), y `cancel_tag_end_shots` cancela los de pre-roll hacia el cambio de Tag que
      todavía no arrancaron (con `stop` en su propio arranque, no ya: `Player.stop` corta todas las
-     fuentes del player y un "end" de frase anterior del mismo archivo puede seguir sonando; los que
+     fuentes del player y uno de frase anterior del mismo archivo puede seguir sonando; los que
      arrancan dentro del lookahead, o ya suenan, terminan donde terminen) y olvida los puntos de Tag decididos; los de frase siguen. STOP los corta todos
      (`cancel_end_shots` y `stop_file` sobre todos los archivos de las pistas one-shot, porque puede
      haber varios superpuestos): `Player.stop(ahora)` de Tone también cancela un `start` agendado a
@@ -1201,10 +1214,12 @@ a arrancar en el modo nuevo.
   múltiplo más cercano.
 - **Sync, shot**: a velocidad original (como en el motor) y repetido: se toca en loop una copia del shot (de
   su región, con el fade) en un buffer de largo entero en beats (`shot_period_beats` = los que hacen falta
-  para que entre el largo de la región, mínimo 1), con el silencio después (anchor `start`) o antes (anchor `end`). Con el motor andando, `shot_sync_start`: start
-  arranca en el próximo beat (`nextSubdivision("4n")`); end termina en el primer beat B con B − duración ≥
-  ahora (si el inicio del buffer ya pasó, arranca ahora con el offset equivalente, dentro del silencio). Cada
-  vuelta empieza (o termina) en un beat, sin agendar nada más. Parado, arranca ya con el shot sonando. La
+  para que entre el shot más el silencio de adelante, mínimo 1), con el shot corrido lo justo para que su anchor
+  caiga en un beat del buffer (`shot_sync_start` con `pre` = el pre-roll del motor, `shot_preroll`): anchor
+  `start` → el shot al principio y el silencio después; `end` → el silencio antes; intermedio → algo de silencio
+  antes y el resto después. Con el motor andando, el anchor cae en el primer beat B (desde
+  `nextSubdivision("4n")`) con B − pre-roll ≥ ahora (si el inicio del buffer ya pasó, arranca ahora con el
+  offset equivalente, dentro del silencio). En cada vuelta el anchor cae en un beat, sin agendar nada más. Parado, arranca ya con el shot sonando. La
   repetición usa el tempo del arranque: si cambia el tempo, se desfasa hasta volver a darle play.
 - **Armado**: si el arranque queda más lejos que el lookAhead (esperando el compás o el beat),
   `file.isPreviewArmed` hasta que arranca (lo baja un `Tone.getContext().setTimeout`): el LED del botón PLAY
@@ -1233,7 +1248,7 @@ a arrancar en el modo nuevo.
 ### Editor: pantalla de onda (`components/WaveScreen.vue`)
 
 Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lectura del motor, sin backend),
-la 2 (preview en sync: ver "Preview") y la 3 (región: ver "Editor: región").
+la 2 (preview en sync: ver "Preview"), la 3 (región: ver "Editor: región") y la 4 (anchor: ver "Editor: anchor").
 El editor es `FileEditor.vue`, el diálogo de edición que monta `Files.vue` (v-model + `file`; lápiz del cartucho o de la fila, o el nombre en la
 tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :file :beats :active>` (la
 `WaveScreen` con la región y su barra de controles); debajo, los datos, las placas y los pads de siempre.
@@ -1252,7 +1267,8 @@ DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo q
   (beat i en `nudge + i × 60 / bpm`, como lo toca el motor; sin datos de tempo, repartidas sobre la
   duración) y más marcada en cada compás (`TrackCtrl.beats_x_bar`); en un
   shot, de trazos, al tempo del proyecto (`TrackCtrl.tempo`; el shot suena a velocidad original) desde el
-  anchor (`start`: desde el inicio; `end`: hacia atrás desde el final), con un triángulo en el punto de
+  anchor efectivo hacia los dos lados (fase 4: el que se ve en el editor, también mientras se arrastra; sin
+  editor, `shot_anchor`), con un triángulo en el punto de
   disparo. Si las líneas quedan a menos de 4 px no se dibujan las de beat (ni las de compás si tampoco
   entran). En un loop el tempo no se lee: mover el knob Tempo no redibuja la pantalla.
 - **Beats en vivo**: el input Beats (solo el dueño) sigue guardando en `@change` como antes; además su
@@ -1272,7 +1288,7 @@ DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo q
   motor y del preview se lee adentro del componente y ni `FileEditor.vue` ni `Files.vue` se re-renderizan por eso.
   Aproximaciones: se ignora la latencia de salida del dispositivo, y si el tempo cambia (knob Tempo) con
   el loop sonando, el cursor del motor usa el `rate` del arranque hasta la próxima vuelta del loop.
-- El clic en la onda no hace nada (solo se arrastran las manijas de la región). Funciona igual en
+- El clic en la onda no hace nada (solo se arrastran las manijas de la región y, en shots, la del anchor). Funciona igual en
   `store.read_only` (no escribe nada), aunque hoy la vista pública no monta `Files.vue`.
 - **Preview** (fase 2): al pie del editor, PLAY/STOP (LED que titila mientras está armado), SYNC y el
   selector MIX / IN CONTEXT / SOLO (atenuado sin sync o con el motor parado, donde no cuenta). Cerrar el
@@ -1341,3 +1357,37 @@ velocidad original; el `playbackRate` ya escala):
   como un salto. Se recalculan en vivo mientras se arrastra.
 - En `store.read_only`: se ven la región, el rótulo, los valores y las lupas; no hay manijas arrastrables,
   knobs, SNAP ni AUTO, y los atajos G / flechas no se registran.
+
+### Editor: anchor (`components/RegionEditor.vue`, `helpers/region.js`)
+
+Fase 4 de `docs/PLAN_EDITOR.md` (decisión 7). Solo shots (los loops no llevan anchor: anacrusa con NUDGE y
+start/stop). El anchor es el punto del shot que cae en el beat.
+
+- **Dónde**: `project_files.props.anchor` = segundos desde el inicio del archivo (0..120, como `region_secs`;
+  `parse_anchor`); sin dato, el default del catálogo `files.anchor` (`start` = inicio de la región, `end` =
+  fin). `files.anchor` y sus botones START/END del dueño en `FileEditor.vue` siguen como estaban.
+  `normalize_region_props` descarta lo que no sea un número válido (también el viejo `"start"` / `"end"` por
+  proyecto) y `region_props_out` lo manda en `save_file`. Se guarda aunque el `kind` cambie (como `region_secs`).
+- **Efectivo** (`shot_anchor`, `anchor_in_region`): el guardado recortado a la región. **Fuera de la región**
+  (se movió start/stop después): **no se reescribe** la prop; motor, preview y grilla usan el borde más
+  cercano y el editor avisa (rótulo "ANCHOR 0.200 S ⚠ OUT OF REGION" en el color de aviso, con un `title` que
+  dice en qué borde suena, y la lengüeta de la manija en ese color). Así, si se vuelve a agrandar la región,
+  el punto original sigue valiendo.
+- **Motor y preview**: pre-roll = `(anchor − inicio de la región) / play_rate` (`shot_preroll`): ver "Pistas
+  one-shot" en el motor y "Sync, shot" en el preview.
+- **Manija** sobre la onda (`WaveScreen`, solo shots): línea de trazos con lengüeta triangular abajo (la
+  última tocada, en rojo). Solo la lengüeta recibe el puntero: con el anchor en un borde (el default), la manija
+  start/stop se sigue agarrando de arriba. Se arrastra dentro de la región. Con SNAP (el mismo `LedButton` /
+  G / Shift invierte): al punto más cercano entre los bordes de la región y los **golpes** del audio (`onsets`:
+  generaliza `first_hit` de AUTO; envolvente = máximo por bloque de 2 ms; golpe = bloque que llega al 10 % del
+  pico viniendo de abajo del umbral, o que duplica lo que sonaba en los 30 ms anteriores; 30 ms de refractario;
+  el primero coincide con `first_hit`; `anchor_snap_points`, `nearest_point`). Sin SNAP, libre (4 decimales).
+  Soltar en el borde que ya es el default del catálogo no guarda nada (`anchor_to_save`: sigue a ese borde si
+  después se recorta). Soltar sin arrastrar solo lo elige para las flechas.
+- **← / →** con el anchor como último marcador tocado: con SNAP, al golpe o borde siguiente en esa dirección
+  (`next_point`); sin SNAP, 1 ms; Shift invierte. Cada paso guarda (debounce).
+- **Rótulo** "ANCHOR START" / "ANCHOR END" (catálogo) o "ANCHOR 0.350 S" (del proyecto), con el pre-roll en el
+  `title`; botón **DEFAULT** (deshabilitado si no hay prop) = borra `props.anchor` y vuelve al del catálogo. El
+  caption de la pantalla dice lo mismo ("GRID 120 BPM · ANCHOR 0.350 S").
+- **Grilla de shots**: desde el anchor efectivo hacia los dos lados (`grid_lines` con `anchor_t`).
+- En `store.read_only`: se ven la manija, el rótulo y la grilla; no se arrastra, no hay DEFAULT ni flechas.

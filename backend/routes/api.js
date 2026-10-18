@@ -542,8 +542,8 @@ const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.durat
   "f.beats", "f.music_key", "f.anchor", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca). Las de la región
-// (editor, fase 3; ver frontend/src/helpers/region.js): region_beats / region_secs, nudge y fade
-const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat", "region_beats", "region_secs", "nudge", "fade"]
+// (editor, fase 3; ver frontend/src/helpers/region.js): region_beats / region_secs, nudge y fade; anchor (fase 4)
+const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat", "region_beats", "region_secs", "nudge", "fade", "anchor"]
 // peso en el sorteo (de un archivo en el proyecto o de un Tag): entero 0..WEIGHT_MAX; 0 = no sale nunca
 const WEIGHT_MAX = 32
 function valid_weight(v) {
@@ -565,6 +565,12 @@ const NUDGE_MAX = 250
 const FADE_MAX = 50
 function valid_ms(v, max) {
   return Number.isInteger(v) && v >= 0 && v <= max
+}
+// anchor de un shot en el proyecto (editor, fase 4): segundos desde el inicio del archivo, 0..REGION_SECS_MAX
+// (el punto que cae en el beat; sin dato vale files.anchor). No se compara con la región: si queda afuera, el
+// front usa el borde más cercano
+function valid_anchor(v) {
+  return Number.isFinite(v) && v >= 0 && v <= REGION_SECS_MAX
 }
 // anclaje de un disparo one-shot (files.anchor):
 // "start" = el archivo empieza en el punto de disparo; "end" = termina en él. Las pistas de loops lo ignoran
@@ -812,6 +818,7 @@ function parse_project_file_fields(o, file_id) {
     }
     if (props.nudge !== undefined && !valid_ms(props.nudge, NUDGE_MAX)) throw new RowsError("Nudge inválido para " + file_id)
     if (props.fade !== undefined && !valid_ms(props.fade, FADE_MAX)) throw new RowsError("Fade inválido para " + file_id)
+    if (props.anchor !== undefined && !valid_anchor(props.anchor)) throw new RowsError("Anchor inválido para " + file_id)
     out.props = props
   }
   return out

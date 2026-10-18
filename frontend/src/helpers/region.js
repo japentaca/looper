@@ -7,7 +7,10 @@
 // - region_beats: [start, stop] de un loop, en beats de la grilla del archivo (float; enteros con SNAP);
 // - region_secs: [start, stop] de un shot, en segundos desde el inicio del archivo;
 // - nudge: ms (entero 0..NUDGE_MAX) que corre la grilla entera del loop a la derecha (silencio del encoder);
-// - fade: ms (entero 0..FADE_MAX) de fadeIn y fadeOut del player (anti-click de la costura).
+// - fade: ms (entero 0..FADE_MAX) de fadeIn y fadeOut del player (anti-click de la costura);
+// - anchor (fase 4; decisión 7): punto de un shot que cae en el beat, en segundos desde el inicio del archivo
+//   (0..ANCHOR_SECS_MAX). Sin dato, el default del catálogo (files.anchor: "start" = inicio de la región,
+//   "end" = fin de la región). Ver shot_anchor y shot_preroll.
 // Cada tipo usa la suya: si el dueño cambia el kind del archivo, la del otro tipo queda guardada pero se
 // ignora (y vuelve a valer si vuelve al tipo anterior). nudge solo vale en loops.
 
@@ -18,6 +21,7 @@ export const REGION_SECS_MAX = 120 // los archivos duran hasta 1 minuto; margen
 // largo mínimo de una región que se arrastra o se mueve con las flechas (en el editor)
 export const MIN_LOOP_BEATS = 0.25
 export const MIN_SHOT_SECS = 0.005
+export const ANCHOR_SECS_MAX = REGION_SECS_MAX
 // precisión con que se guardan start/stop sin SNAP (no hace falta más en el JSON)
 const PRECISION = 1e4
 
@@ -50,6 +54,9 @@ export function parse_pair(v, max) {
 export function normalize_region_props(props) {
   props.nudge = parse_nudge(props.nudge)
   props.fade = parse_fade(props.fade)
+  // un anchor inválido se borra; también el viejo override "start" / "end" por proyecto (texto), que se quitó
+  // antes de la fase 4: desaparece de la base al guardar el archivo
+  if (parse_anchor(props.anchor) == null) delete props.anchor
   for (const [k, max] of [["region_beats", REGION_BEATS_MAX], ["region_secs", REGION_SECS_MAX]]) {
     let r = parse_pair(props[k], max)
     if (r) props[k] = r
@@ -68,6 +75,8 @@ export function region_props_out(props) {
   if (nudge) out.nudge = nudge
   let fade = parse_fade(props?.fade)
   if (fade) out.fade = fade
+  let anchor = parse_anchor(props?.anchor)
+  if (anchor != null) out.anchor = anchor
   return out
 }
 
@@ -275,4 +284,127 @@ export function seam_window(chans, sr, { from, len, fade = 0, half }) {
     out[h + j] = val(j)
   }
   return out
+}
+
+// --- anchor de un shot (fase 4; decisión 7) ---
+// Punto del shot que cae en el beat. Pre-roll = (anchor − inicio de la región) / playbackRate: lo que suena
+// antes del beat. 0 = se dispara en el beat (los "start" de siempre); > 0 = se agenda por adelantado (los "end"
+// son el caso anchor = stop). Un anchor guardado fuera de la región (se movió start/stop después) no se
+// reescribe: se usa el borde más cercano y el editor avisa.
+
+// pre-roll por debajo de esto (s) cuenta como 0: un corrimiento inaudible no saca al disparo del camino "en el beat"
+export const PREROLL_MIN = 0.001
+const EPS = 1e-9
+
+// anchor guardado: segundos en 0..ANCHOR_SECS_MAX; cualquier otra cosa (sin dato, el viejo "start"/"end") = null
+export function parse_anchor(v) {
+  return Number.isFinite(v) && v >= 0 && v <= ANCHOR_SECS_MAX ? v : null
+}
+// anchor efectivo dentro de la región r = { start, stop } (s): el guardado (`saved`, o null) recortado a la región,
+// o el default del catálogo (`catalog` = files.anchor: "end" = r.stop, si no r.start). clamped = el guardado
+// quedaba fuera de la región (se toca en el borde más cercano)
+export function anchor_in_region(saved, catalog, r) {
+  let raw = saved ?? (catalog == "end" ? r.stop : r.start)
+  let at = clamp(raw, r.start, r.stop)
+  return { at, clamped: saved != null && Math.abs(at - raw) > EPS }
+}
+// anchor de un shot del proyecto: { at, start, stop, saved, clamped } (s del archivo; start/stop = lo que toca el
+// player, play_window: la región o el archivo entero). null si no se puede saber (sin duración ni región, con un
+// anchor que depende del final). Un loop sorteado por una pista one-shot no lleva anchor propio (props.anchor se
+// ignora): usa el del catálogo sobre su ventana (nudge y region_beats), como antes de la fase 4
+export function shot_anchor(f) {
+  let d = Number(f.duration)
+  let saved = f.kind == "shot" ? parse_anchor(f.props?.anchor) : null
+  let w = play_window(f)
+  let len = w.duration ?? (d > 0 ? Math.max(0, d - w.offset) : null)
+  if (len == null) {
+    // sin duración (no debería pasar con el audio cargado): solo se sabe el default "start"
+    if (saved != null || f.anchor == "end") return null
+    return { at: w.offset, start: w.offset, stop: null, saved: null, clamped: false }
+  }
+  let r = { start: w.offset, stop: w.offset + len }
+  return { ...anchor_in_region(saved, f.anchor, r), start: r.start, stop: r.stop, saved }
+}
+// pre-roll de un shot en segundos de reloj: (anchor − inicio de la región) / play_rate; menos de PREROLL_MIN = 0;
+// null = sin dato
+export function shot_preroll(f) {
+  let a = shot_anchor(f)
+  if (!a) return null
+  let pre = (a.at - a.start) / (f.play_rate || 1)
+  return pre < PREROLL_MIN ? 0 : pre
+}
+// valor a guardar de un anchor que se arrastró o movió con las flechas (s, con PRECISION). null = el default
+// del catálogo (cae justo en el borde que ya es el default: no se guarda y sigue a ese borde si se recorta)
+export function anchor_to_save(v, catalog, r) {
+  let at = round_p(clamp(v, r.start, r.stop))
+  let def = catalog == "end" ? r.stop : r.start
+  return Math.abs(at - round_p(def)) < EPS ? null : at
+}
+
+// golpes del audio (s): generaliza first_hit (AUTO del NUDGE) para el SNAP del anchor. Envolvente = máximo
+// absoluto (de cualquier canal) por bloque de ONSET_BLOCK s. Un golpe es un bloque que llega a `ratio` del pico
+// del archivo y que: viene de abajo del umbral (después de silencio; el primero coincide con first_hit), o
+// duplica lo que venía sonando en los ONSET_GAP s anteriores (golpe nuevo encima de una cola). Después de un
+// golpe no se busca otro en ONSET_GAP s (el ataque mismo no cuenta dos veces). El instante es la primera
+// muestra del bloque que pasa el umbral, o lo que venía sonando
+export const ONSET_BLOCK = 0.002
+export const ONSET_GAP = 0.03
+export function onsets(chans, sr, ratio = HIT_RATIO) {
+  if (!(sr > 0) || !chans.length) return []
+  let n = Math.max(...chans.map(c => c.length))
+  let bs = Math.max(1, Math.round(ONSET_BLOCK * sr))
+  let env = new Float32Array(Math.ceil(n / bs))
+  for (const ch of chans) {
+    for (let i = 0; i < ch.length; i++) {
+      let v = Math.abs(ch[i])
+      let b = Math.floor(i / bs)
+      if (v > env[b]) env[b] = v
+    }
+  }
+  let peak = 0
+  for (const v of env) if (v > peak) peak = v
+  if (!(peak > 0)) return []
+  let th = peak * ratio
+  let gap = Math.max(1, Math.round(ONSET_GAP / ONSET_BLOCK))
+  let out = []
+  let last = -Infinity
+  for (let b = 0; b < env.length; b++) {
+    if (env[b] < th || b - last < gap) continue
+    let prev = 0
+    for (let k = Math.max(0, b - gap); k < b; k++) if (env[k] > prev) prev = env[k]
+    let fresh = prev < th
+    if (!fresh && env[b] < 2 * prev) continue
+    let first = Infinity
+    for (const ch of chans) {
+      let lim = Math.min(ch.length, (b + 1) * bs, first)
+      for (let i = b * bs; i < lim; i++) {
+        let v = Math.abs(ch[i])
+        if (fresh ? v >= th : v > prev) {
+          first = i
+          break
+        }
+      }
+    }
+    if (!Number.isFinite(first)) continue
+    out.push(first / sr)
+    last = b
+  }
+  return out
+}
+// puntos de SNAP del anchor: los bordes de la región r y los golpes adentro, ordenados
+export function anchor_snap_points(hits, r) {
+  let inner = (hits ?? []).filter(t => t > r.start + EPS && t < r.stop - EPS)
+  return [r.start, ...inner, r.stop]
+}
+// el punto de `points` más cercano a t (null si no hay)
+export function nearest_point(points, t) {
+  let best = null
+  for (const p of points) if (best == null || Math.abs(p - t) < Math.abs(best - t)) best = p
+  return best
+}
+// el primer punto de `points` (ordenados) después de t en la dirección dir (1 | -1); null si no hay
+export function next_point(points, t, dir) {
+  if (dir > 0) return points.find(p => p > t + 1e-6) ?? null
+  for (let i = points.length - 1; i >= 0; i--) if (points[i] < t - 1e-6) return points[i]
+  return null
 }
