@@ -755,6 +755,33 @@ function stop_file(id, time) {
 }
 
 
+// archivos sorteables del proyecto por pista (ids) y tags que aportan. loaded(f) = tiene buffer. Los no disponibles
+// (ocultos por el admin o dueño bloqueado) quedan fuera del sorteo y tampoco aportan su Tag
+function group_files(loaded) {
+  let by_trg = {}
+  let tag_ids = new Set()
+  for (const f of store.files) {
+    if (!loaded(f) || f.available === false) continue
+    if (f.track_group) (by_trg[f.track_group] ??= []).push(f.id)
+    // un archivo puede tener varios tags: cuenta en cada uno
+    for (let tag of f.tags) tag_ids.add(tag)
+  }
+  return { by_trg, tag_ids }
+}
+
+// archivos que entran o salen del proyecto con el transporte en marcha (copia del editor que reemplaza al
+// original o entra a su lado, importar, borrar): los candidatos de cada pista se rehacen ya, así el próximo sorteo
+// usa la lista nueva. Lo que suena sigue (la pista conserva su archivo hasta su próximo sorteo; composable.js no
+// libera el player de un archivo reemplazado hasta el STOP). Los tags del sorteo del Tag siguen siendo los del
+// START. Cuenta como cargado lo que ya tiene player con buffer (en una recarga del proyecto los archivos vuelven a
+// cargar con el player anterior todavía sonando)
+watch(() => store.files.map(f => f.id).join(","), () => {
+  if (!TrackCtrl.isPlaying) return
+  files_per_TRG = group_files(f => f.isLoaded || audio_players[f.id]?.loaded).by_trg
+  for (const track of tracks) files_per_TRG[track.track_group.id] ??= []
+  get_available_files_x_tag(current_TAG.tag?.id)
+})
+
 function start() {
 
   Tone.start()
@@ -764,28 +791,11 @@ function start() {
   TrackCtrl.isPlaying = true
   Tone.Transport.timeSignature = parseInt(TrackCtrl.beats_x_bar)
   Tone.Transport.bpm.value = TrackCtrl.tempo
-  let tag_ids = new Set()
   tracks.splice(0)
   forget_end_shots()
-  files_per_TRG = []
   available_tags = []
-
-  for (let i = 0; i < store.files.length; i++) {
-    let f = store.files[i]
-    if (!f.isLoaded) continue // sin buffer, Tone no lo puede reproducir
-    // no disponible (oculto por el admin o dueño bloqueado): fuera del sorteo, tampoco aporta su Tag
-    if (f.available === false) continue
-    if (f.track_group) {
-      if (!files_per_TRG[f.track_group]) {
-        files_per_TRG[f.track_group] = []
-      }
-      files_per_TRG[f.track_group].push(f.id)
-    }
-    // un archivo puede tener varios tags: cuenta en cada uno
-    for (let tag of f.tags) {
-      tag_ids.add(tag)
-    }
-  }
+  let tag_ids
+  ({ by_trg: files_per_TRG, tag_ids } = group_files(f => f.isLoaded)) // sin buffer, Tone no lo puede reproducir
 
   for (const id of tag_ids) available_tags.push(tags_by_id[id])
   if (available_tags.length && available_tags.every(t => !(t?.weight > 0))) {

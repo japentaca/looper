@@ -537,9 +537,16 @@ router.post("/projects", require_session, route("Error POST projects", async (re
 // disponibles siguen en los proyectos que ya los usan (available = false, fuera del sorteo), pero no
 // se pueden importar.
 
-// columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`)
+// columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`, y el nombre del
+// archivo del que deriva una copia: las queries con FILE_COLUMNS llevan with_parent)
 const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
-  "f.beats", "f.music_key", "f.anchor", "f.loudness", "f.peak", "f.ts", "f.hidden", "u.status as owner_status"]
+  "f.beats", "f.music_key", "f.anchor", "f.loudness", "f.peak", "f.ts", "f.hidden", "f.parent_id",
+  "par.original_name as parent_name", "u.status as owner_status"]
+// join con el archivo del que deriva (files.parent_id, editor fase 6) para parent_name; null si es un original o si
+// el original se borró
+function with_parent(qb) {
+  return qb.leftJoin("files as par", "par.id", "f.parent_id")
+}
 const FILE_NAME_MAX = 128
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca). Las de la región
 // (editor, fase 3; ver frontend/src/helpers/region.js): region_beats / region_secs, nudge y fade; anchor (fase 4)
@@ -589,6 +596,8 @@ function file_out(r, user_id) {
     bpm: r.bpm, beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start",
     loudness: r.loudness ?? null, peak: r.peak ?? null, ts: r.ts, name: r.id + ".mp3",
     own: r.user_id === user_id, available: file_available(r),
+    // copia editada: id y nombre del archivo del que deriva (atribución; parent_name null si se borró)
+    parent_id: r.parent_id ?? null, parent_name: r.parent_name ?? null,
   }
 }
 
@@ -602,9 +611,9 @@ const MUSIC_KEY_ERROR = "Tonalidad inválida: una nota (C, C#, Db... B) con \"m\
 
 // archivos de un proyecto: los del catálogo más su pista, tags y props dentro del proyecto
 async function list_project_files(db, project_id, user_id) {
-  let rows = await db("project_files as pf")
+  let rows = await with_parent(db("project_files as pf")
     .join("files as f", "f.id", "pf.file_id")
-    .leftJoin("users as u", "u.id", "f.user_id")
+    .leftJoin("users as u", "u.id", "f.user_id"))
     .select([...FILE_COLUMNS, "pf.track_group", "pf.tags", "pf.props"])
     .where("pf.project_id", project_id)
   return rows.map(r => ({
@@ -615,7 +624,7 @@ async function list_project_files(db, project_id, user_id) {
 
 // archivos del catálogo por id (con el estado del dueño)
 async function get_catalog_files(db, ids) {
-  return await db("files as f").leftJoin("users as u", "u.id", "f.user_id")
+  return await with_parent(db("files as f").leftJoin("users as u", "u.id", "f.user_id"))
     .select(FILE_COLUMNS).whereIn("f.id", ids)
 }
 
@@ -1110,7 +1119,7 @@ router.get('/catalog', require_session, route("Error GET catalog", async (req, r
   if (error) return res.status(400).send({ stat: false, text: error })
   let user_id = req.user.id
   let { total } = await catalog_query(global.knex, f, user_id).count({ total: "*" }).first()
-  let rows = await catalog_query(global.knex, f, user_id)
+  let rows = await with_parent(catalog_query(global.knex, f, user_id))
     .select([...FILE_COLUMNS, "u.name as creator_name", "u.bio as creator_bio",
       global.knex.raw("(select count(*) from project_files pf where pf.file_id = f.id) as uses")])
     // los más nuevos primero; los migrados sin ts al final
@@ -1482,6 +1491,56 @@ function suggest_beats(duration, tempo) {
 
 class QuotaError extends Error { }
 class ProjectGoneError extends Error { }
+class LinkGoneError extends Error { }
+
+// campos de una copia editada (editor, fase 6; docs/PLAN_EDITOR.md, decisiones 4 y 9), todos opcionales:
+//  parent_id: archivo del que deriva la copia (existe y está disponible en el catálogo; puede ser ajeno)
+//  normalize: "1" (default) | "0" = no normalizar la loudness (se guarda lo que se escuchó). "0" solo con parent_id
+//  replace_file_id: archivo del proyecto al que reemplaza la copia (pasa a la copia su pista y sus tags; el
+//    original sale del proyecto, pero no se borra del catálogo)
+//  copy_from_file_id: archivo del proyecto del que la copia toma pista y tags (entra al proyecto al lado del original)
+//  props: JSON con las props de la copia en el proyecto (lista blanca y validación de PUT /projects/:id/files)
+// replace_file_id y copy_from_file_id no van juntos y piden parent_id; ellos y props piden project_id.
+// Devuelve { parent_id, normalize, replace_file_id, copy_from_file_id, props } o { error }. Sin base
+function parse_copy_fields(body, project_id) {
+  const id_of = v => typeof v == "string" && v !== "" ? v : null
+  let out = {
+    parent_id: id_of(body.parent_id), replace_file_id: id_of(body.replace_file_id),
+    copy_from_file_id: id_of(body.copy_from_file_id), normalize: true, props: null,
+  }
+  for (const k of ["parent_id", "replace_file_id", "copy_from_file_id"]) {
+    if (out[k] && !valid_row_id(out[k])) return { error: `Id inválido en ${k}` }
+  }
+  if (body.normalize !== undefined && body.normalize !== "") {
+    if (!["0", "1"].includes(String(body.normalize))) return { error: "normalize inválido: tiene que ser 0 o 1" }
+    out.normalize = String(body.normalize) == "1"
+  }
+  if (!out.normalize && !out.parent_id) return { error: "normalize = 0 solo vale para una copia (con parent_id)" }
+  if (out.replace_file_id && out.copy_from_file_id) return { error: "replace_file_id y copy_from_file_id no van juntos" }
+  if ((out.replace_file_id || out.copy_from_file_id) && !out.parent_id) {
+    return { error: "replace_file_id y copy_from_file_id solo valen para una copia (con parent_id)" }
+  }
+  let has_props = body.props !== undefined && body.props !== ""
+  if ((out.replace_file_id || out.copy_from_file_id || has_props) && !project_id) {
+    return { error: "replace_file_id, copy_from_file_id y props necesitan project_id" }
+  }
+  if (has_props) {
+    let o
+    try {
+      if (String(body.props).length > PROPS_MAX_LENGTH) throw new Error("largo")
+      o = JSON.parse(body.props)
+    } catch {
+      return { error: "Props inválidas para la copia" }
+    }
+    try {
+      out.props = parse_project_file_fields({ props: o }, "la copia").props
+    } catch (e) {
+      if (e instanceof RowsError) return { error: e.message }
+      throw e
+    }
+  }
+  return out
+}
 
 router.post('/upload', require_session, upload_precheck, upload_parser, async (req, res) => {
   req.upload_started = true
@@ -1511,6 +1570,20 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     let project_id = typeof body.project_id == "string" && body.project_id !== "" ? body.project_id : null
     let project = project_id ? await own_project(global.knex, project_id, user_id) : null
     if (project_id && !project) return fail(404, PROJECT_NOT_FOUND.text)
+    // copia editada (parse_copy_fields): el original existe y está disponible; el archivo a reemplazar (o del que
+    // se copian pista y tags) está en el proyecto
+    let copy = parse_copy_fields(body, project_id)
+    if (copy.error) return fail(400, copy.error)
+    let parent = null
+    if (copy.parent_id) {
+      [parent] = await get_catalog_files(global.knex, [copy.parent_id])
+      if (!parent) return fail(400, "Archivo original inexistente")
+      if (!file_available(parent)) return fail(400, "Archivo original no disponible")
+    }
+    let link_id = copy.replace_file_id ?? copy.copy_from_file_id
+    if (link_id && !await global.knex("project_files").select("id").where({ project_id: project_id, file_id: link_id }).first()) {
+      return fail(400, "El archivo no está en el proyecto: " + link_id)
+    }
 
     // la duración se mide sobre la entrada (la del mp3 convertido suma el relleno del encoder)
     let info = await utils.probe(file.tempFilePath)
@@ -1539,14 +1612,15 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     let file_id = uuid()
     out_file = utils.audio_path(user_id, file_id)
     // todo se recodifica (también los mp3) a MP3 VBR V0 44.1 kHz estéreo sin metadatos, normalizado
-    // a -18 LUFS / -1 dBTP con ganancia fija
+    // a -18 LUFS / -1 dBTP con ganancia fija (una copia con normalize = 0, sin normalizar)
     // después, en el mismo turno de la cola, se mide el mp3 resultante con ebur128 (files.loudness / peak). Si la
     // medición falla, la subida sigue: quedan null y las completa fill_file_loudness en el próximo arranque
     let level = { loudness: null, peak: null }
     try {
       await enqueue_conversion(async () => {
-        let ln = await utils.convert(file.tempFilePath, out_file)
-        console.log("Convertido", file_id, `I=${ln.input_i} LUFS TP=${ln.input_tp} dBTP ganancia=${ln.gain} dB`)
+        let ln = await utils.convert(file.tempFilePath, out_file, null, copy.normalize)
+        if (copy.normalize) console.log("Convertido", file_id, `I=${ln.input_i} LUFS TP=${ln.input_tp} dBTP ganancia=${ln.gain} dB`)
+        else console.log("Convertido sin normalizar", file_id, `(copia de ${copy.parent_id})`)
         try {
           level = await utils.measure_ebur128(out_file)
         } catch (e) {
@@ -1572,8 +1646,11 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       anchor: anchor,
       loudness: level.loudness,
       peak: level.peak,
+      parent_id: copy.parent_id,
       ts: utils.now_ts(),
     }
+    // fila de project_files del archivo subido (con project_id): pista y tags del archivo enlazado, si hay
+    let pf_row = null
     try {
       await global.knex.transaction(async trx => {
         // cuota con la duración real, dentro de la transacción (SQLite serializa las escrituras)
@@ -1581,32 +1658,43 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
         if (q2.used + duration > q2.max) throw new QuotaError()
         // el proyecto pudo borrarse mientras se convertía
         if (project_id && !await own_project(trx, project_id, user_id)) throw new ProjectGoneError()
+        // y el archivo enlazado salir del proyecto
+        let link = link_id ? await trx("project_files").select("id", "track_group", "tags")
+          .where({ project_id: project_id, file_id: link_id }).first() : null
+        if (link_id && !link) throw new LinkGoneError()
         await trx("files").insert(row)
         await trx("users").where({ id: user_id }).update({
           bytes_used: trx.raw("coalesce(bytes_used, 0) + ?", [size])
         })
-        // con project_id, el archivo entra al proyecto sin pista ni tags
+        // con project_id, el archivo entra al proyecto sin pista ni tags; una copia, con la pista y los tags del
+        // archivo enlazado y sus props. replace_file_id: el original sale del proyecto (sigue en el catálogo)
         if (project_id) {
-          await trx("project_files").insert({
-            id: uuid(), project_id: project_id, file_id: file_id, track_group: null, tags: "[]", props: "{}",
-          })
+          if (copy.replace_file_id) await trx("project_files").delete().where({ id: link.id })
+          pf_row = {
+            id: uuid(), project_id: project_id, file_id: file_id, track_group: link?.track_group ?? null,
+            tags: link?.tags ?? "[]", props: JSON.stringify(copy.props ?? {}),
+          }
+          await trx("project_files").insert(pf_row)
         }
       })
     } catch (e) {
       if (e instanceof QuotaError) return fail(403, `No te alcanza la cuota para ${file.name}`)
       if (e instanceof ProjectGoneError) return fail(404, PROJECT_NOT_FOUND.text)
+      if (e instanceof LinkGoneError) return fail(409, "El archivo dejó de estar en el proyecto: " + link_id)
       throw e
     }
     committed = true
 
-    // misma forma que los archivos de GET /projects/:id (sin pista ni tags); `project_id` = proyecto
-    // al que se agregó (null si no se pidió ninguno)
+    // misma forma que los archivos de GET /projects/:id (pista, tags y props de la fila del proyecto: sin pista ni
+    // tags salvo una copia enlazada); `project_id` = proyecto al que se agregó (null si no se pidió ninguno) y
+    // `replaced_file_id` = archivo al que reemplazó en el proyecto (null si no reemplazó a ninguno)
     return res.send({
       stat: true,
       text: `${file.name} subido`,
       data: {
-        ...file_out({ ...row, hidden: 0, owner_status: "active" }, user_id),
-        track_group: null, tags: [], props: {}, project_id: project_id,
+        ...file_out({ ...row, parent_name: parent?.original_name ?? null, hidden: 0, owner_status: "active" }, user_id),
+        track_group: pf_row?.track_group ?? null, tags: parse_tags(pf_row?.tags ?? "[]"),
+        props: copy.props ?? {}, project_id: project_id, replaced_file_id: copy.replace_file_id,
       }
     })
   } catch (e) {

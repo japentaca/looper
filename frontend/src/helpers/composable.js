@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import * as api from './api'
 import * as Tone from 'tone'
 
@@ -477,8 +477,10 @@ async function install_project(p, same) {
   store.files = [...(p.files ?? [])]
   TrackCtrl.isReady = false
 
-  // se liberan los players (y se olvidan los archivos) que no son de este proyecto
+  // se liberan los players (y se olvidan los archivos) que no son de este proyecto. En una recarga del mismo, los
+  // reemplazados por una copia del editor con el transporte en marcha se quedan hasta el STOP (ver retire_file)
   let keep = new Set(store.files.map(f => f.id))
+  if (same) for (const id of retired_ids) keep.add(id)
   for (let fid of Object.keys(audio_players)) {
     if (!keep.has(fid)) {
       dispose_player(audio_players[fid])
@@ -495,24 +497,8 @@ async function install_project(p, same) {
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
     files_by_id[f.id] = f
-
-    if (f.track_group !== null && !trg_of(f)) f.track_group = null
-    set_file_tags(f, f.tags)
-
-    if (!f.props) {
-      f.props = {}
-    }
-    // -6 dB por defecto solo si falta o es inválido (antes `!volume` también pisaba un 0 dB guardado)
-    if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
-    f.props.weight = parse_weight(f.props.weight)
-    f.props.repeat = parse_repeat(f.props.repeat)
-    // región y anchor del editor; un viejo props.anchor "start" / "end" se descarta (desaparece al guardar)
-    normalize_region_props(f.props)
-    if (!ANCHORS.includes(f.anchor)) f.anchor = "start"
-    let url = api.file_url(f.id)
-    f.isLoaded = false
-    prom_arr.push(getAudioPlayer(url, f))
-
+    prepare_file(f)
+    prom_arr.push(getAudioPlayer(api.file_url(f.id), f))
   }
   let res_prom = await Promise.allSettled(prom_arr)
   res_prom.map(prom => {
@@ -542,6 +528,74 @@ async function install_project(p, same) {
 
   return true
 }
+// deja un archivo leído del backend listo para el store (antes de crear su player): pista que exista, tags, props
+// normalizadas (volumen, peso, repetición, región y anchor del editor) y anchor del catálogo válido
+function prepare_file(f) {
+  if (f.track_group !== null && !trg_of(f)) f.track_group = null
+  set_file_tags(f, f.tags)
+  if (!f.props) f.props = {}
+  // -6 dB por defecto solo si falta o es inválido (antes `!volume` también pisaba un 0 dB guardado)
+  if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
+  f.props.weight = parse_weight(f.props.weight)
+  f.props.repeat = parse_repeat(f.props.repeat)
+  // región y anchor del editor; un viejo props.anchor "start" / "end" se descarta (desaparece al guardar)
+  normalize_region_props(f.props)
+  if (!ANCHORS.includes(f.anchor)) f.anchor = "start"
+  f.isLoaded = false
+}
+
+// --- alta de un archivo sin recargar el proyecto (copias del editor, fase 6) ---
+// agrega al proyecto activo el archivo que devolvió el backend (`data`: forma de los archivos del proyecto, con
+// project_id): crea su player (baja el mp3) y, ya cargado, lo pone en store.files en el lugar de `replace` (SAVE AS
+// COPY: el original sale del store) o justo después de `near` (SAVE REGION AS COPY), y recalcula el tempo. Lo que
+// suena no se corta: el original sigue en files_by_id / audio_players mientras el transporte ande (el motor
+// puede estar tocándolo y lo suelta en su próximo sorteo) y se libera en el próximo STOP. Devuelve el archivo
+// (reactivo) o null si mientras cargaba se cambió de proyecto
+export async function add_project_file(data, { replace = null, near = null } = {}) {
+  let f = reactive({ ...data })
+  delete f.project_id
+  delete f.replaced_file_id
+  prepare_file(f)
+  let { player } = await getAudioPlayer(api.file_url(f.id), f)
+  if (!store.project || store.project.id !== data.project_id) {
+    player.dispose()
+    return null
+  }
+  if (audio_players[f.id]) dispose_player(audio_players[f.id])
+  audio_players[f.id] = player
+  files_by_id[f.id] = f
+  let at = store.files.findIndex(x => x.id === (replace ?? near)?.id)
+  if (at < 0) store.files.push(f)
+  else store.files.splice(replace ? at : at + 1, replace ? 1 : 0, f)
+  if (replace) retire_file(replace.id)
+  calculate_timing()
+  if (f.loadError) ElMessage({ type: 'warning', message: `No se pudo cargar ${f.original_name}: recargá el proyecto` })
+  return f
+}
+// archivos que salieron del store con el transporte en marcha: se liberan en el próximo STOP (el motor pudo
+// quedarse con ellos: files_per_TRG de la corrida, la pista que lo está tocando)
+const retired_ids = new Set()
+let retire_watch = null
+function retire_file(id) {
+  if (!TrackCtrl.isPlaying) return drop_file(id)
+  retired_ids.add(id)
+  // el watch se arma al usarlo (no al cargar el módulo: TrackCtrl.js y este módulo se importan mutuamente)
+  retire_watch ??= watch(() => TrackCtrl.isPlaying, playing => {
+    if (playing) return
+    for (const rid of retired_ids) {
+      if (!store.files.some(f => f.id === rid)) drop_file(rid)
+    }
+    retired_ids.clear()
+    retire_watch()
+    retire_watch = null
+  })
+}
+function drop_file(id) {
+  if (audio_players[id]) dispose_player(audio_players[id])
+  delete audio_players[id]
+  delete files_by_id[id]
+}
+
 // --- aviso de memoria ---
 // Tone.js decodifica cada archivo a PCM float32 (4 bytes) estéreo: segundos × 44 100 × 2 × 4 bytes
 // (~21 MB por minuto), sin importar el bitrate del mp3. Si el total del proyecto supera ¼ de la

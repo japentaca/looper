@@ -101,6 +101,17 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   que queda fuera de la región no se reescribe (se toca en el borde; el editor avisa). La detección de golpes
   del SNAP (`onsets`) es por umbral simple: en material denso o con crescendos puede no marcar un golpe o
   marcar de más (sin SNAP se ubica libre).
+- 🟡 Ediciones destructivas (fase 6; ver "Editor: ediciones destructivas" en `ARCHITECTURE.md`), limitaciones
+  aceptadas: la pila vive solo en memoria (recargar o cerrar la pestaña la pierde sin preguntar; cerrar el editor o
+  cambiar de archivo sí pregunta) y se descarta al cambiar de proyecto. Mientras hay cambios, región, anchor, NUDGE
+  y FADE quedan fijos. CUT, DUPLICATE y REVERSE no llevan rampa en los bordes (con SNAP a beats en un loop la unión
+  puede hacer click; SILENCE y GAIN sí la llevan, 2 ms). El buffer de trabajo está a la frecuencia del
+  AudioContext (48 kHz en muchos equipos): la copia se sube así y ffmpeg la pasa a 44,1 kHz (otra conversión, más
+  la generación de mp3 V0). El WAV es float de 32 bits (~21 MB por minuto estéreo) para no recortar picos sobre
+  0 dBFS: una subida más pesada que con 16 bits. Un loop cuya selección o región no da beats enteros se guarda con
+  los beats redondeados (silencio al final si faltan; se corta si sobran). Con el transporte en marcha, el original
+  reemplazado sigue en memoria (player y `files_by_id`) hasta el próximo STOP, y un shot suyo que esté sonando ya
+  no lo corta RESET. "Derived from" muestra el nombre del original aunque esté oculto por el admin.
 - 🟡 Un loop que queda fuera de tolerancia mientras suena (por mover el tempo o la tolerancia) termina
   su vuelta con el `playbackRate` nuevo; recién en el próximo sorteo deja de elegirse.
 
@@ -131,7 +142,8 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   (`memory = 1000`, rampas de los FX de transición) tienen tope. No medido en una corrida larga.
 - 🟡 Una recarga de `store_get_user_info` con el transporte corriendo deja a los tracks apuntando a
   los objetos de archivo viejos y `stop_file` actúa sobre el player nuevo: el loop que sonaba sigue
-  hasta terminar su buffer. Es previo a la fase 6; en una instalación no se sube nada.
+  hasta terminar su buffer. Pasa después de una subida con `Uploader.vue` o de importar; las copias del editor
+  (fase 6) ya no recargan el proyecto (`add_project_file`). En una instalación no se sube nada.
 - ✅ Resuelto (oct 2026): la cookie de sesión no tenía `maxAge` y se perdía al cerrar Chrome. Ahora
   dura 30 días y se renueva con cada request (`rolling`); el chequeo cada 10 min la mantiene viva.
 - 🟡 Pendiente de medir: memoria de la pestaña en 8–12 h (prueba larga de `docs/INSTALACION.md`).

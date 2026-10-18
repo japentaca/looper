@@ -145,7 +145,7 @@
 
 
   <!-- editor del archivo (diálogo de edición): lápiz del cartucho o de la fila, o store.edit_file_id -->
-  <FileEditor v-model="dialogVisible" :file="curr_edit_file" @delete="deleteFile" />
+  <FileEditor v-model="dialogVisible" :file="curr_edit_file" @delete="deleteFile" @replaced="f => curr_edit_file = f" />
 </template>
 <script setup>
 
@@ -155,6 +155,7 @@ import LedButton from "./hw/LedButton.vue"
 import Led from "./hw/Led.vue"
 import FileCart from "./FileCart.vue"
 import FileEditor from "./FileEditor.vue"
+import { confirm_discard } from "../helpers/edit_session"
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { KEY_TONICS, key_label, key_matches } from "../helpers/music_key"
 import {
@@ -192,7 +193,9 @@ function timing_text(file) {
 const dialogVisible = ref(false)
 const curr_edit_file = ref(null)
 
+// con el editor abierto en otro archivo con ediciones destructivas sin guardar, pregunta antes de descartarlas
 async function editFile(file) {
+  if (dialogVisible.value && curr_edit_file.value?.id !== file.id && !(await confirm_discard())) return
   curr_edit_file.value = file
   dialogVisible.value = true
 }

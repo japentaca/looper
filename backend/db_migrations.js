@@ -40,6 +40,9 @@ export default async function do_migrations() {
   // medir. Se miden al subir; los null los completa fill_file_loudness en segundo plano, después del listen
   await add_column("files", "loudness", float())
   await add_column("files", "peak", float())
+  // archivo del que deriva una copia editada (editor, fase 6: SAVE AS COPY / SAVE REGION AS COPY); null = original.
+  // Sin clave foránea: si el original se borra, la copia queda con un id que ya no existe (parent_name null)
+  await add_column("files", "parent_id", string(36))
 
   await create_table("user_track_groups")
   await add_column("user_track_groups", "user_id", string(36))

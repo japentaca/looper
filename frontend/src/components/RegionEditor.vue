@@ -1,11 +1,14 @@
 <template>
   <div class="region_editor">
-    <WaveScreen :file="file" :beats="beats" :active="active" :view="view" :loop_region="is_shot ? null : region"
-      :editable="editable && !!view" :selected="last_marker" @marker="on_marker" @touch="m => last_marker = m" />
+    <WaveScreen :file="src" :beats="dirty ? null : beats" :active="active" :view="view"
+      :loop_region="is_shot ? null : region" :editable="editable && !!view" :selected="last_marker"
+      :buffer="work_buffer(file.id)" :selectable="selectable" :selection="edit.sel" @marker="on_marker"
+      @touch="m => last_marker = m" @select="on_select" />
     <div v-if="view" class="region_bar">
-      <!-- largo de la región: en loops, los beats que ocupa (aviso si no es entera: el motor la redondea) -->
+      <!-- largo de la región: en loops, los beats que ocupa (aviso si no es entera: el motor la redondea). Con
+        ediciones destructivas sin guardar, la región llevada al buffer de trabajo (fija hasta guardar o deshacer) -->
       <span class="region_len" :class="{ warn: fractional }" :title="len_title">{{ len_text }}</span>
-      <LedButton v-if="editable" size="small" text="SNAP" led="yellow" :lit="snap" :title="snap_title + ' (G)'"
+      <LedButton v-if="!store.read_only" size="small" text="SNAP" led="yellow" :lit="snap" :title="snap_title + ' (G)'"
         @click="toggle_snap" />
       <!-- anchor (solo shots): el punto que cae en el beat; aviso si el guardado quedó fuera de la región.
         DEFAULT = vuelve al del catálogo (borra el del proyecto) -->
@@ -17,16 +20,16 @@
       <!-- NUDGE (solo loops): corre la grilla entera; AUTO = primer golpe -->
       <div v-if="!is_shot" class="hw_plate mini" :title="NUDGE_TITLE">
         <span class="silk">Nudge</span>
-        <Knob :disabled="!editable" :model-value="file.props.nudge ?? 0" :min="0" :max="NUDGE_MAX" :size="40"
+        <Knob :disabled="!editable" :model-value="src.props.nudge ?? 0" :min="0" :max="NUDGE_MAX" :size="40"
           @update:model-value="v => set_prop(file, 'nudge', v)" @change="save_props" />
-        <Lcd small :digits="3" :value="file.props.nudge ?? 0" unit="ms" />
+        <Lcd small :digits="3" :value="src.props.nudge ?? 0" unit="ms" />
         <LedButton v-if="editable" size="small" text="AUTO" :disabled="!chans" :title="AUTO_TITLE" @click="auto_nudge" />
       </div>
       <div class="hw_plate mini" :title="FADE_TITLE">
         <span class="silk">Fade</span>
-        <Knob :disabled="!editable" :model-value="file.props.fade ?? 0" :min="0" :max="FADE_MAX" :size="40"
+        <Knob :disabled="!editable" :model-value="src.props.fade ?? 0" :min="0" :max="FADE_MAX" :size="40"
           @update:model-value="v => set_prop(file, 'fade', v)" @change="save_props" />
-        <Lcd small :digits="2" :value="file.props.fade ?? 0" unit="ms" />
+        <Lcd small :digits="2" :value="src.props.fade ?? 0" unit="ms" />
       </div>
       <WaveLoupe :samples="start_loupe.samples" :marks="start_loupe.marks" label="START" :title="start_loupe.title" />
       <WaveLoupe :samples="seam_loupe" :marks="[0.5]" label="SEAM" :title="SEAM_TITLE" />
@@ -45,6 +48,10 @@
 // default del catálogo files.anchor = inicio o fin de la región). Manija arrastrable con SNAP a los golpes
 // (onsets de region.js) y a los bordes de la región; también lo mueven las flechas si fue el último tocado.
 // Un anchor guardado fuera de la región no se reescribe: se toca en el borde más cercano y se avisa.
+// Fase 6 (decisión 9): arrastrar sobre la onda fuera de las manijas marca la selección de las ediciones destructivas
+// (edit_session.js; SNAP: beats en loops, cruce por cero en shots; Shift invierte; un clic la quita; las flechas
+// mueven sus bordes). Con cambios destructivos sin guardar se muestra el buffer de trabajo con la región, el
+// anchor y el nudge llevados a él (work_file) y no se editan (ni el FADE) hasta guardar la copia o deshacerlos.
 import { ref, computed, watch, onBeforeUnmount } from "vue"
 import { store, audio_players, save_file_debounced } from "../helpers/composable"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
@@ -55,6 +62,7 @@ import {
   anchor_snap_points, nearest_point, next_point, preroll_path
 } from "../helpers/region"
 import { editor_key_ok, ARROW_TAKERS } from "../helpers/utils"
+import { edit, work_file, work_buffer, current_chans, set_selection } from "../helpers/edit_session"
 import WaveScreen from "./WaveScreen.vue"
 import WaveLoupe from "./WaveLoupe.vue"
 import LedButton from "./hw/LedButton.vue"
@@ -79,9 +87,15 @@ const ZERO_RADIUS = 0.005 // s: el SNAP de un shot busca un cruce por cero a no 
 const SNAP_KEY = "looper_editor_snap"
 const DEFAULT_TITLE = "Back to the catalog anchor (START or END of the region, set by the file owner)"
 
-const editable = computed(() => !store.read_only)
+// archivo que se muestra: el virtual del buffer de trabajo si hay ediciones destructivas sin guardar (solo lectura),
+// si no el del proyecto. Las escrituras van siempre a props.file (y solo con editable)
+const wf = computed(() => work_file(props.file))
+const src = computed(() => wf.value ?? props.file)
+const dirty = computed(() => !!wf.value)
+const editable = computed(() => !store.read_only && !dirty.value)
+const selectable = computed(() => !store.read_only)
 const is_shot = computed(() => props.file.kind == "shot")
-const duration = computed(() => Number(props.file.duration) || 0)
+const duration = computed(() => Number(src.value.duration) || 0)
 
 // --- SNAP: recordado en este navegador (localStorage puede no estar o fallar: queda prendido) ---
 function read_snap() {
@@ -98,15 +112,15 @@ const snap_title = computed(() => is_shot.value
   : "Snap: markers stick to the beat lines (hold Shift while dragging to invert)")
 
 // --- grilla de un loop: beats (los del input mientras se editan), largo del beat y nudge ---
-const beats_now = computed(() => props.beats ?? Number(props.file.beats))
+const beats_now = computed(() => (dirty.value ? null : props.beats) ?? Number(src.value.beats))
 // bpm con que suena: el del archivo o, con beats sin guardar, deducido de beats y duración (como el backend)
 const spb = computed(() => {
-  let f = props.file
-  let bpm = props.beats == null || props.beats == f.beats ? file_bpm(f)
+  let f = src.value
+  let bpm = dirty.value || props.beats == null || props.beats == f.beats ? file_bpm(f)
     : file_bpm({ beats: props.beats, duration: f.duration })
   return bpm > 0 ? 60 / bpm : 0
 })
-const nudge_s = computed(() => is_shot.value ? 0 : (props.file.props.nudge ?? 0) / 1000)
+const nudge_s = computed(() => is_shot.value ? 0 : (src.value.props.nudge ?? 0) / 1000)
 // tope de los marcadores: los beats del loop o la duración del shot
 const max_unit = computed(() => is_shot.value ? duration.value : beats_now.value)
 
@@ -126,9 +140,9 @@ watch(() => props.file, () => {
 // null si no se puede editar (sin duración, o loop sin datos de tempo)
 const region = computed(() => {
   if (!(duration.value > 0)) return null
-  if (is_shot.value) return draft.value ?? shot_region(props.file.props, duration.value) ?? { start: 0, stop: duration.value }
+  if (is_shot.value) return draft.value ?? shot_region(src.value.props, duration.value) ?? { start: 0, stop: duration.value }
   if (!(beats_now.value > 0) || !(spb.value > 0)) return null
-  return draft.value ?? loop_region(props.file.props, beats_now.value) ?? { start: 0, stop: beats_now.value }
+  return draft.value ?? loop_region(src.value.props, beats_now.value) ?? { start: 0, stop: beats_now.value }
 })
 function to_sec(v) {
   return is_shot.value ? v : beat_to_sec(v, spb.value, nudge_s.value)
@@ -139,7 +153,7 @@ function to_sec(v) {
 const anchor = computed(() => {
   let r = region.value
   if (!is_shot.value || !r) return null
-  let saved = anchor_draft.value ?? parse_anchor(props.file.props.anchor)
+  let saved = anchor_draft.value ?? parse_anchor(src.value.props.anchor)
   return { ...anchor_in_region(saved, props.file.anchor, r), custom: saved != null, saved }
 })
 // lo que muestra la pantalla, en segundos (ver WaveScreen.vue)
@@ -170,6 +184,8 @@ const len_text = computed(() => {
 })
 const len_title = computed(() => {
   let r = region.value
+  if (dirty.value) return "Region of this project carried onto the edited audio: SAVE AS COPY bakes it (the copy starts on "
+    + "beat 0). Locked until the copy is saved or the edits are undone"
   if (is_shot.value) return "Length of the region (what the engine plays)"
   if (fractional.value) {
     let n = region_beats(r.start, r.stop)
@@ -189,7 +205,7 @@ const anchor_title = computed(() => {
   let r = region.value
   let pre = a.at - r.start
   let what = pre < PREROLL_MIN ? "Triggered on the beat (the anchor is the region start)"
-    : preroll_path(pre / (props.file.play_rate || 1)) == "beat"
+    : preroll_path(pre / (src.value.play_rate || 1)) == "beat"
       ? `${fmt(pre * 1000, 0)} ms of the region play before the beat (pre-roll): triggered like an on-beat shot, started that much earlier`
       : `${fmt(pre * 1000, 0)} ms of the region play before the beat (pre-roll): the engine schedules it ahead`
   if (a.clamped) {
@@ -201,10 +217,13 @@ const anchor_title = computed(() => {
 })
 
 // --- audio del archivo (para el SNAP de shots, AUTO y las lupas) ---
-// canales (máximo 2) del buffer ya cargado, o null. audio_players no es reactivo: se relee al terminar la carga
+// canales (máximo 2) del buffer ya cargado (el de trabajo si hay cambios sin guardar), o null. audio_players no es
+// reactivo: se relee al terminar la carga
 const chans = computed(() => {
   void props.file.isLoaded
   void TrackCtrl.isReady
+  let wc = dirty.value ? current_chans(props.file.id) : null
+  if (wc) return { data: wc.chans.slice(0, 2), sr: wc.sr }
   let tb = audio_players[props.file.id]?.buffer
   let buf = tb?.loaded ? tb.get() : null
   if (!buf) return null
@@ -302,6 +321,48 @@ function auto_nudge() {
   save_props()
 }
 
+// --- selección (ediciones destructivas, fase 6): en segundos del buffer que se muestra ---
+const SEL_MIN = 0.001 // s: más corta no cuenta (un clic la quita)
+// tiempo t con SNAP: loops con tempo, a la línea de beat más cercana de la grilla (desde el nudge; con dir, la
+// siguiente en esa dirección); shots (o loops sin tempo), al cruce por cero más cercano. Sin SNAP, libre. Dentro
+// del buffer
+function snap_sel(t, snap_on, dir = 0) {
+  let d = duration.value
+  t = Math.min(d, Math.max(0, t))
+  if (!snap_on) return t
+  if (!is_shot.value && spb.value > 0) {
+    let n = nudge_s.value
+    let b = (t - n) / spb.value
+    b = dir ? arrow_beat(b, dir, true, spb.value) : Math.round(b)
+    return Math.min(d, Math.max(0, n + b * spb.value))
+  }
+  return zero_t(t, dir)
+}
+function on_select({ t0, t, shift, done, click }) {
+  if (!selectable.value) return
+  if (click) {
+    set_selection(null)
+    if (last_marker.value?.startsWith("sel_")) last_marker.value = null
+    return
+  }
+  let snap_on = snap.value !== shift
+  let a = snap_sel(t0, snap_on)
+  let b = snap_sel(t, snap_on)
+  let sel = { start: Math.min(a, b), stop: Math.max(a, b) }
+  set_selection(sel.stop - sel.start >= SEL_MIN ? sel : null)
+  if (done) last_marker.value = edit.sel ? (b >= a ? "sel_stop" : "sel_start") : null
+}
+// flechas sobre un borde de la selección: con SNAP al beat (o cruce por cero) siguiente en esa dirección, sin SNAP
+// 1 ms; el borde no cruza al otro
+function move_sel_edge(which, dir, snap_on) {
+  let s = edit.sel
+  if (!s) return
+  let cur = which == "sel_start" ? s.start : s.stop
+  let v = snap_on ? snap_sel(cur + (is_shot.value ? dir * 0.001 : 0), true, dir) : snap_sel(cur + dir * 0.001, false)
+  if (which == "sel_start") set_selection({ start: Math.max(0, Math.min(v, s.stop - SEL_MIN)), stop: s.stop })
+  else set_selection({ start: s.start, stop: Math.min(duration.value, Math.max(v, s.start + SEL_MIN)) })
+}
+
 // --- lupas ---
 // inicio: los primeros START_ZOOM s con la línea del beat 0 (tras el nudge) en un loop; en un shot, alrededor
 // del inicio de la región, con su línea
@@ -326,7 +387,7 @@ const seam_loupe = computed(() => {
   if (!a || !v) return null
   let len = v.stop - v.start
   if (!is_shot.value) len = Math.min(r.stop - r.start, region_beats(r.start, r.stop)) * spb.value
-  return seam_window(a.data, a.sr, { from: v.start, len, fade: (props.file.props.fade ?? 0) / 1000, half: SEAM_HALF })
+  return seam_window(a.data, a.sr, { from: v.start, len, fade: (src.value.props.fade ?? 0) / 1000, half: SEAM_HALF })
 })
 
 // --- atajos: G = SNAP, ← / → = mueve el último marcador tocado ---
@@ -345,6 +406,9 @@ function on_key(e) {
   e.preventDefault()
   let dir = e.key == "ArrowRight" ? 1 : -1
   let snap_on = snap.value !== e.shiftKey
+  if (which.startsWith("sel_")) return move_sel_edge(which, dir, snap_on)
+  // la región y el anchor no se mueven con cambios destructivos sin guardar
+  if (!editable.value) return
   if (which == "anchor") {
     // con SNAP al golpe o borde siguiente en esa dirección; sin SNAP, 1 ms
     let a = anchor.value
@@ -360,8 +424,9 @@ function on_key(e) {
   draft.value = move_marker(r, which, v, max_unit.value, min_len(snap_on))
   commit_region()
 }
-// solo con el editor abierto y si se puede editar
-const listening = computed(() => props.active && editable.value)
+// solo con el editor abierto y fuera de store.read_only (con cambios destructivos sin guardar, las flechas solo
+// mueven la selección)
+const listening = computed(() => props.active && selectable.value)
 watch(listening, on => {
   if (on) window.addEventListener("keydown", on_key)
   else window.removeEventListener("keydown", on_key)

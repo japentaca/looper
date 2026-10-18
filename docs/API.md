@@ -29,7 +29,8 @@ visibilidad y borrar): `get_projects`,
 `save_project_track_groups(id, array)` y `save_project_tags(id, array)`. Wrappers de archivos (tarea
 3.4): `save_project_files(id, { add?, update?, remove? })` (`PUT /projects/:id/files`),
 `update_file(id, data)` (`PUT /files/:id`) y `delete_file(file | id)` (ahora `DELETE /files/:id`);
-`upload_file` acepta `project_id`. Catálogo (tarea 3.5): `get_catalog(params)` (`GET /catalog`);
+`upload_file` acepta `project_id` y, para las copias del editor (fase 6), `parent_id`, `normalize`,
+`replace_file_id`, `copy_from_file_id` y `props`. Catálogo (tarea 3.5): `get_catalog(params)` (`GET /catalog`);
 lo usa el diálogo de importar (`ImportFiles.vue`, tarea 3.10), que importa con
 `save_project_files(id, { add })`.
 Wrappers públicos (tarea 4.1, sin sesión): `get_public_projects(params)` (`GET /public/projects`) y
@@ -66,7 +67,7 @@ proyecto con `id` **y** `user_id` de la sesión: uno ajeno o inexistente respond
 | GET | `/public/projects` | no | query opcional: `page`, `per_page` | `{ stat: true, data: { items: [proyecto de la galería], total, page, per_page } }` (proyectos no ocultos, con dueño `active` y al menos un archivo disponible); 400 si un parámetro es inválido; 429 por el límite por IP. Ver `public` abajo |
 | GET | `/public/project/:id` | no | — | `{ stat: true, data: proyecto público }` (config, pistas, tags, archivos **disponibles** y creador); 404 `{ stat: false, text: "Proyecto inexistente" }` si no existe, está oculto o su dueño no está `active` (sin distinguir); 429 por el límite por IP. Ver `public` abajo |
 | POST | `/report` | sí | `{ target_type: "file" \| "project", target_id, reason }` | `{ stat: true, text, data: { duplicate } }` (crea una fila en `reports` con `status = 'open'`, o `duplicate: true` si ya había una abierta del mismo usuario sobre lo mismo); `{ stat: false, text }` si el motivo está vacío o pasa de 500 caracteres, o el target es propio; 400 `target_type`/`target_id` inválidos; 404 si el archivo o proyecto no existe o no está a la vista; 429 por el límite diario. Ver `report` abajo |
-| POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `kind`, `beats`, `bpm`, `music_key`, `anchor` y `project_id` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, kind/beats/bpm/music_key/anchor inválidos), 403 (cuota), 409 (otra subida en curso), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
+| POST | `/upload` | sí | multipart: **un** archivo (mp3/wav/ogg/flac/m4a/aiff, hasta 80 MB y 60 s) + campos opcionales `kind`, `beats`, `bpm`, `music_key`, `anchor` y `project_id`; copias editadas: `parent_id`, `normalize`, `replace_file_id`, `copy_from_file_id`, `props` | `{ stat: true, text, data: archivo }` (forma de los archivos del proyecto, más `project_id` y `replaced_file_id`). 404 si `project_id` no es un proyecto del usuario. Rechazos `{ stat: false, text }` con 400 (sin archivo, más de uno, formato, no es audio, más de 1 minuto, kind/beats/bpm/music_key/anchor inválidos, campos de copia inválidos), 403 (cuota), 409 (otra subida en curso, o el archivo enlazado salió del proyecto), 413 (más de 80 MB), 422 (no se pudo convertir), 507 (disco). Ver detalle abajo |
 | GET | `/admin/users` | admin | query `status` opcional: `pending` \| `active` \| `blocked` (sin él o vacío: todos) | `{ stat: true, data: [usuario admin] }`, ordenados por `ts` descendente; 400 si `status` es otro valor. Ver detalle abajo |
 | PUT | `/admin/users/:id` | admin | `{ action, password?, max_seconds? }` | `{ stat: true, data: usuario admin }` (ya actualizado); `{ stat: false, text }` si la acción no corresponde al estado, el usuario es admin, o la clave/cuota no es válida; 400 acción desconocida; 404 usuario inexistente. Ver detalle abajo |
 | GET | `/admin/reports` | admin | query `status` opcional: `open` \| `resolved` \| `dismissed` (sin él o vacío: todas) | `{ stat: true, data: [denuncia admin] }`, las más nuevas primero (hasta 500); 400 si `status` es otro valor. Ver `admin/reports` abajo |
@@ -155,6 +156,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
   track_groups: [{ id, name, color, props: { volume, pan, rest, rest_again, rest_len, mode, on_tag_change, density, bars, scatter, reverb, delay, fx } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, // del catálogo (files); anchor "start" | "end"; loudness (LUFS) y peak (dBFS): ver abajo
+            parent_id, parent_name, // copia editada (fase 6): id y nombre del original (null si es un original; parent_name null si el original se borró)
             track_group, tags: [tag_id, ...], props: { volume, weight?, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]; región y anchor: ver PUT /projects/:id/files
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
@@ -163,7 +165,9 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
 `loudness` (loudness integrada EBU R128, LUFS) y `peak` (true peak, dBFS) son números con una décima, medidos con
 ebur128 sobre el mp3 entero (no sobre la región del proyecto) y sin el volumen del proyecto aplicado; `null` = todavía
 sin medir (los existentes se completan en segundo plano al arrancar el backend); `-70` en los dos = archivo silencioso.
-Vienen en todas las formas de archivo (proyecto, proyecto público, catálogo, `PUT /files/:id`, `/upload`).
+Vienen en todas las formas de archivo (proyecto, proyecto público, catálogo, `PUT /files/:id`, `/upload`), igual
+que `parent_id` y `parent_name` (atribución de las copias editadas: id y nombre del archivo del que deriva, por un
+left join con `files`; `null` en un original, y `parent_name` `null` si el original se borró).
 
 `id` de cada archivo es el id del archivo del catálogo (el de `GET /file/:id`). `props.oneShot` viejo
 puede venir en archivos migrados: se ignora. `available` es `false` si el admin ocultó el archivo
@@ -279,7 +283,7 @@ Solo el **dueño** del archivo: uno ajeno o inexistente responde 404 `{ stat: fa
 inexistente" }` (sin distinguir). Archivo en la **forma del catálogo**:
 
 ```js
-{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, name: "<id>.mp3", own: bool, available: bool }
+{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, parent_id, parent_name, name: "<id>.mp3", own: bool, available: bool }
 ```
 
 - `PUT /files/:id` `{ original_name?, kind?, beats?, bpm?, music_key?, anchor? }`: solo lo que venga. `original_name` se
@@ -318,7 +322,7 @@ desempata por `id`, así el paginado es estable). Respuesta:
 
 ```js
 {
-  items: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, name: "<id>.mp3",
+  items: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, parent_id, parent_name, name: "<id>.mp3",
             own: bool,                 // el archivo es del usuario de la sesión
             available: true,           // siempre (el catálogo solo lista disponibles); misma forma que el resto de los archivos
             uses: n,                   // cantidad de proyectos que lo usan (filas de project_files, de cualquier usuario)
@@ -446,7 +450,8 @@ Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
    "No te alcanza la cuota: te quedan m:ss y <nombre> dura m:ss"; disco otra vez → 507.
 3. **Conversión** en la cola global (concurrencia 1) a MP3 VBR V0 44,1 kHz estéreo sin metadatos
    (todo se recodifica, también los mp3), normalizado a -18 LUFS / -1 dBTP con una ganancia fija
-   (sin compresión; ver `convert` en `docs/ARCHITECTURE.md`). La duración ya se midió sobre la entrada. Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
+   (sin compresión; ver `convert` en `docs/ARCHITECTURE.md`); con `normalize = 0` (copia editada) sin normalizar.
+   La duración ya se midió sobre la entrada. Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
    En el mismo turno de la cola se mide el mp3 resultante con ebur128 (`loudness`, `peak`); si esa medición falla la
    subida sigue igual (quedan `null` y se completan en el próximo arranque).
 4. **Transacción**: vuelve a calcular la cuota (por si cambió mientras se convertía; 403 si ya no
@@ -454,12 +459,31 @@ Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
    `size` del mp3, `tags = []`) y suma `size` a `users.bytes_used`. Con `project_id`, vuelve a
    comprobar que el proyecto siga siendo del usuario (404 si se borró mientras se convertía) e
    inserta la fila de `project_files`: el archivo queda en ese proyecto sin pista, sin tags y con
-   `props = {}`.
+   `props = {}` (una copia editada: ver abajo).
 
 **`project_id`** (campo opcional): proyecto propio al que se agrega el archivo subido. Se valida
 antes de medir con ffprobe (su tempo se usa para sugerir los beats): si no es un proyecto del usuario → 404
 "Proyecto inexistente". Sin él (o vacío), el archivo solo queda en el catálogo (se puede agregar
 después con `PUT /projects/:id/files` `{ add: [id] }`). La respuesta trae `project_id` (o `null`).
+
+**Copias editadas** (fase 6 del editor: SAVE AS COPY y SAVE SEL AS COPY; ver "Editor: ediciones destructivas" en
+`ARCHITECTURE.md`). Campos opcionales, validados antes de medir con ffprobe:
+
+| Campo | Valor | Efecto |
+|---|---|---|
+| `parent_id` | id de un archivo del catálogo | archivo del que deriva la copia (`files.parent_id`). Tiene que existir ("Archivo original inexistente") y estar disponible ("Archivo original no disponible"); puede ser ajeno (los archivos subidos son royalty free; los litigios van por `reports`) |
+| `normalize` | `"1"` (default) \| `"0"` | `"0"` = se recodifica sin normalizar la loudness (se guarda lo que se escuchó; `loudness` / `peak` se miden igual). Solo con `parent_id` ("normalize = 0 solo vale para una copia (con parent_id)"); otro valor → "normalize inválido" |
+| `replace_file_id` | id de un archivo del proyecto | la copia **reemplaza** a ese archivo en el proyecto: en la misma transacción se borra su fila de `project_files` (el archivo sigue en el catálogo y entre los del usuario) y la de la copia hereda su `track_group` y sus `tags` |
+| `copy_from_file_id` | id de un archivo del proyecto | la copia entra al proyecto **al lado** de ese archivo, con su `track_group` y sus `tags` (el archivo queda) |
+| `props` | JSON (texto, hasta 4096 caracteres) | props de la copia en el proyecto, con la lista blanca y las validaciones de `PUT /projects/:id/files` (mismos mensajes, "... para la copia"); sin `props`, `{}` |
+
+`replace_file_id` y `copy_from_file_id` no van juntos y piden `parent_id`; ellos y `props` piden `project_id`
+(si no → 400). El archivo enlazado tiene que estar en el proyecto (400 "El archivo no está en el proyecto: <id>");
+se vuelve a buscar en la transacción: si salió mientras se convertía → 409 "El archivo dejó de estar en el
+proyecto: <id>" (no se registra nada). La respuesta trae `track_group`, `tags` y `props` de la fila del proyecto,
+`parent_id` / `parent_name` y `replaced_file_id` (el reemplazado, o `null`). La copia cuenta en la cuota de quien
+la sube, como cualquier subida. El editor la manda como WAV float de 32 bits con `kind`, `beats` (los de la
+tirada), `music_key` y `anchor` del original.
 
 Cuota: `users.max_seconds` (o `default_max_seconds` de `.env` si es `null`, default 1200 = 20 min)
 contra la suma de `files.duration` de los archivos **del usuario** (`files.user_id`). Los importados

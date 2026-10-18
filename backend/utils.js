@@ -108,11 +108,12 @@ function loudness_gain({ input_i, input_tp }) {
 
 // convierte a MP3 VBR V0 (-q:a 0), 44.1 kHz estéreo, sin metadatos ni carátula, normalizado a
 // -18 LUFS / -1 dBTP con una ganancia fija (filtro volume: sin compresión, la forma de onda y la
-// unión del loop no cambian). Primero mide (o usa `measured` si ya se midió). Devuelve
-// { input_i, input_tp, gain }. Lanza si ffmpeg falla.
-async function convert(in_file, out_file, measured = null) {
-  let m = measured || await measure_loudness(in_file)
-  let gain = loudness_gain(m)
+// unión del loop no cambian). Primero mide (o usa `measured` si ya se midió). Con normalize = false no
+// mide ni normaliza (ganancia 0: las copias editadas del editor se guardan como se escucharon; input_i e
+// input_tp quedan null). Devuelve { input_i, input_tp, gain }. Lanza si ffmpeg falla.
+async function convert(in_file, out_file, measured = null, normalize = true) {
+  let m = normalize ? measured || await measure_loudness(in_file) : { input_i: null, input_tp: null }
+  let gain = normalize ? loudness_gain(m) : 0
   await run(ffmpeg_path(), [
     '-hide_banner', '-loglevel', 'error',
     '-y',

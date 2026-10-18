@@ -1,15 +1,25 @@
 <template>
+  <!-- Esc lo maneja on_editor_key (primero quita la selección); cerrar con cambios destructivos sin guardar pregunta -->
   <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(980px, 96vw)"
-    class="hw_dialog editor_dialog" align-center draggable>
+    class="hw_dialog editor_dialog" align-center draggable :close-on-press-escape="false" :before-close="before_close">
     <div class="edit_body">
       <!-- pantalla de onda a todo el ancho (grilla, cursores) con la región debajo: start/stop, SNAP, NUDGE, FADE
         y lupas (RegionEditor.vue). La grilla de un loop sigue al input Beats mientras se edita (beats_draft) -->
       <RegionEditor :file="curr_edit_file" :beats="beats_draft" :active="dialogVisible" />
+      <!-- ediciones destructivas (fase 6): selección, operaciones, UNDO / REDO y SAVE AS COPY -->
+      <EditOps v-if="!store.read_only" :file="curr_edit_file" :active="dialogVisible" @replaced="f => emit('replaced', f)" />
       <div class="edit_left">
         <div class="edit_info">
           <span class="info_label">Duración</span>
           <span v-if="curr_edit_file.isLoaded">{{ curr_edit_file.duration_fixed }} s</span>
           <span v-else class="muted">cargando…</span>
+
+          <!-- copia editada (fase 6): atribución al archivo del que deriva -->
+          <template v-if="curr_edit_file.parent_id">
+            <span class="info_label">Derived from</span>
+            <span :class="{ muted: !curr_edit_file.parent_name }" title="This file is an edited copy of another one">
+              {{ curr_edit_file.parent_name ?? "(deleted file)" }}</span>
+          </template>
 
           <!-- tipo y beats: solo el dueño los cambia (PUT /files/:id); el bpm lo deduce el backend -->
           <span class="info_label">Tipo</span>
@@ -139,7 +149,7 @@
           </span>
           <LedButton size="small" text="DELETE" class="danger" @click="emit('delete', curr_edit_file)" />
         </span>
-        <LedButton size="small" text="CLOSE" @click="dialogVisible = false" />
+        <LedButton size="small" text="CLOSE" title="Close (Esc)" @click="request_close" />
       </div>
     </template>
   </el-dialog>
@@ -148,7 +158,10 @@
 // Editor de un archivo del proyecto (el diálogo de edición; docs/PLAN_EDITOR.md): pantalla de onda y región
 // (RegionEditor.vue), datos del archivo (tipo, beats, tonalidad, anclaje: solo el dueño), placas Volume / Weight /
 // Repeat, pads de pista y tags, preview (PLAY/STOP, SYNC, modo de escucha) y sus atajos. Lo monta Files.vue:
-// v-model = visible, file = archivo a editar; DELETE emite "delete" (la confirmación y el borrado son de Files.vue)
+// v-model = visible, file = archivo a editar; DELETE emite "delete" (la confirmación y el borrado son de Files.vue).
+// Fase 6: ediciones destructivas (EditOps.vue, sesión en helpers/edit_session.js). La sesión sigue al archivo
+// editado; cerrar el editor con cambios sin guardar pregunta antes de descartarlos (CLOSE, Esc, la X o el fondo) y
+// SAVE AS COPY emite "replaced" con la copia (Files.vue pasa a editarla)
 
 import { ref, watch, computed, onBeforeUnmount } from "vue"
 import { store, save_file, save_file_debounced, WEIGHT_MAX, REPEAT_OPTIONS } from "../helpers/composable"
@@ -158,6 +171,8 @@ import RangePads from "./hw/RangePads.vue"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import RegionEditor from "./RegionEditor.vue"
+import EditOps from "./EditOps.vue"
+import { edit, edit_open, edit_close, confirm_discard, set_selection } from "../helpers/edit_session"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import { editor_key_ok, SPACE_TAKERS } from "../helpers/utils"
 import { update_file, error_text } from "../helpers/api"
@@ -176,7 +191,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false }, // diálogo visible
   file: { type: Object, default: null }, // archivo que se edita (de store.files)
 })
-const emit = defineEmits(["update:modelValue", "delete"])
+const emit = defineEmits(["update:modelValue", "delete", "replaced"])
 
 const dialogVisible = computed({
   get: () => props.modelValue,
@@ -294,9 +309,28 @@ const LISTEN_MODES = [
 // el modo de escucha solo cuenta con sync y el motor andando
 const listen_active = computed(() => toneLib.preview_opts.sync && TrackCtrl.isPlaying)
 
+// --- cerrar: con ediciones destructivas sin guardar, pregunta antes de descartarlas ---
+async function request_close() {
+  if (await confirm_discard()) dialogVisible.value = false
+}
+// la X del diálogo y el clic en el fondo
+async function before_close(done) {
+  if (await confirm_discard()) done()
+}
+
 // --- atajos del editor (docs/PLAN_EDITOR.md, decisión 11): Espacio = play/stop del preview, Q = SYNC, M = modo
-// de escucha (reglas de foco en editor_key_ok de utils.js; G y las flechas de la región, en RegionEditor.vue) ---
+// de escucha, Esc = quita la selección o, sin selección, cierra (el Esc propio del el-dialog está apagado) (reglas
+// de foco en editor_key_ok de utils.js; G y las flechas de la región, en RegionEditor.vue; los de las ediciones
+// destructivas, en EditOps.vue) ---
 function on_editor_key(e) {
+  if (e.key == "Escape" && !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey)) {
+    if (!editor_key_ok(e)) return
+    e.preventDefault()
+    if (e.repeat) return
+    if (edit.sel) set_selection(null)
+    else request_close()
+    return
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return
   let key = e.code == "Space" ? "space" : e.key?.toLowerCase()
   if (!["space", "q", "m"].includes(key)) return
@@ -315,14 +349,23 @@ function on_editor_key(e) {
 watch(dialogVisible, (open) => {
   if (open) {
     window.addEventListener("keydown", on_editor_key)
+    if (curr_edit_file.value) edit_open(curr_edit_file.value.id)
     return
   }
   window.removeEventListener("keydown", on_editor_key)
   if (curr_edit_file.value && is_previewing(curr_edit_file.value)) toneLib.playerStop()
+  // al cerrar se descartan las ediciones destructivas (ya se preguntó, o el archivo se borró)
+  edit_close()
+})
+// la sesión de edición sigue al archivo editado (pasar a otro, o a la copia después de SAVE AS COPY; Files.vue
+// pregunta antes de descartar cambios)
+watch(() => props.file?.id, id => {
+  if (dialogVisible.value && id) edit_open(id)
 })
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", on_editor_key)
   if (dialogVisible.value && curr_edit_file.value && is_previewing(curr_edit_file.value)) toneLib.playerStop()
+  edit_close()
 })
 
 </script>

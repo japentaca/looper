@@ -1,6 +1,12 @@
 <template>
-  <div ref="box" class="wave_screen" role="img" tabindex="-1" :aria-label="`Waveform of ${file.original_name}`">
+  <div ref="box" class="wave_screen" :class="{ selectable: selectable && has_buffer }" role="img" tabindex="-1"
+    :aria-label="`Waveform of ${file.original_name}`" @pointerdown="on_select_down">
     <canvas ref="cv" class="wave_canvas"></canvas>
+    <!-- selección de las ediciones destructivas (fase 6): rango resaltado con sus bordes -->
+    <div v-if="has_buffer && sel_marks" class="selection" :style="{ left: sel_marks.start + '%', width: sel_marks.width + '%' }">
+      <span class="sel_edge start" :class="{ selected: selected === 'sel_start' }"></span>
+      <span class="sel_edge stop" :class="{ selected: selected === 'sel_stop' }"></span>
+    </div>
     <!-- región: lo de afuera atenuado y las manijas start/stop (arrastrables si editable); en shots, el anchor
       (lengüeta abajo; out = el guardado quedó fuera de la región y se toca en el borde) -->
     <template v-if="has_buffer && marks">
@@ -41,7 +47,11 @@
 // Fase 3: muestra la región que le pasa RegionEditor.vue (`view`, en segundos: afuera atenuado, grilla
 // corrida por el nudge) y sus manijas; al arrastrarlas emite "marker" con el tiempo bajo el puntero (la
 // conversión a beats, el SNAP y el guardado son de RegionEditor). Fase 4: en shots, además la manija del
-// anchor (el punto que cae en el beat) y la grilla al tempo del proyecto desde ese punto.
+// anchor (el punto que cae en el beat) y la grilla al tempo del proyecto desde ese punto. Fase 6: arrastrar sobre la
+// onda fuera de las manijas emite "select" (la selección de las ediciones destructivas; el SNAP y el estado son
+// de RegionEditor / edit_session.js) y la muestra (`selection`); con `buffer` dibuja el buffer de trabajo en vez del
+// del player (cambios sin guardar: `file` es entonces el archivo virtual de ese buffer) y no muestra el cursor
+// del motor (el motor toca el original).
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
 import * as Tone from "tone"
 import { audio_players, engine_starts } from "../helpers/composable"
@@ -66,12 +76,20 @@ const props = defineProps({
   loop_region: { type: Object, default: null },
   // manijas arrastrables (fuera de store.read_only)
   editable: { type: Boolean, default: false },
-  // último marcador tocado ("start" | "stop" | "anchor" | null): se resalta (lo mueven las flechas)
+  // último marcador tocado ("start" | "stop" | "anchor" | "sel_start" | "sel_stop" | null): se resalta (lo mueven
+  // las flechas)
   selected: { type: String, default: null },
+  // AudioBuffer de trabajo (ediciones destructivas sin guardar) o null = el del player del archivo
+  buffer: { type: Object, default: null },
+  // se puede marcar una selección arrastrando sobre la onda
+  selectable: { type: Boolean, default: false },
+  // selección { start, stop } (s del buffer que se muestra) o null
+  selection: { type: Object, default: null },
 })
 // marker: { which, t (s del archivo bajo el puntero; puede salir de [0, duración] si el puntero sale de la
-// pantalla), shift, done (soltó) }; touch: which (pointerdown en una manija)
-const emit = defineEmits(["marker", "touch"])
+// pantalla), shift, done (soltó) }; touch: which (pointerdown en una manija); select: { t0 (donde empezó el
+// arrastre), t (bajo el puntero, sin recortar), shift, done, click (soltó sin arrastrar) }
+const emit = defineEmits(["marker", "touch", "select"])
 
 const RATE_TITLE = "The engine plays this loop at double or half time to fit the project tempo"
 const HANDLE_TITLE = {
@@ -115,6 +133,15 @@ const marks = computed(() => {
   if (!v || !(d > 0)) return null
   const pct = t => Math.min(100, Math.max(0, t / d * 100))
   return { start: pct(v.start), stop: pct(v.stop), anchor: v.anchor == null ? null : pct(v.anchor) }
+})
+// selección en % del ancho: { start, width }
+const sel_marks = computed(() => {
+  let s = props.selection
+  let d = Number(props.file.duration)
+  if (!s || !(d > 0)) return null
+  let a = Math.min(100, Math.max(0, s.start / d * 100))
+  let b = Math.min(100, Math.max(0, s.stop / d * 100))
+  return b > a ? { start: a, width: b - a } : null
 })
 // manijas que se muestran: start/stop y, en shots, el anchor
 const handles = computed(() => is_shot.value && marks.value?.anchor != null ? ["start", "stop", "anchor"] : ["start", "stop"])
@@ -177,11 +204,40 @@ function on_handle_down(which, e) {
   el.addEventListener("pointercancel", up)
 }
 
+// --- selección: arrastre sobre la onda (fuera de las manijas) ---
+const CLICK_PX = 3 // menos que esto de recorrido = clic (quita la selección)
+function on_select_down(e) {
+  if (!props.selectable || !has_buffer.value || e.button > 0 || e.target.closest(".handle")) return
+  e.preventDefault()
+  box.value.focus({ preventScroll: true })
+  let el = box.value
+  el.setPointerCapture(e.pointerId)
+  let x0 = e.clientX
+  let t0 = Math.min(Number(props.file.duration), Math.max(0, t_at(e)))
+  let moved = false
+  const send = (ev, done) => emit("select", { t0, t: t_at(ev), shift: ev.shiftKey, done, click: done && !moved })
+  const move = (ev) => {
+    if (!moved && Math.abs(ev.clientX - x0) < CLICK_PX) return
+    moved = true
+    send(ev, false)
+  }
+  const up = (ev) => {
+    el.removeEventListener("pointermove", move)
+    el.removeEventListener("pointerup", up)
+    el.removeEventListener("pointercancel", up)
+    send(ev, true)
+  }
+  el.addEventListener("pointermove", move)
+  el.addEventListener("pointerup", up)
+  el.addEventListener("pointercancel", up)
+}
+
 // --- buffer y picos ---
 // AudioBuffer del player del archivo, o null si todavía no cargó (o falló). Ojo: al cargar el proyecto
 // file.isLoaded se prende antes de que el player quede en audio_players (ver install_project): por eso se
 // redibuja también cuando TrackCtrl.isReady pasa a true
 function audio_buffer() {
+  if (props.buffer) return props.buffer
   let tb = audio_players[props.file.id]?.buffer
   return tb?.loaded ? tb.get() ?? null : null
 }
@@ -308,12 +364,13 @@ onMounted(() => {
 })
 
 // se redibuja al cambiar de archivo, cuando termina de cargar y cuando cambia la grilla
-watch([() => props.file, () => props.file.isLoaded, () => TrackCtrl.isReady, lines], () => draw())
+watch([() => props.file, () => props.file.isLoaded, () => TrackCtrl.isReady, lines, () => props.buffer], () => draw())
 
 // --- cursores ---
 const preview_on = computed(() => toneLib.previewing(props.file.id))
-// suena en su pista: isPlaying lo prende el motor (start_file) y lo baja al cortarlo o al terminar
-const engine_on = computed(() => TrackCtrl.isPlaying && props.file.isPlaying === true)
+// suena en su pista: isPlaying lo prende el motor (start_file) y lo baja al cortarlo o al terminar. Con el buffer de
+// trabajo no: el motor toca el original y las posiciones no coinciden
+const engine_on = computed(() => TrackCtrl.isPlaying && props.file.isPlaying === true && !props.buffer)
 const animating = computed(() => props.active && (preview_on.value || engine_on.value))
 
 // posición del motor dentro del buffer (s) desde su último arranque (engine_starts lo anota start_file en
@@ -482,6 +539,40 @@ onBeforeUnmount(() => {
 
 .key.engine {
   color: var(--hw_red);
+}
+
+/* selección (fase 6): arrastrar sobre la onda; resaltada con la tinta del LCD, bordes marcados */
+.wave_screen.selectable {
+  cursor: text;
+  touch-action: none;
+}
+
+.selection {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--hw_lcd_ink) 28%, transparent);
+  pointer-events: none;
+}
+
+.sel_edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--hw_lcd_ink);
+}
+
+.sel_edge.start {
+  left: -1px;
+}
+
+.sel_edge.stop {
+  right: -1px;
+}
+
+.sel_edge.selected {
+  background: var(--hw_red);
 }
 
 /* región: lo de afuera se atenúa con el color del fondo del LCD */

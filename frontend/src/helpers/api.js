@@ -44,8 +44,13 @@ export function get_user_info() {
 // `project_id` opcional (proyecto propio al que se agrega el archivo, sin pista ni tags). `music_key`:
 // tonalidad ("" = sin dato); si es undefined no se manda y el backend la sugiere por el nombre.
 // Sin timeout: un archivo grande más la conversión pueden tardar más que el default de request.js.
-// on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión)
-export function upload_file(file, { kind, bpm, beats, music_key, anchor, project_id } = {}, on_progress) {
+// on_progress(porcentaje 0..100) informa el avance del envío (no de la conversión).
+// Copias editadas (editor, fase 6; ver "upload" en docs/API.md): parent_id = archivo del que deriva, normalize =
+// false para no normalizar la loudness (solo con parent_id), replace_file_id (la copia reemplaza a ese archivo en el
+// proyecto, con su pista y sus tags) o copy_from_file_id (entra al lado, con su pista y sus tags), y props = props
+// de la copia en el proyecto (objeto; se manda como JSON)
+export function upload_file(file, { kind, bpm, beats, music_key, anchor, project_id, parent_id, normalize,
+  replace_file_id, copy_from_file_id, props } = {}, on_progress) {
   let data = new FormData()
   data.append("file", file, file.name)
   if (kind) data.append("kind", String(kind))
@@ -54,6 +59,11 @@ export function upload_file(file, { kind, bpm, beats, music_key, anchor, project
   if (music_key !== undefined) data.append("music_key", music_key ?? "")
   if (anchor) data.append("anchor", String(anchor))
   if (project_id) data.append("project_id", String(project_id))
+  if (parent_id) data.append("parent_id", String(parent_id))
+  if (normalize === false) data.append("normalize", "0")
+  if (replace_file_id) data.append("replace_file_id", String(replace_file_id))
+  if (copy_from_file_id) data.append("copy_from_file_id", String(copy_from_file_id))
+  if (props) data.append("props", JSON.stringify(props))
   return request({
     url: '/api/upload',
     method: 'post',

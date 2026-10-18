@@ -326,13 +326,27 @@ estadísticas en paralelo):
    ~30 ms de relleno del encoder). Se chequea la cuota con esa duración y otra vez el disco.
 3. `utils.convert` a `storage_path/<user_id>/<file_id>.mp3` dentro de una **cola global con
    concurrencia 1** (cadena de promesas en memoria: el VPS tiene 1 vCPU). Todo se recodifica a MP3
-   V0, también los mp3, normalizado a -18 LUFS / -1 dBTP con ganancia fija (ver `convert` abajo).
+   V0, también los mp3, normalizado a -18 LUFS / -1 dBTP con ganancia fija (ver `convert` abajo); una copia
+   editada con `normalize = 0` (ver abajo) se recodifica sin normalizar (`convert(..., normalize = false)`).
    Se loguea la medición y la ganancia aplicada (no se guardan en la base). En el mismo turno de la cola,
    `utils.measure_ebur128` mide el mp3 resultante (`files.loudness` / `files.peak`, ver "Loudness"); si falla,
    la subida sigue (quedan `null`, se loguea y las completa el relleno del próximo arranque).
 4. Transacción: se recalcula la cuota (`users.max_seconds` o `default_max_seconds` contra
    `sum(files.duration)` del usuario), se inserta la fila en `files` (`duration`, `kind`, `bpm`, `beats`,
-   `loudness`, `peak`, `ts` y `size` real del mp3) y se suma `size` a `users.bytes_used`.
+   `loudness`, `peak`, `parent_id`, `ts` y `size` real del mp3) y se suma `size` a `users.bytes_used`. Con
+   `project_id`, la fila de `project_files` (ver abajo las copias).
+
+**Copias editadas** (fase 6 del editor, ver "Editor: ediciones destructivas"; `parse_copy_fields`): campos
+opcionales `parent_id` (archivo del que deriva: tiene que existir y estar disponible en el catálogo, puede ser
+ajeno; queda en `files.parent_id`), `normalize` (`"0"` = sin normalizar la loudness, solo con `parent_id`: se
+guarda lo que se escuchó), `replace_file_id` o `copy_from_file_id` (solo con `parent_id` y `project_id`; un
+archivo que esté en el proyecto) y `props` (JSON, misma lista blanca y validación que `PUT /projects/:id/files`).
+Todo se valida antes de medir con ffprobe y el archivo enlazado se vuelve a buscar dentro de la transacción (409
+si salió del proyecto mientras se convertía). En la transacción, `replace_file_id` borra la fila de
+`project_files` del original (el archivo no se borra del catálogo ni de los archivos del usuario) e inserta la
+de la copia con su `track_group` y sus `tags`; `copy_from_file_id` inserta la de la copia con la pista y los tags
+de ese archivo, sin quitarlo. Las `props` de la fila son las que mandó el cliente (sin `props`, `{}`). La
+respuesta suma `replaced_file_id`.
 
 Responde `{ stat: true, text, data: archivo }` o `{ stat: false, text }` con un código por tipo de
 rechazo (ver `API.md`). En `finally` se borran los temporales y, si no se registró, el mp3
@@ -418,7 +432,7 @@ las escribe y una base nueva no las crea (tampoco se borran de las existentes).
 | Tabla | Columnas | Notas |
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded` (legado), `props` (legado), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` una migración (ya quitada) dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin` y pasó a minúsculas los emails; en una base nueva el primer admin se pone a mano (`role = 'admin'`). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` (**obsoleta** desde la fase 3: la migración a proyectos la copió a `projects.props` del primer proyecto del usuario; queda como respaldo; nada la lee ni la escribe: la config sale de `GET /projects/:id` y se guarda con `PUT /projects/:id`; `save_user_props` se eliminó en la tarea 3.6) = era la config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer) |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (legado), `tags` (legado), `size`, `props` (legado), `tag` (legado), `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna una migración (ya quitada) la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `anchor` = anclaje de un disparo one-shot: `start` (empieza en el punto de disparo) \| `end` (termina en él: riser, crash invertido) (`NOT NULL DEFAULT 'start'`); las pistas de loops lo ignoran; es el default del catálogo: cada proyecto puede guardar su propio punto en `project_files.props.anchor` (fase 4 del editor, ver "Editor: anchor"). Una migración (ya quitada) completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos que ya existían tomaron la fecha de modificación de su mp3. `loudness` = loudness integrada en LUFS y `peak` = true peak en dBFS (float, decimales) del mp3 entero, medidos con ebur128 (`null` = sin medir; −70 en los dos = silencio; ver "Loudness" en Backend): los mide `/upload` y los `null` los completa `fill_file_loudness` en segundo plano en cada arranque. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: una migración lo copió a `tags`. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: la migración a proyectos las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; los archivos nuevos las dejan en null). Metadatos (`original_name`, `kind`, `beats`, `music_key`, `anchor`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (legado), `tags` (legado), `size`, `props` (legado), `tag` (legado), `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak`, `ts`, `hidden`, `parent_id` | sin PK; `parent_id` = archivo del que deriva una copia editada (fase 6 del editor: SAVE AS COPY / SAVE SEL AS COPY; texto de 36, `null` = original; sin clave foránea: si el original se borra queda apuntando a un id inexistente). La API lo devuelve con `parent_name` (nombre del original, por un left join; `null` si se borró) para la atribución "Derived from" del editor; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna una migración (ya quitada) la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `anchor` = anclaje de un disparo one-shot: `start` (empieza en el punto de disparo) \| `end` (termina en él: riser, crash invertido) (`NOT NULL DEFAULT 'start'`); las pistas de loops lo ignoran; es el default del catálogo: cada proyecto puede guardar su propio punto en `project_files.props.anchor` (fase 4 del editor, ver "Editor: anchor"). Una migración (ya quitada) completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos que ya existían tomaron la fecha de modificación de su mp3. `loudness` = loudness integrada en LUFS y `peak` = true peak en dBFS (float, decimales) del mp3 entero, medidos con ebur128 (`null` = sin medir; −70 en los dos = silencio; ver "Loudness" en Backend): los mide `/upload` y los `null` los completa `fill_file_loudness` en segundo plano en cada arranque. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: una migración lo copió a `tags`. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: la migración a proyectos las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; los archivos nuevos las dejan en null). Metadatos (`original_name`, `kind`, `beats`, `music_key`, `anchor`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` (legado), `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), pan: −1..1 (default 0 = centro), rest: 0..1 (default 0), rest_again: 0..0.9 (default null = el valor de rest, con el mismo tope), rest_len: [min, max] de 4 \| 8 \| 16 \| 32 compases (default [4, 4]), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), bars: 1 \| 2 \| 4 \| 8 \| 16 \| 32 \| 64 (default 1), scatter: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), delay: dB \| null (default null = sin delay), fx: [instancia] (default []) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop) y `rest_len` el rango de duración de ese descanso; `on_tag_change`, `density`, `bars` y `scatter` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `fx` (FX de transición: `{ id, type, lead, prob, cond, ...parámetros }`, ver "FX de transición") son de los efectos (ver mixer). Un `drift` guardado de antes (el drift se eliminó) se ignora: no se migra ni se borra. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice), `weight` | `weight` = peso en el sorteo del próximo Tag (entero 0..32, `NOT NULL DEFAULT 16`: los existentes quedaron en 16; 0 = no sale nunca). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
 | `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility` (legado), `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files`, y también los archivos del dueño que usaba y que ya no quedan en ningún proyecto (fila de `files`, `bytes_used` y mp3); los ajenos no se tocan. La migración a proyectos creó uno por usuario existente (nombre `My project`). `visibility` (legado: todos los proyectos son públicos) era `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay) más `tempo_tol`, `reverb` (`{ ir, level }`, ver "Reverb compartida") (tolerancia de tempo en %, 0..12, default 6) y `master` (volumen master en dB, −60 = silencio .. +6, default 0) y `comp` (compresor multibanda del master, `{ on, amount, low, mid, high }`, ver "Dinámica del master"), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
@@ -469,7 +483,13 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   dispara `@change`; un `save_file` directo cancela el diferido pendiente de ese archivo),
   `save_project_props_debounced()` (tempo, tolerancia, compás, rango de Tag, delay, reverb, master y compresor →
   `PUT /projects/:id` `{ props }`, 500 ms) y `delete_project_file(file)` (propio: `DELETE /files/:id`,
-  en cascada; importado: lo quita del proyecto con `{ remove }`). `load_project(id)` abre otro
+  en cascada; importado: lo quita del proyecto con `{ remove }`). `add_project_file(data, { replace, near })` (fase 6)
+  agrega al store la copia que devolvió `/upload` sin recargar el proyecto: crea su player, y ya cargado la pone en
+  `store.files` en el lugar del original (`replace`) o detrás de él (`near`) y recalcula el tempo; el original
+  reemplazado sale de `store.files` pero, con el transporte en marcha, su player y su entrada de `files_by_id`
+  siguen hasta el próximo STOP (`retire_file`: el motor puede estar tocándolo), y una recarga del mismo proyecto
+  los conserva. `prepare_file(f)` es la normalización de un archivo leído del backend que comparten la carga del
+  proyecto y `add_project_file`. `load_project(id)` abre otro
   proyecto; antes manda los guardados diferidos pendientes (`flush_pending_saves()`, exportada) para
   que no salgan con el id del proyecto nuevo. No detiene el transporte: la UI usa
   `switch_project(id)`, que hace STOP (`stop_transport()`), olvida el Tag actual y llama a
@@ -655,7 +675,12 @@ Conceptos:
 
 Flujo:
 1. `start()`: agrupa los archivos sorteables por track group (`files_per_TRG`, con un array, quizás vacío, para
-   cada track group) y por tag; crea un track por cada track group de `store.track_groups`; sortea y activa un Tag (`start_tag(draw_tag())`, que además preselecciona el siguiente) y calcula archivos disponibles por track
+   cada track group; `group_files`) y por tag. Si la lista de archivos del proyecto cambia con el transporte en
+   marcha (una copia del editor que reemplaza al original o entra a su lado, importar, borrar), un watch sobre los
+   ids de `store.files` rehace `files_per_TRG` (cuenta como cargado lo que ya tiene player con buffer) y los
+   disponibles del Tag activo: el próximo sorteo usa la lista nueva y lo que suena sigue hasta su fin de tirada
+   (los Tags del sorteo de Tags siguen siendo los del START). Un shot del original reemplazado que esté sonando
+   ya no lo corta RESET (sale de `files_per_TRG`; termina solo); crea un track por cada track group de `store.track_groups`; sortea y activa un Tag (`start_tag(draw_tag())`, que además preselecciona el siguiente) y calcula archivos disponibles por track
    (`get_available_files_x_tag`); arranca `Tone.Transport`.
 2. `Tone.Transport.scheduleRepeat(set_next_step, "4n")`: callback **en cada negra (beat)**. Se
    registra **una sola vez** al montar el componente (no en cada START): STOP detiene el transporte
@@ -1243,6 +1268,10 @@ a arrancar en el modo nuevo.
 - **Región** (fase 3): un archivo del proyecto suena con su región en los dos modos (`play_window` de
   `helpers/region.js`, lo mismo que toca el motor y que se edita): libre toca la región una vez; sync da la
   vuelta sobre ella. El catálogo y el admin (`playUrl`) tocan el archivo entero.
+- **Ediciones destructivas** (fase 6): con cambios sin guardar en el editor, `playFile` toca el buffer de trabajo
+  (`work_buffer` de `edit_session.js`) con la región, el anchor y el tempo del archivo virtual de ese buffer
+  (`work_file`: `play_window`, `shot_preroll`, `play_rate`), en los dos modos; el watch de `play_rate` usa también
+  el del archivo virtual. Cada operación, UNDO o REDO con el preview de ese archivo sonando lo vuelve a arrancar.
 - **Libre** (sync off): como siempre, velocidad original, una vez, directo (`preview_input → preview_direct →
   Destination`), con `start(Tone.now(), offset, duration)` y `fadeIn` / `fadeOut` de la región (sin región,
   el archivo entero).
@@ -1291,10 +1320,12 @@ a arrancar en el modo nuevo.
 ### Editor: pantalla de onda (`components/WaveScreen.vue`)
 
 Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lectura del motor, sin backend),
-la 2 (preview en sync: ver "Preview"), la 3 (región: ver "Editor: región") y la 4 (anchor: ver "Editor: anchor").
+la 2 (preview en sync: ver "Preview"), la 3 (región: ver "Editor: región"), la 4 (anchor: ver "Editor: anchor"), la 5
+(loudness: ver "Editor: loudness y MATCH") y la 6 (ver "Editor: ediciones destructivas").
 El editor es `FileEditor.vue`, el diálogo de edición que monta `Files.vue` (v-model + `file`; lápiz del cartucho o de la fila, o el nombre en la
 tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :file :beats :active>` (la
-`WaveScreen` con la región y su barra de controles); debajo, los datos, las placas y los pads de siempre.
+`WaveScreen` con la región y su barra de controles) y `<EditOps>` (ediciones destructivas; no en `store.read_only`);
+debajo, los datos (con "Derived from" si es una copia), las placas y los pads de siempre.
 DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo que comparten la lista y el editor
 (fuera de tempo, bpm, `toggleTag`, play/stop y títulos del preview y de SYNC) está en `helpers/file_ui.js`.
 
@@ -1331,8 +1362,11 @@ DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo q
   motor y del preview se lee adentro del componente y ni `FileEditor.vue` ni `Files.vue` se re-renderizan por eso.
   Aproximaciones: se ignora la latencia de salida del dispositivo, y si el tempo cambia (knob Tempo) con
   el loop sonando, el cursor del motor usa el `rate` del arranque hasta la próxima vuelta del loop.
-- El clic en la onda no hace nada (solo se arrastran las manijas de la región y, en shots, la del anchor). Funciona igual en
-  `store.read_only` (no escribe nada), aunque hoy la vista pública no monta `Files.vue`.
+- Arrastrar sobre la onda fuera de las manijas marca la **selección** de las ediciones destructivas (fase 6: emite
+  `select`, la muestra con `selection`; ver "Editor: ediciones destructivas"); un clic sin arrastrar la quita. Con
+  `buffer` (cambios sin guardar) dibuja el buffer de trabajo, recibe como `file` el archivo virtual de ese buffer y
+  no muestra el cursor del motor (el motor sigue tocando el original). En `store.read_only` no hay selección ni
+  manijas; la vista pública hoy no monta `Files.vue`.
 - **Preview** (fase 2): al pie del editor, PLAY/STOP (LED que titila mientras está armado), SYNC y el
   selector MIX / IN CONTEXT / SOLO (atenuado sin sync o con el motor parado, donde no cuenta). Cerrar el
   editor corta el preview del archivo editado.
@@ -1400,6 +1434,10 @@ velocidad original; el `playbackRate` ya escala):
   como un salto. Se recalculan en vivo mientras se arrastra.
 - En `store.read_only`: se ven la región, el rótulo, los valores y las lupas; no hay manijas arrastrables,
   knobs, SNAP ni AUTO, y los atajos G / flechas no se registran.
+- Con ediciones destructivas sin guardar (fase 6) muestra el archivo virtual del buffer de trabajo (`work_file`):
+  la región, el anchor y el nudge llevados a ese buffer, las lupas y el SNAP de shots sobre él. Región, anchor,
+  NUDGE y FADE quedan fijos (sin manijas, knobs deshabilitados, sin AUTO ni DEFAULT) hasta guardar la copia o
+  deshacer todo; SNAP y las flechas siguen (para la selección).
 
 ### Editor: anchor (`components/RegionEditor.vue`, `helpers/region.js`)
 
@@ -1455,3 +1493,68 @@ en Backend); no toca el motor.
   MATCH. Deshabilitado (con `title` que explica) sin pista, sin medición propia (o silencioso), sin otros
   archivos medidos en la pista, o en `store.read_only`.
 - No incluye (para después): preview del catálogo/importar nivelado con `files.loudness`.
+
+### Editor: ediciones destructivas (`components/EditOps.vue`, `helpers/edit_session.js`, `helpers/edit_ops.js`)
+
+Fase 6 de `docs/PLAN_EDITOR.md` (decisiones 4, 9 y 11). Nunca se pisa el original: se edita un buffer de trabajo en
+memoria y se guarda como **copia nueva** (`files.parent_id`). No toca el motor salvo la actualización de los
+candidatos al cambiar la lista de archivos (ver `start()` en el motor). No hay nada de esto en `store.read_only`.
+
+- **Selección** (`edit.sel`, segundos del buffer que se muestra): arrastrar sobre la onda fuera de las manijas
+  (`WaveScreen` emite `select`, `RegionEditor` aplica el SNAP: loops → línea de beat más cercana de la grilla,
+  desde el nudge; shots (o loops sin tempo) → cruce por cero más cercano; Shift invierte). Un clic sin arrastrar
+  o **Esc** la quitan; ← / → mueven su último borde tocado (un beat / el próximo cruce por cero con SNAP, 1 ms
+  sin SNAP). Esc sin selección cierra el editor (el Esc propio del `el-dialog` está apagado: lo maneja
+  `on_editor_key` de `FileEditor.vue`).
+- **Operaciones** (`edit_ops.js`, puras, sobre un `Float32Array` por canal, en muestras): CUT (quita el rango),
+  SILENCE (a cero), DUPLICATE (repite el rango a continuación; la selección pasa a la repetición, así Ctrl+D la
+  sigue repitiendo), REVERSE, GAIN (dB del knob, −24..+12). SILENCE y GAIN llevan una rampa de 2 ms adentro de cada
+  borde (sin click). CUT y SILENCE piden selección (CUT no del buffer entero); sin selección, REVERSE, GAIN y
+  DUPLICATE valen para todo el archivo. El buffer de trabajo no pasa de 2 minutos (`WORK_MAX_SECS`).
+- **Pila** (`edit_session.js`, una sesión: el archivo del editor abierto): lista de operaciones con UNDO/REDO. No
+  se guarda una foto por paso: al deshacer se recalcula desde la base; rehacer y cada operación nueva se aplican
+  sobre el buffer actual. La base es el buffer del player (sin copiar) mientras haya hasta `UNDO_MAX` = 64 pasos;
+  pasado eso la operación más vieja se pliega en la base (deja de deshacerse). El buffer de trabajo es un
+  `AudioBuffer` y sus canales se leen de él: como mucho dos buffers extra (base plegada y trabajo, ~42 MB con
+  60 s estéreo) más los temporales de una operación. La lista completa (también lo plegado) sirve para llevar la
+  región y el anchor del proyecto al buffer de trabajo (`map_pos`: lo de adentro de un corte queda en su borde, lo
+  de después se corre; con DUPLICATE se corre lo que está desde el fin del rango, así una región que termina ahí
+  incluye la repetición). La sesión se abre al abrir el editor y sigue al archivo editado; cerrarla descarta.
+- **Archivo virtual** (`work_file` / `work_file_of`): copia del archivo con la duración del buffer de trabajo, la
+  región como `region_beats` explícita (loops: con el bpm y el nudge del original; si un corte deja el nudge antes
+  del inicio de la región, el que entre) o `region_secs` y el `anchor` guardado (shots), y el tempo del motor
+  (`file_timing`). Lo usan la pantalla, las lupas y el preview (libre y sync) mientras hay cambios; el motor
+  sigue tocando el original hasta guardar. Mientras hay cambios, región, anchor, NUDGE y FADE se ven pero no se
+  editan.
+- **Cerrar o cambiar de archivo** con cambios sin guardar pregunta antes de descartarlos (`confirm_discard`:
+  CLOSE, Esc, la X o el fondo del diálogo, y `editFile` de `Files.vue`). Borrar el archivo cierra sin preguntar.
+- **SAVE AS COPY** (con cambios, o sin cambios si hay región o nudge para hornear): `copy_plan` sobre el archivo
+  virtual (o el original) = la región del proyecto horneada como la toca el motor (`play_window`): la copia arranca
+  en el beat 0 y, en un loop, dura exactamente los beats de la tirada (`round` de la región; lo que falta,
+  silencio al final, p. ej. el del nudge; el bpm no cambia). En shots, la región tal cual. No se hornean `volume`,
+  `weight`, `repeat`, `fade` ni `anchor`: pasan como props de la copia en el proyecto (`copy_props`; el `anchor`
+  guardado de un shot recalculado al nuevo inicio); `region_beats` / `region_secs` / `nudge` no se copian.
+  **SAVE SEL AS COPY** (el "SAVE REGION AS COPY" del plan; se rotula así para no confundirlo con la región del
+  proyecto): `selection_plan` = la selección (en loops redondeada a beats enteros, mínimo 1, con silencio al final
+  si falta; en shots tal cual, con el anchor guardado si cae adentro).
+- **Render y subida** (`save` de `EditOps.vue`): antes de renderizar se chequean el máximo de 1 minuto y la cuota
+  (`u_info.quota`); el render sale directo del buffer de trabajo con `bake_region` (no hay procesamiento de Tone que
+  aplicar, así que no hace falta `OfflineAudioContext`); si el pico pasa de 0 dBFS se avisa en el mismo diálogo
+  que pide el nombre (default `"<original sin extensión> (edit)"`, numerado si ya existe; no se limita en
+  silencio). Se codifica a WAV float de 32 bits (`encode_wav`, no recorta lo que pase de 0 dBFS) y se sube con
+  `api.upload_file` (`/upload` con `parent_id`, `normalize = 0`, `kind`, `beats` de la tirada, `music_key` y el
+  `anchor` del catálogo heredados, `props`, y `replace_file_id` o `copy_from_file_id`). El backend recodifica a mp3
+  sin normalizar, mide `ebur128` como siempre y hace el cambio de referencia en la misma transacción. Un rechazo
+  muestra el `text` del backend.
+- **Después de guardar**: `add_project_file` agrega la copia al store sin recargar (player nuevo, que baja el mp3);
+  SAVE AS COPY reemplaza al original en `store.files` y el editor pasa a la copia (`replaced` → `Files.vue`),
+  SAVE SEL AS COPY la pone detrás del original y el editor sigue en el original con sus cambios. La cuota se
+  actualiza en el momento. Lo que suena en el motor sigue: el original reemplazado puede seguir sonando hasta su
+  próximo sorteo y su player se libera en el próximo STOP.
+- **Atribución**: con `parent_id`, el editor muestra "Derived from: <nombre del original>" (`parent_name`;
+  "(deleted file)" si se borró).
+- **Atajos** (`on_key` de `EditOps.vue`, mismas reglas de foco que el resto, `editor_key_ok`; la tecla repetida
+  se ignora): Supr / Backspace = CUT, Ctrl+D = DUPLICATE, R = REVERSE, Ctrl+Z = UNDO, Ctrl+Shift+Z / Ctrl+Y = REDO;
+  Esc en `FileEditor.vue`. Figuran en el `title` de cada botón. Los campos de texto (p. ej. Beats) conservan su
+  Ctrl+Z.
+- No incluye (fase 7 / después): STRETCH, CHOP y efectos de Tone renderizados.
