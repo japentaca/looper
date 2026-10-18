@@ -541,8 +541,9 @@ router.post("/projects", require_session, route("Error POST projects", async (re
 const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
   "f.beats", "f.music_key", "f.anchor", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
-// props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca)
-const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat"]
+// props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca). Las de la región
+// (editor, fase 3; ver frontend/src/helpers/region.js): region_beats / region_secs, nudge y fade
+const PROJECT_FILE_PROPS_KEYS = ["volume", "weight", "repeat", "region_beats", "region_secs", "nudge", "fade"]
 // peso en el sorteo (de un archivo en el proyecto o de un Tag): entero 0..WEIGHT_MAX; 0 = no sale nunca
 const WEIGHT_MAX = 32
 function valid_weight(v) {
@@ -552,6 +553,18 @@ function valid_weight(v) {
 const REPEAT_OPTIONS = [1, 2, 4, 8, 16]
 function valid_repeat(v) {
   return Array.isArray(v) && v.length == 2 && v.every(n => REPEAT_OPTIONS.includes(n)) && v[0] <= v[1]
+}
+// región de un archivo en el proyecto: [start, stop] con 0 <= start < stop <= max. En loops (region_beats) en
+// beats de la grilla del archivo (max = BEATS_MAX); en shots (region_secs) en segundos (max = REGION_SECS_MAX)
+const REGION_SECS_MAX = 120
+function valid_region(v, max) {
+  return Array.isArray(v) && v.length == 2 && v.every(Number.isFinite) && v[0] >= 0 && v[0] < v[1] && v[1] <= max
+}
+// nudge (ms que corre la grilla de un loop) y fade (ms de fade in/out): enteros 0..max
+const NUDGE_MAX = 250
+const FADE_MAX = 50
+function valid_ms(v, max) {
+  return Number.isInteger(v) && v >= 0 && v <= max
 }
 // anclaje de un disparo one-shot (files.anchor):
 // "start" = el archivo empieza en el punto de disparo; "end" = termina en él. Las pistas de loops lo ignoran
@@ -768,7 +781,7 @@ async function replace_project_rows(table, req, res) {
 }
 
 // campos de un archivo en un proyecto recibidos (solo los presentes): track_group (id o null),
-// tags (array de ids, sin repetidos), props (lista blanca; volume = número). Lanza RowsError si algo
+// tags (array de ids, sin repetidos), props (lista blanca, ver PROJECT_FILE_PROPS_KEYS). Lanza RowsError si algo
 // es inválido. Devuelve los valores ya listos para la base
 function parse_project_file_fields(o, file_id) {
   let out = {}
@@ -791,6 +804,14 @@ function parse_project_file_fields(o, file_id) {
     if (props.volume !== undefined && !Number.isFinite(props.volume)) throw new RowsError("Volumen inválido para " + file_id)
     if (props.weight !== undefined && !valid_weight(props.weight)) throw new RowsError("Peso inválido para " + file_id)
     if (props.repeat !== undefined && !valid_repeat(props.repeat)) throw new RowsError("Repetición inválida para " + file_id)
+    if (props.region_beats !== undefined && !valid_region(props.region_beats, BEATS_MAX)) {
+      throw new RowsError("Región inválida para " + file_id)
+    }
+    if (props.region_secs !== undefined && !valid_region(props.region_secs, REGION_SECS_MAX)) {
+      throw new RowsError("Región inválida para " + file_id)
+    }
+    if (props.nudge !== undefined && !valid_ms(props.nudge, NUDGE_MAX)) throw new RowsError("Nudge inválido para " + file_id)
+    if (props.fade !== undefined && !valid_ms(props.fade, FADE_MAX)) throw new RowsError("Fade inválido para " + file_id)
     out.props = props
   }
   return out

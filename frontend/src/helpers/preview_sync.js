@@ -38,24 +38,16 @@ export function shot_sync_start({ now, first, spb, dur, anchor, engine }) {
   return { time: now, offset: Math.min(pad, now - start), pad, period }
 }
 
-// fin de la vuelta de un loop en sync, en segundos del buffer: beats × 60 / bpm (lo que dura el loop según
-// sus datos; el player lo toca a play_rate, así que en el transporte ocupa exactamente play_beats). Si el
-// mp3 decodificado es un poco más largo (relleno del encoder) la vuelta no arrastra ese sobrante y no se
-// desfasa de la grilla. Sin datos válidos, el buffer entero; nunca más que el buffer
-export function loop_end(beats, bpm, buffer_dur) {
-  let len = beats > 0 && bpm > 0 ? beats * 60 / bpm : buffer_dur
-  return Math.min(len, buffer_dur)
-}
-
 // posición dentro del archivo (s) del preview en el instante `now`, o null si todavía no arrancó o si cae en
 // el silencio de relleno. c = { start (arranque; sin dato, t0), t0 y off (en t0 el buffer que se toca va por
 // off: al arrancar es el offset inicial; al cambiar la velocidad se reancla), rate, wrap (largo de la vuelta
-// en el buffer; 0 = sin loop), pad (silencio antes del archivo en ese buffer) }
+// en el buffer; 0 = sin loop), pad (silencio antes de la región en ese buffer), base (dónde empieza la
+// región en el archivo; default 0), len (largo de la región: después, silencio; default sin límite) }
 export function preview_pos(c, now) {
   if (now < (c.start ?? c.t0)) return null
   let el = c.off + (now - c.t0) * c.rate
   if (el < 0) return null
   if (c.wrap > 0) el %= c.wrap
   let pos = el - c.pad
-  return pos >= 0 ? pos : null
+  return pos >= 0 && pos < (c.len ?? Infinity) ? (c.base ?? 0) + pos : null
 }

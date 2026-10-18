@@ -40,7 +40,9 @@ frontend/src/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
     FileCart.vue     # cartucho de la vista Box: calcula adentro si el archivo suena (Files.vue no lee el estado del motor; ver ARCHITECTURE)
-    WaveScreen.vue   # pantalla de onda del editor (diálogo de edición de Files): canvas LCD, grilla de loops/shots, cursores del preview y del motor (docs/PLAN_EDITOR.md)
+    WaveScreen.vue   # pantalla de onda del editor (diálogo de edición de Files): canvas LCD, grilla de loops/shots, cursores del preview y del motor, región con manijas (docs/PLAN_EDITOR.md)
+    RegionEditor.vue # región del archivo en el proyecto (editor, fase 3): monta WaveScreen + SNAP, NUDGE/AUTO, FADE, lupas, atajos G y ← / →; guarda en project_files.props
+    WaveLoupe.vue    # lupa chica del editor (tramo de audio ampliado con marcas): inicio y costura de la región
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
     TagDialog.vue    # diálogo de edición de un Tag (nombre, color, peso en el sorteo); lo abre el lápiz del pad
     FxPad.vue        # pad de un tipo de FX de transición en la sidebar; se arrastra (looper/fx) a una tira de Tracks
@@ -67,11 +69,12 @@ frontend/src/
     master_dsp.js    # DSP puro del master (crossover LR4 de 3 bandas, compresor por banda, limitador con lookahead); sin Tone ni window, ver docs/PLAN_MASTER.md
     master_dsp.test.js # tests Vitest del DSP del master (npm test)
     wave.js          # funciones puras de WaveScreen.vue: picos min/max por columna, líneas de la grilla, rótulo ×2/×½ (tests en wave.test.js)
+    region.js        # funciones puras de la región (start/stop, nudge, fade): play_window del motor y el preview, snap, cruce por cero, AUTO, lupas (tests en region.test.js)
     master_dsp.worklet.js # AudioWorkletProcessor "looper-master" (adapta master_dsp.js; lo carga mixer.js con ?worker&url; el import va en la 1.ª línea)
     master_dsp.worklet.test.js # humo del worklet con el AudioWorkletGlobalScope simulado (npm test)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
-    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos)
+    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
 deploy/
   deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
   .env.deploy.example # datos de conexión (copiar a .env.deploy, gitignored; sin IPs ni secretos en git)
@@ -138,8 +141,8 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js` y `preview_sync.test.js`) deben pasar todos.
-3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js` y `region.test.js`) deben pasar todos.
+3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 

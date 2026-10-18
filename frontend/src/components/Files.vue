@@ -145,9 +145,9 @@
   <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(980px, 96vw)"
     class="hw_dialog editor_dialog" align-center draggable>
     <div class="edit_body">
-      <!-- pantalla de onda a todo el ancho, con la grilla y los cursores (WaveScreen.vue). La grilla de un loop
-        sigue al input Beats mientras se edita, antes de guardar (beats_draft) -->
-      <WaveScreen :file="curr_edit_file" :beats="beats_draft" :active="dialogVisible" />
+      <!-- pantalla de onda a todo el ancho (grilla, cursores) con la región debajo: start/stop, SNAP, NUDGE, FADE
+        y lupas (RegionEditor.vue). La grilla de un loop sigue al input Beats mientras se edita (beats_draft) -->
+      <RegionEditor :file="curr_edit_file" :beats="beats_draft" :active="dialogVisible" />
       <div class="edit_left">
         <div class="edit_info">
           <span class="info_label">Duración</span>
@@ -289,8 +289,9 @@ import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import Led from "./hw/Led.vue"
 import FileCart from "./FileCart.vue"
-import WaveScreen from "./WaveScreen.vue"
+import RegionEditor from "./RegionEditor.vue"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
+import { editor_key_ok, SPACE_TAKERS } from "../helpers/utils"
 import { update_file, error_text } from "../helpers/api"
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { KEY_TONICS, KEY_OPTIONS, key_label, key_matches } from "../helpers/music_key"
@@ -515,21 +516,12 @@ const LISTEN_MODES = [
 const listen_active = computed(() => toneLib.preview_opts.sync && TrackCtrl.isPlaying)
 
 // --- atajos del editor (docs/PLAN_EDITOR.md, decisión 11): Espacio = play/stop del preview, Q = SYNC, M = modo
-// de escucha. Solo con el editor abierto y con el foco en el editor (o en ninguna parte). Nunca con el foco en
-// un campo de texto (input, select...). Espacio tampoco con el foco en un botón o un control hw (Knob, Fader,
-// RangePads, ToggleSwitch), que lo usan para activarse; Q y M sí (esos controles no usan letras) ---
-const TEXT_FIELDS = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .el-select'
-const SPACE_TAKERS = 'button, a[href], [role="slider"], [role="switch"], [role="button"]'
+// de escucha (reglas de foco en editor_key_ok de utils.js; G y las flechas de la región, en RegionEditor.vue) ---
 function on_editor_key(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return
   let key = e.code == "Space" ? "space" : e.key?.toLowerCase()
   if (!["space", "q", "m"].includes(key)) return
-  let t = e.target instanceof Element ? e.target : document.body
-  let dlg = document.querySelector(".editor_dialog")
-  // otro diálogo encima (confirmación de borrado, etc.) o foco fuera del editor
-  if (!dlg || !(dlg.contains(t) || t.contains(dlg))) return
-  if (t.closest(TEXT_FIELDS)) return
-  if (key == "space" && t.closest(SPACE_TAKERS)) return
+  if (!editor_key_ok(e, key == "space" ? SPACE_TAKERS : null)) return
   e.preventDefault()
   if (e.repeat) return
   let f = curr_edit_file.value

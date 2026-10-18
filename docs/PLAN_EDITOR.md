@@ -1,7 +1,7 @@
 # Plan: editor gráfico de loops/samples
 
-Estado: **acordado**; se implementa por fases (ver "Fases" al final), un commit por fase. Hechas: fases 1 y
-2 (lo vigente se documenta en "Preview" y "Editor: pantalla de onda" de `ARCHITECTURE.md`).
+Estado: **acordado**; se implementa por fases (ver "Fases" al final), un commit por fase. Hechas: fases 1, 2
+y 3 (lo vigente se documenta en "Preview", "Editor: pantalla de onda" y "Editor: región" de `ARCHITECTURE.md`).
 
 ## Decisiones
 

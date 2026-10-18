@@ -1,6 +1,6 @@
 // Tests de los cálculos puros del preview en sync (preview_sync.js). Correr con: cd frontend && npm test
 import { describe, it, expect } from "vitest"
-import { next_grid_point, shot_period_beats, shot_sync_start, loop_end, preview_pos } from "./preview_sync.js"
+import { next_grid_point, shot_period_beats, shot_sync_start, preview_pos } from "./preview_sync.js"
 
 describe("next_grid_point", () => {
   it("sin lead: el primer punto (first ya es >= now)", () => {
@@ -66,17 +66,6 @@ describe("shot_sync_start", () => {
   })
 })
 
-describe("loop_end", () => {
-  it("beats × 60 / bpm, sin pasar el buffer", () => {
-    expect(loop_end(8, 120, 4.03)).toBe(4)
-    expect(loop_end(8, 120, 3.9)).toBe(3.9)
-  })
-  it("sin datos: el buffer entero", () => {
-    expect(loop_end(0, 120, 4.03)).toBe(4.03)
-    expect(loop_end(8, null, 4.03)).toBe(4.03)
-  })
-})
-
 describe("preview_pos", () => {
   it("libre: avanza a la velocidad del player, sin vuelta", () => {
     let c = { t0: 5, off: 0, rate: 1, wrap: 0, pad: 0 }
@@ -102,5 +91,12 @@ describe("preview_pos", () => {
     // segunda vuelta: 1.75 % 1.5 = 0.25, otra vez en el silencio; y después el shot de nuevo
     expect(preview_pos(c, 11.5)).toBe(null)
     expect(preview_pos(c, 11.65)).toBeCloseTo(0.1)
+  })
+  it("con región: posición en el archivo desde base y null pasado su largo", () => {
+    // loop en sync con un buffer de la región (base 1.5 s del archivo, 2 s de largo, 0.5 s de silencio al final)
+    let c = { start: 0, t0: 0, off: 0, rate: 1, wrap: 2.5, pad: 0, base: 1.5, len: 2 }
+    expect(preview_pos(c, 0.5)).toBeCloseTo(2)
+    expect(preview_pos(c, 2.2)).toBe(null)
+    expect(preview_pos(c, 2.75)).toBeCloseTo(1.75)
   })
 })

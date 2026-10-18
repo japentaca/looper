@@ -82,6 +82,13 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   dueño después les cambia los beats o el tipo, `PUT /files/:id` recalcula el bpm con esa duración
   y queda ~0,6 % por debajo (en 7 s): suenan levemente más agudos. Los subidos después miden la
   duración sobre el archivo original y no tienen el problema.
+- 🟡 Región del editor (fase 3, `helpers/region.js`; ver "Editor: región" en `ARCHITECTURE.md`), limitaciones
+  aceptadas: con `nudge` y sin start/stop el loop suena desde el nudge hasta el final del buffer, así que
+  la tirada termina con un hueco de ~nudge (el beat del archivo sale del bpm, que se dedujo con la duración
+  entera); recortar el stop al último beat no lo evita (la región en beats llega hasta `beats`). El fade del
+  motor es en tiempo real (`fadeIn` / `fadeOut` del player) y el del preview en sync está horneado en la copia
+  (lo escala el `playbackRate`: unos % de diferencia). El SNAP de shots mira solo el canal izquierdo. Las
+  ediciones valen desde el próximo arranque: un loop sonando termina su vuelta con la región vieja.
 - 🟡 Un loop que queda fuera de tolerancia mientras suena (por mover el tempo o la tolerancia) termina
   su vuelta con el `playbackRate` nuevo; recién en el próximo sorteo deja de elegirse.
 

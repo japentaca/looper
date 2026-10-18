@@ -465,7 +465,7 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
 
 Índices auxiliares (objetos planos, no reactivos, se reconstruyen con `rebuildIndexes()`):
 `files_by_id`, `tags_by_id`, y `audio_players` (id de archivo → `Tone.Player`). `engine_starts` (id →
-`{ time, rate, prev }` del último arranque en el motor) también es plano: lo escribe `start_file` con
+`{ time, rate, offset, len, prev }` del último arranque en el motor) también es plano: lo escribe `start_file` con
 `note_engine_start` y lo lee el cursor del motor del editor en cada frame. La pista de un archivo
 no se guarda como objeto: `trg_of(file)` la busca en `store.track_groups` en el momento (reactivo; null si
 no tiene o ya no existe).
@@ -591,7 +591,9 @@ Conceptos:
   también el tono: 6 % ≈ un semitono). Se prueba a su tempo, al doble y a la mitad (×1, ×2, ×½; a
   la mitad solo con beats pares): un loop de 70 entra en un proyecto de 140 ocupando el doble de
   beats. Se usa el múltiplo que menos lo corre y quedan `play_rate`, `play_beats` (beats del
-  transporte que ocupa: es lo que cuenta el motor) e `in_tempo`. Si el corrimiento supera la
+  transporte que ocupa: es lo que cuenta el motor) e `in_tempo`. Con región (`props.region_beats`, ver
+  "Región" más abajo) el loop ocupa `round(stop − start)` beats en vez de `beats` (los ×2 / ×½ siguen
+  valiendo; una región de beats impares no va a ×½) y el bpm no cambia. Si el corrimiento supera la
   **tolerancia** del proyecto (`TrackCtrl.tempo_tol`, knob **Tol** al lado del tempo, 0..12 %,
   default 6, guardado en `projects.props`; con 0 igual se acepta ±0,5 % de redondeo) el loop no se
   sortea (`Files.vue` lo atenúa con la marca "out of tempo"). Un **shot** suena siempre a velocidad
@@ -725,7 +727,7 @@ Flujo:
      **solo entre los de anchor efectivo `start`** (`file_anchor`, ver modelo de datos).
      Se arranca con `start_file(f, time, on_start)` (pasa por el canal: respeta mute/solo y mueve el vúmetro)
      y **suena entero** (no se le agenda `stop`, y el cambio de Tag no lo corta porque la pista no
-     tiene `curr_file`). Si ese mismo player ya está `started`, se saltea el disparo (no se reinicia).
+     tiene `curr_file`), o solo su región si tiene (`region_secs`: el player la toca con offset y duración). Si ese mismo player ya está `started`, se saltea el disparo (no se reinicia).
      El nombre (`track.last_shot`) y el destello del LED (`track.shot_n`, cuenta de disparos) los
      actualiza `show_shot` desde el `Tone.Draw.schedule(..., time)` de `start_file`.
      - **Anchor `end`** (`end_step`, en cada beat antes de lo anterior): el archivo **termina** en el
@@ -741,9 +743,10 @@ Flujo:
        beat antes del punto (`b == 1`). Se tira el dado (punto de Tag: siempre; de frase: `density`),
        se sortea con peso entre los candidatos "end" de la pista (`draw_candidates`, o sea los del Tag
        que suena ahora) **cuya duración entra** (`d <= b * spb`) y se agenda
-       `start_file(f, time + b*spb - d)`. Duración efectiva `d = files_by_id[id].duration / play_rate`:
-       la `duration` del objeto del front es la del buffer decodificado (`composable.js` la pisa con
-       `player.buffer.duration` al cargar); sin dato (0) el archivo no participa como "end". Si no
+       `start_file(f, time + b*spb - d)`. Duración efectiva (`shot_length`) `d` = lo que suena del buffer
+       / `play_rate`: la `duration` del objeto del front (la del buffer decodificado; `composable.js` la pisa
+       con `player.buffer.duration` al cargar) o, con región, su largo (`window_length(play_window(f))` de
+       `region.js`): así termina en el punto el fin de la región. Sin dato (0) el archivo no participa como "end". Si no
        entra ninguno (justo tras START, Tag corto, tempo lento) no dispara. Si ese player está
        `started` o tiene un "end" agendado que todavía suena en el arranque nuevo (`end_shots`), se
        saltea. Se calcula con el tempo del momento: si el tempo cambia después, el final ya no cae
@@ -754,9 +757,12 @@ Flujo:
        todos, con `Tone.Draw.schedule(..., time)` (ahí también llama `on_start`). Ese Draw se descarta si
        en el medio el archivo se cortó o se volvió a arrancar (`start_seq[id]`, lo incrementan
        `start_file` y `stop_file`): un "end" cancelado no prende nada.
-     - Cursor del editor: `start_file` anota además el arranque con `note_engine_start(id, time, rate)`
-       (`composable.js`; `engine_starts[id] = { time, rate, prev }`, objeto plano no reactivo, `rate` =
-       `playbackRate` al arrancar, `prev` = el arranque anterior). No cambia nada del motor: solo lo lee
+     - Región: `start_file` toca lo que dice `play_window(f)` (`region.js`): `start(time, offset, duration)` y
+       `fadeIn` / `fadeOut` del player; sin región ni nudge ni fade, `start(time, 0)` como siempre (ver "Región").
+     - Cursor del editor: `start_file` anota además el arranque con `note_engine_start(id, time, rate, offset,
+       len)` (`composable.js`; `engine_starts[id] = { time, rate, offset, len, prev }`, objeto plano no
+       reactivo, `rate` = `playbackRate` al arrancar, `offset` / `len` = la ventana de la región en segundos
+       del buffer, `prev` = el arranque anterior). No cambia nada del motor: solo lo lee
        el cursor de `WaveScreen.vue` (ver "Editor: pantalla de onda").
      Si la pista pasa de loop a one-shot con un loop sonando, ese
      loop se corta en el beat siguiente; de one-shot a loop, la pista sortea un loop en el beat
@@ -1178,18 +1184,24 @@ editor, atajo M), recordados en `localStorage` (`looper_preview_sync`, `looper_p
 defaults: sync off, IN CONTEXT). Valen para `playFile` desde la lista y el editor; el catálogo y el admin
 (`toggle_preview`, `playUrl`) son siempre libres. Cambiar SYNC con un preview de la lista sonando lo vuelve
 a arrancar en el modo nuevo.
+- **Región** (fase 3): un archivo del proyecto suena con su región en los dos modos (`play_window` de
+  `helpers/region.js`, lo mismo que toca el motor y que se edita): libre toca la región una vez; sync da la
+  vuelta sobre ella. El catálogo y el admin (`playUrl`) tocan el archivo entero.
 - **Libre** (sync off): como siempre, velocidad original, una vez, directo (`preview_input → preview_direct →
-  Destination`), con `start(Tone.now())`.
-- **Sync, loop**: `playbackRate = play_rate` del archivo, `loop` con `loopEnd = beats × 60 / bpm` (largo
-  según sus datos, sin el sobrante del mp3: cada vuelta ocupa exactamente `play_beats` del transporte y no se
-  desfasa; `loop_end` de `helpers/preview_sync.js`). Con el motor andando (`TrackCtrl.isPlaying` y el
+  Destination`), con `start(Tone.now(), offset, duration)` y `fadeIn` / `fadeOut` de la región (sin región,
+  el archivo entero).
+- **Sync, loop**: `playbackRate = play_rate` del archivo, en loop sobre una copia de la región con el fade ya
+  aplicado (`bake_region` de `region.js`: en loop el player no aplicaría el fade en cada vuelta). La vuelta
+  dura la tirada, `period` de `play_window` (beats efectivos × 60 / bpm; sin región, `beats × 60 / bpm`): sin
+  el sobrante del mp3, cada vuelta ocupa exactamente `play_beats` del transporte y no se desfasa (si la
+  región es más corta, el resto es silencio; más larga, se corta). Con el motor andando (`TrackCtrl.isPlaying` y el
   transporte en marcha) arranca en `Tone.Transport.nextSubdivision("1m")` (próximo compás); parado, ya, al
   tempo del proyecto. Al soltar el knob Tempo, un watch sobre `play_rate` le aplica el rate nuevo, como
   `apply_rates` a los players del motor (sigue en fase). Un loop fuera de tolerancia suena igual, al rate del
   múltiplo más cercano.
-- **Sync, shot**: a velocidad original (como en el motor) y repetido: se toca en loop una copia del shot en un
-  buffer de largo entero en beats (`shot_period_beats` = los que hacen falta para que entre, mínimo 1), con
-  el silencio después (anchor `start`) o antes (anchor `end`). Con el motor andando, `shot_sync_start`: start
+- **Sync, shot**: a velocidad original (como en el motor) y repetido: se toca en loop una copia del shot (de
+  su región, con el fade) en un buffer de largo entero en beats (`shot_period_beats` = los que hacen falta
+  para que entre el largo de la región, mínimo 1), con el silencio después (anchor `start`) o antes (anchor `end`). Con el motor andando, `shot_sync_start`: start
   arranca en el próximo beat (`nextSubdivision("4n")`); end termina en el primer beat B con B − duración ≥
   ahora (si el inicio del buffer ya pasó, arranca ahora con el offset equivalente, dentro del silencio). Cada
   vuelta empieza (o termina) en un beat, sin agendar nada más. Parado, arranca ya con el shot sonando. La
@@ -1215,16 +1227,16 @@ a arrancar en el modo nuevo.
   próximo compás; desmontar `Tracks.vue` lo corta con la vuelta ya; cambiar de proyecto corta cualquier
   preview. Un preview libre sigue con START/STOP/RESET, como antes.
 - **Cursor**: `preview_position()` (no reactiva) da la posición dentro del archivo con `preview_pos` de
-  `preview_sync.js`: velocidad, vuelta del loop, silencio de relleno del shot (sin cursor ahí) y `null` antes
-  del arranque (armado). Al cambiar el rate se reancla para no saltar.
+  `preview_sync.js`: velocidad, vuelta del loop, silencio de relleno del shot y pasado el fin de la región
+  (sin cursor ahí), inicio de la región en el archivo (`base`) y `null` antes del arranque (armado). Al cambiar el rate se reancla para no saltar.
 
 ### Editor: pantalla de onda (`components/WaveScreen.vue`)
 
-Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lectura del motor, sin backend)
-y la 2 (preview en sync: ver "Preview").
+Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lectura del motor, sin backend),
+la 2 (preview en sync: ver "Preview") y la 3 (región: ver "Editor: región").
 El editor es el diálogo de edición de `Files.vue` (lápiz del cartucho o de la fila, o el nombre en la
-tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<WaveScreen :file :beats :active>`;
-debajo, los datos, las placas y los pads de siempre.
+tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :file :beats :active>` (la
+`WaveScreen` con la región y su barra de controles); debajo, los datos, las placas y los pads de siempre.
 
 - **Onda**: canvas con los colores del LCD (`--hw_lcd_*`, como `hw/Lcd.vue`), picos min/max por píxel del
   dispositivo calculados en el cliente del `AudioBuffer` ya cargado en `audio_players[id]`
@@ -1235,7 +1247,8 @@ debajo, los datos, las placas y los pads de siempre.
   como `file.isLoaded` se prende antes de que el player quede en `audio_players` (`install_project`),
   también redibuja cuando `TrackCtrl.isReady` pasa a true.
 - **Grilla** (`grid_lines` de `helpers/wave.js`, encima de la onda): en un loop, una línea por beat
-  repartida sobre los `beats` del archivo y más marcada en cada compás (`TrackCtrl.beats_x_bar`); en un
+  (beat i en `nudge + i × 60 / bpm`, como lo toca el motor; sin datos de tempo, repartidas sobre la
+  duración) y más marcada en cada compás (`TrackCtrl.beats_x_bar`); en un
   shot, de trazos, al tempo del proyecto (`TrackCtrl.tempo`; el shot suena a velocidad original) desde el
   anchor (`start`: desde el inicio; `end`: hacia atrás desde el final), con un triángulo en el punto de
   disparo. Si las líneas quedan a menos de 4 px no se dibujan las de beat (ni las de compás si tampoco
@@ -1244,26 +1257,85 @@ debajo, los datos, las placas y los pads de siempre.
   evento `input` (al tipear o con +/−) deja el valor en `beats_draft` de `Files.vue`, que va a la
   pantalla como `beats`. Vuelve a `null` (los del archivo) al terminar el guardado, salga bien o mal, y
   al abrir el editor.
-- **Rótulo ×2 / ×½**: si el motor toca el loop con otro largo (`play_beats ≠ beats`), la pantalla dice
-  "in this project: N beats (×2)" (`rate_label`). Con los beats guardados usa `play_beats` / `in_tempo`
-  de `calculate_timing`; con un valor sin guardar los calcula con `file_timing` (bpm deducido de beats y
-  duración, como el backend) y `TrackCtrl.timing_basis`. Fuera de tempo no se muestra.
+- **Rótulo ×2 / ×½**: si el motor toca el loop con otro largo que sus beats efectivos (los de la región, si
+  tiene), la pantalla dice "in this project: N beats (×2)" (`rate_label`). Lo calcula con `file_timing`
+  (la región que se ve, también mientras se arrastra; con un valor de Beats sin guardar, bpm deducido de
+  beats y duración, como el backend) y `TrackCtrl.timing_basis`. Fuera de tempo no se muestra.
 - **Cursores**: el del preview (tinta del LCD; `toneLib.preview_position()`) y el del motor (rojo,
   `--hw_red`) cuando el archivo suena en su pista (`TrackCtrl.isPlaying && file.isPlaying`; posición =
-  `(currentTime − time) × rate` con `engine_starts[id]`; como el arranque se agenda hasta `LOOK_AHEAD`
+  `offset + (currentTime − time) × rate` con `engine_starts[id]`, sin cursor pasado el fin de la región; como el arranque se agenda hasta `LOOK_AHEAD`
   antes, hasta que llega se sigue con `prev`, la vuelta que todavía suena). Una leyenda abajo a la derecha dice cuál está
   activo. Se mueven con `requestAnimationFrame` **solo** mientras el diálogo está abierto (`active`) y
   algo suena, tocando el `transform` en el DOM: igual que `FileCart.vue` y los medidores, el estado del
   motor y del preview se lee adentro del componente y `Files.vue` no se re-renderiza por eso.
   Aproximaciones: se ignora la latencia de salida del dispositivo, y si el tempo cambia (knob Tempo) con
   el loop sonando, el cursor del motor usa el `rate` del arranque hasta la próxima vuelta del loop.
-- El clic en la onda no hace nada (MVP). Funciona igual en `store.read_only` (no escribe nada), aunque
-  hoy la vista pública no monta `Files.vue`.
+- El clic en la onda no hace nada (solo se arrastran las manijas de la región). Funciona igual en
+  `store.read_only` (no escribe nada), aunque hoy la vista pública no monta `Files.vue`.
 - **Preview** (fase 2): al pie del editor, PLAY/STOP (LED que titila mientras está armado), SYNC y el
   selector MIX / IN CONTEXT / SOLO (atenuado sin sync o con el motor parado, donde no cuenta). Cerrar el
   editor corta el preview del archivo editado.
-- **Atajos** (`on_editor_key` en `Files.vue`, listener de `window` solo con el editor abierto): Espacio =
-  play/stop del preview, Q = SYNC, M = rota MIX → IN CONTEXT → SOLO; figuran en el `title` de cada botón.
-  Solo si el foco está en el editor (o en ninguna parte; no con otro diálogo encima), nunca en un campo de
-  texto (input, select...), y Espacio tampoco en un botón o un control hw con teclado (Knob, Fader,
-  RangePads, ToggleSwitch), que lo usan para activarse. Sin Ctrl/Alt/Meta; la tecla repetida se ignora.
+- **Atajos** (listeners de `window` solo con el editor abierto: `on_editor_key` en `Files.vue` y `on_key` en
+  `RegionEditor.vue`): Espacio = play/stop del preview, Q = SYNC, M = rota MIX → IN CONTEXT → SOLO, G = SNAP,
+  ← / → = mueven el último marcador tocado; figuran en el `title` de cada botón. Reglas de foco comunes
+  (`editor_key_ok` de `helpers/utils.js`): solo si el foco está en el editor (o en ninguna parte; no con otro
+  diálogo encima), nunca en un campo de texto (input, select...); Espacio tampoco en un botón o un control hw
+  con teclado (Knob, Fader, RangePads, ToggleSwitch), que lo usan para activarse, y las flechas tampoco en
+  los controles hw (`ARROW_TAKERS`). Sin Ctrl/Alt/Meta; la tecla repetida se ignora (salvo las flechas).
+
+### Editor: región (`components/RegionEditor.vue`, `helpers/region.js`)
+
+Fase 3 de `docs/PLAN_EDITOR.md` (decisión 6). No destructiva: vive en `project_files.props` (por proyecto; la
+edita quien edita el proyecto, sea o no dueño del archivo) y se guarda como `volume` / `weight` / `repeat`
+(`save_file` / `save_file_debounced`, 500 ms), al soltar (no en cada píxel del arrastre ni del knob). Props
+(todas opcionales; sin ninguna el archivo suena entero, como antes; ver `docs/API.md`):
+
+- `region_beats: [start, stop]` (loops): en beats de la grilla del archivo (float; enteros con SNAP). Se
+  recorta a `[0, beats]` al usarla (el dueño puede bajar los beats después; si queda vacía, se ignora).
+- `region_secs: [start, stop]` (shots): en segundos desde el inicio del archivo, recortada a la duración.
+- `nudge` (ms, entero 0..250, solo loops): corre la grilla entera a la derecha (silencio del encoder).
+- `fade` (ms, entero 0..50, default 0): `fadeIn` y `fadeOut` del player (anti-click de la costura).
+- Cada tipo usa la suya: si el dueño cambia el `kind`, la del otro tipo queda guardada pero se ignora (y
+  vuelve a valer si vuelve al tipo anterior). La región que es el archivo entero no se guarda (se borra la clave).
+- `normalize_region_props` las valida al cargar el proyecto (`install_project`) y `region_props_out` arma lo
+  que manda `save_file` (solo lo que tiene valor).
+
+**Motor** (`play_window(f)` de `region.js`: `{ offset, duration, fade, period }` en segundos del buffer, a
+velocidad original; el `playbackRate` ya escala):
+- loop: beat = 60 / bpm del archivo (recortar no cambia el BPM ni la tolerancia); `offset = nudge + start ×
+  beat`; `duration = min(stop − start, round(stop − start)) × beat`: una región no entera se toca hasta donde
+  la cortaría la tirada siguiente (más larga: se corta en `round` beats, sea cual sea el archivo que sigue;
+  más corta: queda un hueco); `period = round(stop − start) × beat` (largo de la tirada, para el preview). Sin
+  región: `offset = nudge` y `duration = null` (hasta el final del buffer, como siempre). Los beats efectivos
+  (`file_timing`) son `round(stop − start)`.
+- shot: `offset` / `duration` = la región (sin región, 0 y `null`). `shot_length` usa ese largo: los disparos
+  `end` terminan en el beat con el fin de la región.
+- `start_file` pone `fadeIn` / `fadeOut` y llama `start(time, offset, duration)`. Tone resta el `fadeOut` de la
+  duración: el fade termina justo en el fin de la región; un `stop` del motor (corte en el beat) hace el fade
+  desde ese momento. El fade del motor es en tiempo real (no lo escala el `playbackRate`); el del preview en
+  sync, horneado en la copia, sí (diferencia despreciable dentro de la tolerancia).
+- Editar con el archivo sonando vale desde el próximo arranque (como `beats`): lo que ya está agendado sigue.
+
+**Editor** (`RegionEditor.vue`, debajo de la onda; `WaveScreen` recibe `view` = la región en segundos y emite
+`marker` al arrastrar, la conversión y el guardado son de `RegionEditor`):
+- Manijas start/stop sobre la onda (lengüeta arriba; la última tocada, en rojo); lo de afuera, atenuado. Se
+  arrastran con el puntero (con captura; el foco pasa a la pantalla para que las flechas no vayan a un knob).
+  Soltar sin arrastrar solo elige el marcador. Largo mínimo: 1 beat con SNAP, 0.25 sin SNAP; 5 ms en shots.
+  Arrastrar más allá del borde lleva el marcador al extremo (región = archivo entero = no se guarda).
+- Rótulo del largo: "REGION 6 BEATS" (loops; con "⚠" y un `title` si no es entera: el motor usa `round`),
+  "REGION 0.84 S" (shots).
+- SNAP (`LedButton` amarillo, atajo G, `localStorage` `looper_editor_snap`, default prendido; Shift lo invierte
+  mientras se arrastra): loops → beat entero más cercano; shots → cruce por cero más cercano (canal izquierdo,
+  ±5 ms; `zero_cross`). Sin SNAP: libre (4 decimales).
+- ← / →: mueven el último marcador tocado; con SNAP un beat (al beat entero siguiente en esa dirección), sin
+  SNAP 1 ms (en beats, 1 ms / beat); en shots con SNAP, 1 ms y al próximo cruce por cero en esa dirección
+  (`zero_cross_dir`). Shift invierte. Cada paso guarda (con el debounce).
+- NUDGE (solo loops): knob 0..250 ms que corre la grilla y las manijas en vivo; AUTO = `first_hit` (primera
+  muestra de cualquier canal que llega al 10 % del pico del archivo; `nudge_for_hit` redondea a ms con tope 250).
+- FADE: knob 0..50 ms.
+- Lupas (`WaveLoupe.vue`, LCD chico sin animación): inicio = primeros 300 ms con la línea del beat 0 tras el
+  nudge (en shots, desde 50 ms antes del inicio de la región, con su línea); costura = los últimos 30 ms de lo
+  que suena de la región pegados a sus primeros 30 ms, mono y con el fade (`seam_window`): un click se ve
+  como un salto. Se recalculan en vivo mientras se arrastra.
+- En `store.read_only`: se ven la región, el rótulo, los valores y las lupas; no hay manijas arrastrables,
+  knobs, SNAP ni AUTO, y los atajos G / flechas no se registran.

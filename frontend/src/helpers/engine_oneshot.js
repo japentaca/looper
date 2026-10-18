@@ -6,6 +6,7 @@ import * as Tone from "tone"
 import { TrackCtrl } from "./TrackCtrl"
 import { audio_players, files_by_id, pick_weighted, file_anchor } from "./composable"
 import { end_run } from "./engine_fx"
+import { play_window, window_length } from "./region"
 
 const current_TAG = TrackCtrl.current_TAG
 const tracks = TrackCtrl.tracks
@@ -70,7 +71,7 @@ export function oneshot_step(track, time, n, tag_start, downbeat) {
   let f = pick_weighted(files, file_weight)
   // si ese mismo player ya está sonando (un disparo anterior), se saltea: no se reinicia
   if (audio_players[f]?.state == "started") return
-  // suena entero: no se le agenda stop
+  // suena entero (o su región, ver start_file): no se le agenda stop
   start_file(f, time, () => show_shot(track, f))
 }
 
@@ -80,12 +81,14 @@ function show_shot(track, f) {
   track.shot_n = (track.shot_n ?? 0) + 1
 }
 
-// duración efectiva de un disparo en segundos: la del buffer (composable.js la deja en
-// files_by_id[id].duration al cargar el audio) al playbackRate con que suena; 0 = sin dato
+// duración efectiva de un disparo en segundos: lo que suena del buffer (composable.js deja su duración en
+// files_by_id[id].duration al cargar el audio; con región, el largo de la región: play_window de region.js)
+// al playbackRate con que suena; 0 = sin dato. Un disparo "end" arranca este tiempo antes del punto: así
+// termina en el punto el fin de la región (stop)
 function shot_length(id) {
   let f = files_by_id[id]
   let d = Number(f?.duration)
-  return d > 0 ? d / (f.play_rate || 1) : 0
+  return d > 0 ? window_length(play_window(f), d) / (f.play_rate || 1) : 0
 }
 
 // disparos "end" agendados ({ id, start, end, tag }: segundos del AudioContext; tag = apunta a un cambio

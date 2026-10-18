@@ -1,6 +1,7 @@
 import { store } from "./composable"
 import { reactive } from "vue"
 import { COMP_DEFAULT, COMP_TRIM_MAX_DB } from "./master_dsp"
+import { file_bpm, loop_region, region_beats, play_window, window_length } from "./region"
 
 // --- delay global (ver mixer.js) ---
 // tipos: pingpong = ping-pong estéreo, stereo = la misma repetición en los dos canales,
@@ -106,6 +107,8 @@ export function stop_transport() {
 // doble y a la mitad (×1, ×2, ×½: un loop de 70 entra en un proyecto de 140 ocupando el doble de beats)
 // y se usa el que menos lo corre. Si el corrimiento supera la tolerancia (TrackCtrl.tempo_tol, %) queda
 // fuera del sorteo (in_tempo = false). Un shot (kind = "shot") suena siempre a velocidad original.
+// Con región (props.region_beats, ver region.js) el loop ocupa round(stop − start) beats en vez de `beats`;
+// el bpm no cambia (recortar no acelera ni frena). Una región de beats impares no va a ×½.
 // Por archivo deja: play_rate, play_beats (beats del transporte que ocupa) e in_tempo.
 const TEMPO_TOL_FLOOR = 0.5 // con tolerancia 0 igual se acepta este margen de redondeo (%)
 const TEMPO_MULTS = [1, 2, 0.5]
@@ -113,17 +116,23 @@ const TEMPO_MULTS = [1, 2, 0.5]
 export function file_timing(f, tempo, tol) {
   let d = Number(f.duration)
   let beats_at_tempo = d > 0 ? Math.max(1, Math.round(d * tempo / 60)) : 1
-  if (f.kind == "shot") return { play_rate: 1, play_beats: beats_at_tempo, in_tempo: true }
+  if (f.kind == "shot") {
+    // un shot ocupa los beats de lo que suena (la región, si tiene)
+    let len = d > 0 ? window_length(play_window(f), d) : 0
+    return { play_rate: 1, play_beats: len > 0 ? Math.max(1, Math.round(len * tempo / 60)) : 1, in_tempo: true }
+  }
   let beats = Number(f.beats)
-  let bpm = Number(f.bpm) || (beats > 0 && d > 0 ? beats * 60 / d : 0)
+  let bpm = file_bpm(f)
   // loop sin datos de tempo (no debería pasar: la migración los completa): no se sortea
   if (!(beats > 0) || !(bpm > 0)) return { play_rate: 1, play_beats: beats_at_tempo, in_tempo: false }
+  let r = loop_region(f.props, beats)
+  let eff = r ? region_beats(r.start, r.stop) : beats
   let best = null
   for (let m of TEMPO_MULTS) {
-    if (!Number.isInteger(beats * m)) continue // a medio tempo hace falta una cantidad par de beats
+    if (!Number.isInteger(eff * m)) continue // a medio tempo hace falta una cantidad par de beats
     let rate = tempo / (bpm * m)
     let dev = Math.abs(Math.log(rate))
-    if (!best || dev < best.dev) best = { rate, beats: beats * m, dev }
+    if (!best || dev < best.dev) best = { rate, beats: eff * m, dev }
   }
   let max_dev = Math.max(tol, TEMPO_TOL_FLOOR) / 100
   return { play_rate: best.rate, play_beats: best.beats, in_tempo: Math.abs(best.rate - 1) <= max_dev }

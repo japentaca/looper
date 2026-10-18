@@ -286,6 +286,7 @@ import {
   TrackCtrl, calculate_timing, register_stop, TEMPO_TOL_MAX, DELAY_TYPES, DELAY_DIVISIONS, DELAY_FEEDBACK_MAX, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX,
   REVERB_IRS, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX, COMP_BAND_MIN, COMP_BAND_MAX
 } from "../helpers/TrackCtrl"
+import { play_window } from "../helpers/region"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import ToggleSwitch from "./hw/ToggleSwitch.vue"
@@ -722,7 +723,9 @@ function rest_bars_left(track) {
 // número de arranque de cada archivo: el Tone.Draw de start_file solo prende los indicadores si en el
 // medio el archivo no se cortó (stop_file) ni se volvió a arrancar
 const start_seq = {}
-// on_start (opcional): se llama con Tone.Draw cuando el sonido arranca de verdad (indicadores de la tira)
+// on_start (opcional): se llama con Tone.Draw cuando el sonido arranca de verdad (indicadores de la tira).
+// Toca la región del archivo en el proyecto (play_window de region.js: offset, duración y fades; sin región,
+// el archivo entero como siempre). Los cambios de región valen desde el próximo arranque
 function start_file(id, time, on_start) {
   let seq = start_seq[id] = (start_seq[id] ?? 0) + 1
   // loops y disparos "start" se agendan para el beat que viene: isPlaying se prende ya, como siempre
@@ -732,8 +735,12 @@ function start_file(id, time, on_start) {
   audio_players[id].playbackRate = files_by_id[id].play_rate ?? 1
   audio_players[id].volume.value = vol_db(files_by_id[id].props.volume, FILE_VOL_MAX_DB)
   route_player(id)
-  audio_players[id].start(time)
-  note_engine_start(id, time, audio_players[id].playbackRate) // solo para el cursor del editor (WaveScreen.vue)
+  let w = play_window(files_by_id[id])
+  audio_players[id].fadeIn = w.fade
+  audio_players[id].fadeOut = w.fade
+  audio_players[id].start(time, w.offset, w.duration ?? undefined)
+  // solo para el cursor del editor (WaveScreen.vue)
+  note_engine_start(id, time, audio_players[id].playbackRate, w.offset, w.duration)
   Tone.Draw.schedule(() => {
     if (start_seq[id] != seq) return
     files_by_id[id].isPlaying = true

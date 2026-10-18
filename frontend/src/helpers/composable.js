@@ -89,14 +89,15 @@ export let files_by_id = reactive([])
 
 export let audio_players = {}
 // último arranque de cada archivo en el motor: id -> { time (segundos del AudioContext), rate (playbackRate
-// al arrancar), prev (el arranque anterior, sin su prev) }. Lo anota start_file en Tracks.vue con
+// al arrancar), offset y len (segundos del buffer: desde dónde toca y cuánto, null = hasta el final; ver
+// play_window en region.js), prev (el arranque anterior, sin su prev) }. Lo anota start_file en Tracks.vue con
 // note_engine_start y lo lee el cursor del motor de WaveScreen.vue en cada frame. prev hace falta porque
 // el arranque se agenda con anticipación (lookAhead): hasta que llega `time` sigue sonando la vuelta
 // anterior. Objeto plano (no reactivo) a propósito: escribirlo o leerlo no dispara renders
 export const engine_starts = {}
-export function note_engine_start(id, time, rate) {
+export function note_engine_start(id, time, rate, offset = 0, len = null) {
   let old = engine_starts[id]
-  engine_starts[id] = { time, rate, prev: old ? { time: old.time, rate: old.rate } : null }
+  engine_starts[id] = { time, rate, offset, len, prev: old ? { time: old.time, rate: old.rate, offset: old.offset, len: old.len } : null }
 }
 
 export let tags_by_id = {}
@@ -115,6 +116,7 @@ import {
 } from './TrackCtrl.js'
 import { on_session_lost } from './request'
 import { normalize_fx_list } from './fx'
+import { normalize_region_props, region_props_out } from './region'
 import { mb, url_autostart } from './utils'
 
 // una respuesta 401/403 "Sin sesión" de cualquier endpoint marca la sesión como perdida. No se
@@ -158,7 +160,8 @@ export async function save_trackGroups() {
   if (!can_save()) return
   await save_collection(data => api.save_project_track_groups(store.project.id, data), store.track_groups, "los track groups")
 }
-// pista, tags y volumen de un archivo dentro del proyecto activo (project_files)
+// pista, tags y props (volumen, peso, repetición y región: ver region.js) de un archivo dentro del proyecto
+// activo (project_files)
 export async function save_file(file) {
   cancel_save_file_debounced(file.id) // este guardado ya lleva todo lo pendiente del archivo
   if (!can_save()) return
@@ -168,6 +171,7 @@ export async function save_file(file) {
   data.props.weight = parse_weight(file.props?.weight)
   let repeat = parse_repeat(file.props?.repeat)
   if (repeat[1] > 1) data.props.repeat = repeat
+  Object.assign(data.props, region_props_out(file.props))
   await save_collection(() => api.save_project_files(store.project.id, { update: [data] }), null, "los datos del archivo")
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
@@ -500,6 +504,7 @@ async function install_project(p, same) {
     if (!Number.isFinite(Number(f.props.volume))) f.props.volume = -6
     f.props.weight = parse_weight(f.props.weight)
     f.props.repeat = parse_repeat(f.props.repeat)
+    normalize_region_props(f.props)
     // el override del anclaje por proyecto se quitó: se descarta (y desaparece de la base al guardar el archivo)
     delete f.props.anchor
     if (!ANCHORS.includes(f.anchor)) f.anchor = "start"

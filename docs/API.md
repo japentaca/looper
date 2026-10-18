@@ -155,7 +155,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
   track_groups: [{ id, name, color, props: { volume, pan, rest, rest_again, rest_len, mode, on_tag_change, density, bars, scatter, reverb, delay, fx } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, // del catálogo (files); anchor "start" | "end"
-            track_group, tags: [tag_id, ...], props: { volume, weight?, repeat? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]
+            track_group, tags: [tag_id, ...], props: { volume, weight?, repeat?, region_beats?, region_secs?, nudge?, fade? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]; región: ver PUT /projects/:id/files
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
 ```
@@ -241,11 +241,23 @@ son opcionales):
 - `track_group`: id de una pista **del mismo proyecto** o `null`/`""` (sin pista). `tags`: array de
   ids de tags **del mismo proyecto** (los repetidos se descartan). Si no, "La pista/El tag no es del
   proyecto".
-- `props`: objeto con lista blanca `{ volume, weight, repeat }` (`volume` en dB, número; `weight` = peso en el
-  sorteo de su pista, entero 0..32, 0 = no sale nunca; `repeat` = `[min, max]` con valores de 1, 2, 4, 8, 16
-  y min <= max: veces seguidas que suena el loop al salir sorteado; el resto de las claves se ignora, también
-  el viejo `anchor` por proyecto: el anclaje es solo del archivo, `files.anchor`). "Peso
-  inválido" si `weight` no es un entero 0..32; "Repetición inválida" si `repeat` no cumple lo anterior.
+- `props`: objeto con lista blanca `{ volume, weight, repeat, region_beats, region_secs, nudge, fade }`
+  (`volume` en dB, número; `weight` = peso en el sorteo de su pista, entero 0..32, 0 = no sale nunca;
+  `repeat` = `[min, max]` con valores de 1, 2, 4, 8, 16 y min <= max: veces seguidas que suena el loop al
+  salir sorteado; el resto de las claves se ignora, también el viejo `anchor` por proyecto: el anclaje es
+  solo del archivo, `files.anchor`). "Peso inválido" si `weight` no es un entero 0..32; "Repetición
+  inválida" si `repeat` no cumple lo anterior.
+  Región del editor (fase 3 de `docs/PLAN_EDITOR.md`; todas opcionales, sin ellas el archivo suena entero; ver
+  "Editor: región" en `ARCHITECTURE.md`):
+  - `region_beats` = `[start, stop]` de un **loop**, en beats de la grilla del archivo (números, pueden ser
+    fraccionarios), `0 <= start < stop <= 1024`. El motor ocupa `round(stop − start)` beats; el front la
+    recorta a los `beats` del archivo al usarla.
+  - `region_secs` = `[start, stop]` de un **shot**, en segundos desde el inicio del archivo,
+    `0 <= start < stop <= 120`.
+  - Cada una vale solo para su `kind`: si el dueño cambia el tipo del archivo, la otra queda guardada y se ignora.
+  - `nudge` = ms (entero 0..250) que corre la grilla del loop a la derecha (offset del player); en shots se ignora.
+  - `fade` = ms (entero 0..50) de fade in / out del player; sin dato = 0.
+  - "Región inválida", "Nudge inválido" o "Fade inválido" si no cumplen lo anterior.
 
 Responde todos los archivos del proyecto ya actualizados, con la forma de `files` de
 `GET /projects/:id` (con `own` y `available`). Validar la forma del body no necesita el proyecto:

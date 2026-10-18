@@ -27,13 +27,15 @@ export function compute_peaks(data, columns) {
 }
 
 // líneas de la grilla sobre un archivo de `duration` segundos: [{ t (s desde el inicio), bar, anchor }].
-// - loop: una por beat repartidas sobre sus `beats` (del 0 al último, incluidos los bordes); bar = cada
-//   `beats_x_bar` beats desde el inicio.
+// - loop: una por beat (del 0 al último, incluidos los bordes); bar = cada `beats_x_bar` beats desde el
+//   inicio. Sin `spb`, repartidas sobre sus `beats`; con `spb` (largo del beat: 60 / bpm del archivo, como
+//   lo toca el motor) y `nudge` (s; la grilla entera corrida a la derecha, ver region.js), beat i en
+//   nudge + i × spb (las que caen después del final no van).
 // - shot: al tempo del proyecto (`tempo`, el shot suena a velocidad original), desde el anchor: "start" =
 //   desde el inicio hacia adelante, "end" = desde el final hacia atrás. bar se cuenta desde el anchor y
 //   anchor = true marca la línea del punto de disparo.
 // Sin datos válidos devuelve []
-export function grid_lines({ kind, duration, beats, beats_x_bar, tempo, anchor }) {
+export function grid_lines({ kind, duration, beats, beats_x_bar, tempo, anchor, nudge = 0, spb = 0 }) {
   let d = Number(duration)
   let bpb = Math.max(1, parseInt(beats_x_bar) || 4)
   if (!(d > 0)) return []
@@ -50,8 +52,11 @@ export function grid_lines({ kind, duration, beats, beats_x_bar, tempo, anchor }
   }
   let b = Math.round(Number(beats))
   if (!(b >= 1)) return []
+  let step = spb > 0 ? spb : d / b
   for (let i = 0; i <= b; i++) {
-    lines.push({ t: d * i / b, bar: i % bpb == 0, anchor: false })
+    let t = nudge + step * i
+    if (t > d + 1e-9) break
+    lines.push({ t, bar: i % bpb == 0, anchor: false })
   }
   return lines
 }

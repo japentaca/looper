@@ -5,13 +5,16 @@
 // - sync: a play_rate (tempo del proyecto), en loop hasta STOP; con el motor andando arranca en el próximo
 //   compás (shots: en el próximo beat; anchor end: termina en un beat) y suena según el modo de escucha
 //   (MIX / IN CONTEXT / SOLO, ver route_preview y gate_engine en mixer.js); con el motor parado, ya.
+// Un archivo del proyecto suena con su región (play_window de region.js: start/stop, nudge y fade) en los dos
+// modos: lo mismo que toca el motor y que se edita en RegionEditor.vue.
 import * as Tone from 'tone'
 import { reactive, watch } from "vue"
 import { store, audio_players, files_by_id, file_anchor } from "../helpers/composable"
 import { file_url } from "./api"
 import { vol_db, FILE_VOL_MAX_DB, preview_input, route_preview, gate_engine } from "./mixer"
 import { TrackCtrl } from "./TrackCtrl"
-import { shot_sync_start, loop_end, preview_pos } from "./preview_sync"
+import { shot_sync_start, preview_pos } from "./preview_sync"
+import { play_window, window_length, bake_region } from "./region"
 
 // --- opciones del preview: se recuerdan por navegador (localStorage puede no estar o fallar: defaults) ---
 const SYNC_KEY = "looper_preview_sync"
@@ -41,8 +44,9 @@ let follows_sync = false
 // número del último pedido de preview (ver playUrl)
 let url_request = 0
 // para el cursor de WaveScreen.vue (preview_pos de preview_sync.js): arranque, punto de referencia (t0, off:
-// posición en el buffer que se toca en t0), velocidad, largo de la vuelta y silencio de relleno del buffer
-let cur = { start: 0, t0: 0, off: 0, rate: 1, wrap: 0, pad: 0 }
+// posición en el buffer que se toca en t0), velocidad, largo de la vuelta, silencio de relleno del buffer y
+// región (base = su inicio en el archivo, len = su largo)
+let cur = { start: 0, t0: 0, off: 0, rate: 1, wrap: 0, pad: 0, base: 0, len: Infinity }
 // invalida el apagado agendado del "armado" de un preview anterior
 let arm_seq = 0
 const DISPOSE_AFTER = 1 // s después del stop (que se agenda en Tone.now(), con el lookAhead) para liberar el player
@@ -105,51 +109,63 @@ export async function playFile(file, free = false) {
   release()
   store.curr_file = file
   let volume = vol_db(file.props.volume, FILE_VOL_MAX_DB)
-  if (preview_opts.sync && !free) start_sync(file, audio_players[file.id].buffer, volume)
-  else start_free(audio_players[file.id].buffer, volume)
+  let w = play_window(file)
+  if (preview_opts.sync && !free) start_sync(file, audio_players[file.id].buffer, volume, w)
+  else start_free(audio_players[file.id].buffer, volume, w)
   follows_sync = !free
   file.isPreviewing = true
 }
 
 // libre: velocidad original, una vez, directo a Destination (el tiempo es el mismo que usaría start() sin
-// argumento, Tone.now(); se anota para el cursor)
-function start_free(buffer, volume) {
+// argumento, Tone.now(); se anota para el cursor). w = región del archivo (play_window; null = entero)
+function start_free(buffer, volume, w = null) {
   let p = new_player(buffer, volume)
   let t = Tone.now()
   route_preview(t)
-  cur = { start: t, t0: t, off: 0, rate: 1, wrap: 0, pad: 0 }
-  p.start(t)
+  let offset = w?.offset ?? 0
+  cur = { start: t, t0: t, off: 0, rate: 1, wrap: 0, pad: 0, base: offset, len: w?.duration ?? Infinity }
+  if (w) {
+    p.fadeIn = w.fade
+    p.fadeOut = w.fade
+  }
+  p.start(t, offset, w?.duration ?? undefined)
 }
 
 // sync: a play_rate y en loop. Con el motor andando arranca en el próximo compás (loops) o beat (shots) y se
-// enruta según preview_opts.mode; con el motor parado, ya y directo
-function start_sync(file, tone_buffer, volume) {
+// enruta según preview_opts.mode; con el motor parado, ya y directo. Se toca en loop una copia de la región
+// con el fade ya aplicado (region_buffer; en loop el player no aplicaría el fade en cada vuelta).
+// w = región del archivo (play_window)
+function start_sync(file, tone_buffer, volume, w) {
   let engine = engine_running()
   let now = Tone.now()
   let buf = tone_buffer.get()
   let shot = file.kind == "shot"
   let p, t, offset = 0
   if (shot) {
-    // a velocidad original (como en el motor), repetido cada los beats que ocupa: se toca en loop un buffer
-    // con relleno de silencio (después del shot, o antes con anchor end) de largo entero en beats
+    // a velocidad original (como en el motor), repetido cada los beats que ocupa la región: el buffer lleva
+    // relleno de silencio (después del shot, o antes con anchor end) hasta un largo entero en beats
+    let dur = window_length(w, buf.duration)
     let spb = 60 / (engine ? Tone.Transport.bpm.value : TrackCtrl.tempo)
     let first = engine ? Math.max(now, Tone.Transport.nextSubdivision("4n")) : now
-    let s = shot_sync_start({ now, first, spb, dur: buf.duration, anchor: file_anchor(file), engine })
-    p = new_player(padded_buffer(buf, s.period, s.pad), volume)
+    let s = shot_sync_start({ now, first, spb, dur, anchor: file_anchor(file), engine })
+    p = new_player(region_buffer(buf, { from: w.offset, len: dur, fade: w.fade, at: s.pad, total: s.period }), volume)
     p.loop = true
     t = s.time
     offset = s.offset
-    cur = { start: t, t0: t, off: offset, rate: 1, wrap: s.period, pad: s.pad }
+    cur = { start: t, t0: t, off: offset, rate: 1, wrap: s.period, pad: s.pad, base: w.offset, len: dur }
   } else {
+    // la vuelta dura la tirada (w.period: los beats de la región, o los del archivo, × 60 / bpm): en el
+    // transporte ocupa exactamente play_beats y no se desfasa de la grilla (sin el sobrante del mp3; si la
+    // región es más corta, el resto es silencio; más larga, se corta). Sin datos de tempo, lo que queda del buffer
     let rate = file.play_rate || 1
-    let wrap = loop_end(Number(file.beats), Number(file.bpm), buf.duration)
-    p = new_player(tone_buffer, volume)
+    let rest = window_length(w, buf.duration)
+    let wrap = w.period > 0 ? w.period : rest
+    let len = Math.min(rest, wrap)
+    p = new_player(region_buffer(buf, { from: w.offset, len, fade: w.fade, total: wrap }), volume)
     p.loop = true
-    p.loopStart = 0
-    p.loopEnd = wrap
     p.playbackRate = rate
     t = engine ? next_bar() : now
-    cur = { start: t, t0: t, off: 0, rate, wrap, pad: 0 }
+    cur = { start: t, t0: t, off: 0, rate, wrap, pad: 0, base: w.offset, len }
   }
   run = { file, t, engine, shot, gated: false }
   route_run(t)
@@ -179,13 +195,14 @@ function route_run(time) {
   run.gated = muted != null
 }
 
-// copia del shot dentro de un buffer de `period` s: al principio o, con pad > 0, después de pad s de silencio
-function padded_buffer(src, period, pad) {
-  let sr = src.sampleRate
-  let len = Math.max(src.length, Math.round(period * sr))
-  let at = Math.min(len - src.length, Math.round(pad * sr))
-  let out = Tone.getContext().createBuffer(src.numberOfChannels, len, sr)
-  for (let c = 0; c < src.numberOfChannels; c++) out.getChannelData(c).set(src.getChannelData(c), at)
+// AudioBuffer con la copia de una región del archivo `src` (opciones de bake_region en region.js: from, len,
+// fade, at = silencio antes, total = largo del buffer)
+function region_buffer(src, opts) {
+  let chans = []
+  for (let c = 0; c < src.numberOfChannels; c++) chans.push(src.getChannelData(c))
+  let data = bake_region(chans, src.sampleRate, opts)
+  let out = Tone.getContext().createBuffer(data.length, data[0].length, src.sampleRate)
+  data.forEach((d, c) => out.getChannelData(c).set(d))
   return out
 }
 

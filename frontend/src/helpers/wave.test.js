@@ -25,6 +25,11 @@ describe("grid_lines", () => {
     expect(l.map(x => x.t)).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4])
     expect(l.filter(x => x.bar).map(x => x.t)).toEqual([0, 2, 4])
   })
+  it("loop con nudge y largo de beat: corrida, sin las que pasan del final", () => {
+    let l = grid_lines({ kind: "loop", duration: 4, beats: 8, beats_x_bar: "4", nudge: 0.1, spb: 0.5 })
+    expect(l.map(x => Math.round(x.t * 100) / 100)).toEqual([0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1, 3.6])
+    expect(l[0].bar && l[4].bar).toBe(true)
+  })
   it("loop sin beats válidos: sin grilla", () => {
     expect(grid_lines({ kind: "loop", duration: 4, beats: 0, beats_x_bar: "4" })).toEqual([])
     expect(grid_lines({ kind: "loop", duration: 0, beats: 4, beats_x_bar: "4" })).toEqual([])

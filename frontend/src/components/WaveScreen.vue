@@ -1,6 +1,16 @@
 <template>
-  <div ref="box" class="wave_screen" role="img" :aria-label="`Waveform of ${file.original_name}`">
+  <div ref="box" class="wave_screen" role="img" tabindex="-1" :aria-label="`Waveform of ${file.original_name}`">
     <canvas ref="cv" class="wave_canvas"></canvas>
+    <!-- región: lo de afuera atenuado y las manijas start/stop (arrastrables si editable) -->
+    <template v-if="has_buffer && marks">
+      <div class="dim" :style="{ left: 0, width: marks.start + '%' }"></div>
+      <div class="dim" :style="{ left: marks.stop + '%', right: 0 }"></div>
+      <div v-for="m in ['start', 'stop']" :key="m" class="handle" :class="[m, { editable, selected: selected === m }]"
+        :style="{ left: marks[m] + '%' }" :title="editable ? HANDLE_TITLE[m] : undefined"
+        @pointerdown="on_handle_down(m, $event)">
+        <span class="grip"></span>
+      </div>
+    </template>
     <template v-if="has_buffer">
       <span class="lcd_text caption">{{ caption }}</span>
       <span v-if="rate_text" class="lcd_text rate" :title="RATE_TITLE">{{ rate_text }}</span>
@@ -25,13 +35,17 @@
 // por canal, L/R si es estéreo), la grilla (beats del loop o tempo del proyecto en un shot) y dos cursores:
 // el del preview (toneLib) y el del motor cuando el archivo suena en su pista. Como FileCart y los
 // medidores, lee el estado del motor y del preview acá adentro: Files.vue no se re-renderiza por eso, y
-// los cursores se mueven tocando el DOM en cada frame, sin reactividad. El clic no hace nada (MVP).
+// los cursores se mueven tocando el DOM en cada frame, sin reactividad. El clic en la onda no hace nada.
+// Fase 3: muestra la región que le pasa RegionEditor.vue (`view`, en segundos: afuera atenuado, grilla
+// corrida por el nudge) y sus manijas; al arrastrarlas emite "marker" con el tiempo bajo el puntero (la
+// conversión a beats, el SNAP y el guardado son de RegionEditor).
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
 import * as Tone from "tone"
 import { audio_players, engine_starts } from "../helpers/composable"
 import { TrackCtrl, file_timing } from "../helpers/TrackCtrl"
 import * as toneLib from "../helpers/toneLib"
 import { compute_peaks, grid_lines, rate_label } from "../helpers/wave"
+import { region_beats } from "../helpers/region"
 
 const props = defineProps({
   file: { type: Object, required: true },
@@ -40,9 +54,25 @@ const props = defineProps({
   beats: { type: Number, default: null },
   // diálogo abierto: sin esto no se anima (el diálogo cerrado queda montado, oculto)
   active: { type: Boolean, default: false },
+  // región a mostrar, en segundos del archivo: { start, stop, nudge (beat 0 de la grilla de un loop), spb
+  // (largo del beat del archivo; 0 = repartir la grilla sobre la duración) }; null = sin región (fase 1)
+  view: { type: Object, default: null },
+  // región de un loop en beats ({ start, stop }) o null: para el rótulo ×2 / ×½ con los beats efectivos
+  loop_region: { type: Object, default: null },
+  // manijas arrastrables (fuera de store.read_only)
+  editable: { type: Boolean, default: false },
+  // último marcador tocado ("start" | "stop" | null): se resalta (lo mueven las flechas)
+  selected: { type: String, default: null },
 })
+// marker: { which, t (s del archivo bajo el puntero; puede salir de [0, duración] si el puntero sale de la
+// pantalla), shift, done (soltó) }; touch: which (pointerdown en una manija)
+const emit = defineEmits(["marker", "touch"])
 
 const RATE_TITLE = "The engine plays this loop at double or half time to fit the project tempo"
+const HANDLE_TITLE = {
+  start: "Region start: drag (Shift inverts SNAP); ← / → move it",
+  stop: "Region stop: drag (Shift inverts SNAP); ← / → move it",
+}
 const box = ref(null)
 const cv = ref(null)
 const cur_preview = ref(null)
@@ -63,24 +93,70 @@ const lines = computed(() => grid_lines({
   beats_x_bar: TrackCtrl.beats_x_bar,
   tempo: is_shot.value ? TrackCtrl.tempo : 0,
   anchor: props.file.anchor,
+  nudge: is_shot.value ? 0 : props.view?.nudge ?? 0,
+  spb: is_shot.value ? 0 : props.view?.spb ?? 0,
 }))
+
+// posiciones de las manijas en % del ancho (las que caen fuera del archivo, en el borde)
+const marks = computed(() => {
+  let v = props.view
+  let d = Number(props.file.duration)
+  if (!v || !(d > 0)) return null
+  const pct = t => Math.min(100, Math.max(0, t / d * 100))
+  return { start: pct(v.start), stop: pct(v.stop) }
+})
 
 const caption = computed(() => is_shot.value
   ? `GRID ${TrackCtrl.tempo} BPM · ${props.file.anchor == "end" ? "⇥END" : "START⇤"}`
   : `${shown_beats.value ?? "?"} BEATS`)
 
-// rótulo si el motor lo toca a ×2 o ×½ (play_beats ≠ beats). Con los beats del archivo se usa lo que
-// calculó calculate_timing; con un valor del input sin guardar se calcula igual que lo hará el motor
-// (bpm deducido de beats y duración, como el backend), con el tempo y la tolerancia del último cálculo
+// rótulo si el motor lo toca a ×2 o ×½ (play_beats ≠ beats efectivos: los de la región, si tiene). Se
+// calcula igual que lo hará el motor (file_timing), con la región que se ve (también mientras se arrastra) y
+// el tempo y la tolerancia del último cálculo. Con un valor del input Beats sin guardar, el bpm se deduce de
+// beats y duración, como el backend
 const rate_text = computed(() => {
   let f = props.file
   if (is_shot.value) return ""
   let beats = shown_beats.value
-  let t = beats == f.beats ? { play_beats: f.play_beats, in_tempo: f.in_tempo }
-    : file_timing({ kind: "loop", duration: f.duration, beats, bpm: 0 }, TrackCtrl.timing_basis.tempo, TrackCtrl.timing_basis.tol)
+  let r = props.loop_region
+  let t = file_timing({
+    kind: "loop", duration: f.duration, beats, bpm: beats == f.beats ? f.bpm : 0,
+    props: r ? { region_beats: [r.start, r.stop] } : {},
+  }, TrackCtrl.timing_basis.tempo, TrackCtrl.timing_basis.tol)
   if (t.in_tempo === false) return "" // fuera de tempo no se sortea (el diálogo ya lo dice)
-  return rate_label(beats, t.play_beats)
+  return rate_label(r ? region_beats(r.start, r.stop) : beats, t.play_beats)
 })
+
+// --- arrastre de las manijas ---
+// tiempo del archivo bajo el puntero (sin recortar: fuera de la pantalla da < 0 o > duración)
+function t_at(ev) {
+  let r = box.value.getBoundingClientRect()
+  return r.width > 0 ? (ev.clientX - r.left) / r.width * Number(props.file.duration) : 0
+}
+function on_handle_down(which, e) {
+  if (!props.editable || e.button > 0) return
+  e.preventDefault()
+  // el foco pasa a la pantalla (dentro del editor): las flechas mueven el marcador y no un knob que lo tenía
+  box.value.focus({ preventScroll: true })
+  emit("touch", which)
+  let el = e.currentTarget
+  el.setPointerCapture(e.pointerId)
+  // agarre: lo que el puntero quedó corrido de la línea de la manija (como mucho unos píxeles)
+  let d = Number(props.file.duration)
+  let max_grab = css_w > 0 ? 8 / css_w * d : 0
+  let grab = Math.min(max_grab, Math.max(-max_grab, t_at(e) - props.view[which]))
+  const send = (ev, done) => emit("marker", { which, t: t_at(ev) - grab, shift: ev.shiftKey, done })
+  const move = (ev) => send(ev, false)
+  const up = (ev) => {
+    el.removeEventListener("pointermove", move)
+    el.removeEventListener("pointerup", up)
+    el.removeEventListener("pointercancel", up)
+    send(ev, true)
+  }
+  el.addEventListener("pointermove", move)
+  el.addEventListener("pointerup", up)
+  el.addEventListener("pointercancel", up)
+}
 
 // --- buffer y picos ---
 // AudioBuffer del player del archivo, o null si todavía no cargó (o falló). Ojo: al cargar el proyecto
@@ -222,13 +298,15 @@ const engine_on = computed(() => TrackCtrl.isPlaying && props.file.isPlaying ===
 const animating = computed(() => props.active && (preview_on.value || engine_on.value))
 
 // posición del motor dentro del buffer (s) desde su último arranque (engine_starts lo anota start_file en
-// Tracks.vue). El arranque se agenda con anticipación: hasta que llega se sigue con el anterior (la vuelta
-// que todavía suena); sin anterior, null
+// Tracks.vue, con el offset y el largo de la región). El arranque se agenda con anticipación: hasta que
+// llega se sigue con el anterior (la vuelta que todavía suena); sin anterior o pasada la región, null
 function engine_position() {
   let s = engine_starts[props.file.id]
   let now = Tone.getContext().currentTime
   if (s && now < s.time) s = s.prev
-  return s && now >= s.time ? (now - s.time) * s.rate : null
+  if (!s || now < s.time) return null
+  let el = (now - s.time) * s.rate
+  return s.len != null && el > s.len ? null : (s.offset ?? 0) + el
 }
 function place(el, pos) {
   if (!el) return
@@ -279,6 +357,10 @@ onBeforeUnmount(() => {
   border: 3px solid #0b0b0c;
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.08);
   color: var(--hw_lcd_ink);
+}
+
+.wave_screen:focus {
+  outline: none;
 }
 
 .wave_canvas {
@@ -381,5 +463,62 @@ onBeforeUnmount(() => {
 
 .key.engine {
   color: var(--hw_red);
+}
+
+/* región: lo de afuera se atenúa con el color del fondo del LCD */
+.dim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--hw_lcd_bg);
+  opacity: 0.62;
+  pointer-events: none;
+}
+
+/* manija: línea con una lengüeta arriba; el área de agarre es más ancha que la línea */
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  margin-left: -7px;
+  touch-action: none;
+}
+
+.handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  width: 2px;
+  background: var(--hw_lcd_ink);
+}
+
+.handle .grip {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 14px;
+  background: var(--hw_lcd_ink);
+}
+
+.handle.start .grip {
+  left: 7px;
+  border-radius: 0 3px 3px 0;
+}
+
+.handle.stop .grip {
+  right: 7px;
+  border-radius: 3px 0 0 3px;
+}
+
+.handle.editable {
+  cursor: ew-resize;
+}
+
+.handle.selected::before,
+.handle.selected .grip {
+  background: var(--hw_red);
 }
 </style>
