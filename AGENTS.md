@@ -19,7 +19,7 @@ con LLMs.
 | Parte | Tecnología |
 |---|---|
 | Backend | Node.js (ESM), Express 4, knex + better-sqlite3, express-session + Redis (ioredis, connect-redis), bcrypt, express-fileupload, ffmpeg/ffprobe (paquetes `ffmpeg-static`/`ffprobe-static`) |
-| Frontend | Vue 3 (`<script setup>`), Vite 5, vue-router 4 (historial HTML5), Element Plus, Tone.js 14 (motor de audio), axios, @vueuse/core |
+| Frontend | Vue 3 (`<script setup>`), Vite 5, vue-router 4 (historial HTML5), Element Plus, Tone.js 14 (motor de audio), signalsmith-stretch 1.3.2 (WASM, MIT: transpose y STRETCH del editor, offline en un Worker), axios, @vueuse/core |
 | Datos | SQLite (archivo en `storage/db.sqlite`), audios en `storage/audio/<user_id>/<file_id>.mp3` |
 
 ## Estructura
@@ -40,10 +40,10 @@ frontend/src/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, filtro por tonalidad, switch SYNC; monta FileEditor y confirma los borrados
     FileCart.vue     # cartucho de la vista Box: calcula adentro si el archivo suena (Files.vue no lee el estado del motor; ver ARCHITECTURE)
-    FileEditor.vue   # editor de un archivo (diálogo de edición; lo monta Files.vue con v-model + file, emite delete y replaced): RegionEditor, EditOps, tipo/beats/key/anchor (dueño), "Derived from", Volume/Loudness/Weight/Repeat, pads de pista y tags, preview SYNC + MIX/IN CONTEXT/SOLO, atajos Espacio/Q/M/Esc
+    FileEditor.vue   # editor de un archivo (diálogo de edición; lo monta Files.vue con v-model + file, emite delete y replaced): RegionEditor, EditOps, tipo/beats/key/anchor (dueño), tonalidad efectiva, "Derived from", Volume/Loudness/Transpose (+ KEY LOCK)/Weight/Repeat, pads de pista y tags, preview SYNC + MIX/IN CONTEXT/SOLO, atajos Espacio/Q/M/Esc
     WaveScreen.vue   # pantalla de onda del editor (FileEditor.vue): canvas LCD, grilla de loops/shots, cursores del preview y del motor, región con manijas, selección (docs/PLAN_EDITOR.md)
     RegionEditor.vue # región del archivo en el proyecto (editor, fase 3): monta WaveScreen + SNAP, NUDGE/AUTO, FADE, lupas, atajos G y ← / →; guarda en project_files.props. Fase 6: la selección (SNAP) y, con ediciones sin guardar, el buffer de trabajo (solo lectura)
-    EditOps.vue      # ediciones destructivas del editor (fase 6): CUT/SILENCE/DUPLICATE/REVERSE/GAIN, UNDO/REDO, SAVE AS COPY / SAVE SEL AS COPY (render, WAV, subida), atajos Supr/Ctrl+D/R/Ctrl+Z/Ctrl+Y
+    EditOps.vue      # ediciones destructivas del editor (fase 6): CUT/SILENCE/DUPLICATE/REVERSE/GAIN, STRETCH (fase 7, loops), UNDO/REDO, SAVE AS COPY / SAVE SEL AS COPY (render, WAV, subida), atajos Supr/Ctrl+D/R/Ctrl+Z/Ctrl+Y
     WaveLoupe.vue    # lupa chica del editor (tramo de audio ampliado con marcas): inicio y costura de la región
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
     TagDialog.vue    # diálogo de edición de un Tag (nombre, color, peso en el sorteo); lo abre el lápiz del pad
@@ -60,9 +60,9 @@ frontend/src/
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob (prop disabled: atenuado y sin respuesta), Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, GrLed (LED de reducción de ganancia), StepLeds, RangePads (rango [min, max] sobre una lista de valores)
   helpers/
-    composable.js    # store global reactivo + carga de audio (Tone.Player por archivo) + índices por id + add_project_file (copias del editor sin recargar)
+    composable.js    # store global reactivo + carga de audio (Tone.Player por archivo; source_buffer = el original, set_play_buffer = el que toca el motor) + índices por id + add_project_file (copias del editor sin recargar)
     TrackCtrl.js     # estado de transporte (tempo, compás, current_TAG, tracks) y cálculo de beats/compases
-    toneLib.js       # preview de un archivo suelto (del proyecto o del catálogo por url): libre o en sync con el motor (SYNC, MIX / IN CONTEXT / SOLO); con ediciones sin guardar, el buffer de trabajo
+    toneLib.js       # preview de un archivo suelto (del proyecto o del catálogo por url): libre o en sync con el motor (SYNC, MIX / IN CONTEXT / SOLO); con ediciones sin guardar, el buffer de trabajo; transpuesto (pitch.js)
     preview_sync.js  # funciones puras del preview en sync: arranque en la grilla, repetición de shots, cursor (tests en preview_sync.test.js)
     mixer.js         # canal por track group (Tone.Channel: mute/solo) + vúmetros (por pista y master) + FX de transición + dinámica del master (worklet, con Tone.Limiter de respaldo)
     fx.js            # catálogo de FX de transición (FX_TYPES), opciones de lead/cond, new_fx y normalización
@@ -73,13 +73,19 @@ frontend/src/
     wave.js          # funciones puras de WaveScreen.vue: picos min/max por columna, líneas de la grilla, rótulo ×2/×½ (tests en wave.test.js)
     region.js        # funciones puras de la región (start/stop, nudge, fade): play_window del motor y el preview, snap, cruce por cero, AUTO, lupas (tests en region.test.js)
     edit_ops.js      # funciones puras de las ediciones destructivas: operaciones sobre canales, posiciones a través de ellas, archivo virtual, plan de la copia, WAV (tests en edit_ops.test.js)
-    edit_session.js  # sesión de edición destructiva del editor: selección, pila UNDO/REDO, buffer de trabajo (lo toca el preview), archivo virtual
+    edit_session.js  # sesión de edición destructiva del editor: selección, pila UNDO/REDO, buffer de trabajo (lo toca el preview), archivo virtual, STRETCH (asíncrono)
+    transpose.js     # funciones puras de la fase 7: props transpose / key_lock, transpose efectivo (KEY LOCK), tonalidad efectiva, rango y factor del STRETCH (tests en transpose.test.js)
+    pitch.js         # pre-render del transpose: buffer transpuesto de cada archivo para el motor (cache por id, recalcula tras calculate_timing) y buffer del preview
+    stretch_queue.js # cola de renders offline con Signalsmith (un Worker, un trabajo a la vez, urgentes adelante)
+    stretch.worker.js # Worker del render (lo crea stretch_queue.js con ?worker)
+    stretch_core.js  # render offline con el WASM de Signalsmith (seek / process / flush, latencia compensada); sin Tone ni window (tests con el WASM real en stretch_core.test.js)
+    stretch_scope.js # AudioWorkletGlobalScope simulado para sacar el WASM del paquete (se importa antes que "signalsmith-stretch")
     master_dsp.worklet.js # AudioWorkletProcessor "looper-master" (adapta master_dsp.js; lo carga mixer.js con ?worker&url; el import va en la 1.ª línea)
     master_dsp.worklet.test.js # humo del worklet con el AudioWorkletGlobalScope simulado (npm test)
     loudness.js      # editor: lecturas de loudness/pico con el volumen del proyecto y cálculo de MATCH (puro; loudness.test.js)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
-    file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, play/stop y títulos del preview y de SYNC
+    file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, tonalidad efectiva (key_view), play/stop y títulos del preview y de SYNC
     utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
 deploy/
   deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
@@ -147,8 +153,8 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js` y `edit_ops.test.js`) deben pasar todos.
-3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `edit_session.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js`, `edit_ops.test.js`, `transpose.test.js` y `stretch_core.test.js`) deben pasar todos.
+3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `edit_session.js`, `pitch.js`, `stretch_*.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
 

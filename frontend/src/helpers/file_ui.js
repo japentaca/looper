@@ -4,6 +4,7 @@ import { toggle_file_tag, save_file, file_anchor } from "./composable"
 import { TrackCtrl } from "./TrackCtrl"
 import * as toneLib from "./toneLib"
 import { shot_anchor } from "./region"
+import { key_display, rate_semitones, parse_key_lock } from "./transpose"
 
 // archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
 // no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
@@ -32,6 +33,14 @@ export function fmt_bpm(bpm) {
 export async function toggleTag(file, id) {
   toggle_file_tag(file, id)
   await save_file(file)
+}
+
+// --- tonalidad efectiva en el proyecto (fase 7; key_display de transpose.js) ---
+// { text, mark, transposed, title }: music_key + transpose redondeado al semitono, con la marca del transpose. En un
+// loop sin KEY LOCK el title aclara cuánto agrega el resample del motor
+export function key_view(file) {
+  let resample = file.kind != "shot" && !parse_key_lock(file.props?.key_lock) ? rate_semitones(file.play_rate) : 0
+  return key_display(file.music_key, file.props?.transpose, resample)
 }
 
 // --- anclaje de los disparos one-shot (ver file_anchor en composable.js) ---

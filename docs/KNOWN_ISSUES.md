@@ -199,6 +199,16 @@ pudo medir queda para la prueba larga de `docs/INSTALACION.md`.
   (clicks y baterías a 90–174 BPM de 4, 8 y 16 beats, también pasadas por mp3), no con un corpus real.
   Decodifica cada archivo otra vez en el navegador (además del `<audio>` para la duración): con
   muchos archivos grandes, la lista tarda en completar las marcas "auto".
+- 🟡 Transpose / KEY LOCK y STRETCH (fase 7 del editor, `helpers/pitch.js`, `helpers/stretch_*.js`; ver "Editor:
+  transpose, KEY LOCK y tonalidad efectiva" en `ARCHITECTURE.md`): el pre-render cuesta CPU al cargar (~1,1 s por
+  minuto de audio estéreo, en un Worker, uno a la vez: un proyecto con muchos archivos transpuestos tarda en tenerlos
+  todos; hasta entonces el motor toca los originales) y memoria (un buffer extra por archivo transpuesto, ~21 MB por
+  minuto; el aviso de memoria al abrir no lo cuenta). Con KEY LOCK cada cambio de tempo recalcula esos loops (el
+  motor sigue con la compensación vieja hasta que llega). La integración usa detalles internos de
+  `signalsmith-stretch` 1.3.2 (scope de worklet simulado para sacar su WASM y la API offline `_seek` / `_process` /
+  `_flush`): al actualizar el paquete correr `stretch_core.test.js`. No probado en navegador real desde el agente
+  (Worker + WASM verificados en Node, también con el build minificado). Un preview libre con KEY LOCK, o con
+  ediciones sin guardar, se vuelve a arrancar cuando llega su transpuesto.
 - ✅ Resuelto (oct 2026): `files.beats` chocaba con un campo calculado del front (`calculateBars()`
   lo pisaba con duración / tempo). Ahora `beats` lo carga el creador, el backend deduce `bpm` y el
   front calcula aparte `play_rate` / `play_beats` / `in_tempo` (`calculate_timing`, ver "Tempo" en

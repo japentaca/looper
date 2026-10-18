@@ -41,7 +41,9 @@
           </el-tooltip>
           <p class="specs">
             <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ timing_text(file) }}<template
-                v-if="file.music_key"> · {{ file.music_key }}</template></template>
+                v-if="file.music_key || key_view(file).transposed"> · <span :class="{ transposed_mark: key_view(file).transposed }"
+                  :title="key_view(file).title">{{ key_view(file).text }}<sup v-if="key_view(file).mark">{{
+                    key_view(file).mark }}</sup></span></template></template>
             <template v-else>loading…</template>
             <span v-if="list_anchor(file)" class="anchor_mark" :title="list_anchor(file).title"> · ⇥{{ list_anchor(file).text }}</span>
             <span v-if="file.available === false" class="unavailable_mark"> · unavailable</span>
@@ -87,8 +89,12 @@
               scope.row.kind == 'shot' ? '' : fmt_bpm(scope.row.bpm) }}</span>
           </template>
         </el-table-column>
-        <el-table-column sortable prop="music_key" label="Key" width="80">
-          <template #default="scope">{{ key_label(scope.row.music_key) }}</template>
+        <!-- tonalidad efectiva en el proyecto (music_key + transpose, fase 7) -->
+        <el-table-column sortable :sort-by="(row) => key_view(row).text" label="Key" width="80">
+          <template #default="scope">
+            <span :class="{ transposed_mark: key_view(scope.row).transposed }" :title="key_view(scope.row).title">{{
+              key_view(scope.row).text }}<sup v-if="key_view(scope.row).mark">{{ key_view(scope.row).mark }}</sup></span>
+          </template>
         </el-table-column>
         <el-table-column sortable label="Track Group" prop="track_group" width="130">
           <template #default="scope">
@@ -157,10 +163,10 @@ import FileCart from "./FileCart.vue"
 import FileEditor from "./FileEditor.vue"
 import { confirm_discard } from "../helpers/edit_session"
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { KEY_TONICS, key_label, key_matches } from "../helpers/music_key"
+import { KEY_TONICS, key_matches } from "../helpers/music_key"
 import {
   out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, list_anchor, is_previewing, is_armed, togglePreview,
-  preview_title, sync_title
+  preview_title, sync_title, key_view
 } from "../helpers/file_ui"
 
 import * as toneLib from "../helpers/toneLib"
@@ -508,6 +514,16 @@ const iconSize = 18
 .anchor_mark {
   font-weight: 700;
   letter-spacing: 0.5px;
+}
+
+/* tonalidad transpuesta en este proyecto (fase 7): en negrita, con el transpose como superíndice */
+.transposed_mark {
+  font-weight: 700;
+}
+
+.transposed_mark sup {
+  margin-left: 1px;
+  font-size: 0.75em;
 }
 
 /* play de un preview en sync armado (espera el compás): titila */

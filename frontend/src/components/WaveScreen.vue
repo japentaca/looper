@@ -54,7 +54,7 @@
 // del motor (el motor toca el original).
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
 import * as Tone from "tone"
-import { audio_players, engine_starts } from "../helpers/composable"
+import { source_buffer, engine_starts } from "../helpers/composable"
 import { TrackCtrl, file_timing } from "../helpers/TrackCtrl"
 import * as toneLib from "../helpers/toneLib"
 import { compute_peaks, grid_lines, rate_label } from "../helpers/wave"
@@ -233,13 +233,12 @@ function on_select_down(e) {
 }
 
 // --- buffer y picos ---
-// AudioBuffer del player del archivo, o null si todavía no cargó (o falló). Ojo: al cargar el proyecto
+// AudioBuffer original del archivo (no el transpuesto que toca el motor, fase 7), o null si todavía no cargó (o falló). Ojo: al cargar el proyecto
 // file.isLoaded se prende antes de que el player quede en audio_players (ver install_project): por eso se
 // redibuja también cuando TrackCtrl.isReady pasa a true
 function audio_buffer() {
   if (props.buffer) return props.buffer
-  let tb = audio_players[props.file.id]?.buffer
-  return tb?.loaded ? tb.get() ?? null : null
+  return source_buffer(props.file.id)
 }
 // picos por AudioBuffer, del último ancho dibujado: { columns, chans: [Float32Array] }. WeakMap: se van
 // con el buffer cuando se libera el player

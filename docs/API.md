@@ -157,7 +157,7 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
   files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, // del catálogo (files); anchor "start" | "end"; loudness (LUFS) y peak (dBFS): ver abajo
             parent_id, parent_name, // copia editada (fase 6): id y nombre del original (null si es un original; parent_name null si el original se borró)
-            track_group, tags: [tag_id, ...], props: { volume, weight?, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]; región y anchor: ver PUT /projects/:id/files
+            track_group, tags: [tag_id, ...], props: { volume, weight?, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor?, transpose?, key_lock? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]; región, anchor, transpose y key_lock: ver PUT /projects/:id/files
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
 ```
@@ -250,7 +250,7 @@ son opcionales):
 - `track_group`: id de una pista **del mismo proyecto** o `null`/`""` (sin pista). `tags`: array de
   ids de tags **del mismo proyecto** (los repetidos se descartan). Si no, "La pista/El tag no es del
   proyecto".
-- `props`: objeto con lista blanca `{ volume, weight, repeat, region_beats, region_secs, nudge, fade, anchor }`
+- `props`: objeto con lista blanca `{ volume, weight, repeat, region_beats, region_secs, nudge, fade, anchor, transpose, key_lock }`
   (`volume` en dB, número; `weight` = peso en el sorteo de su pista, entero 0..32, 0 = no sale nunca;
   `repeat` = `[min, max]` con valores de 1, 2, 4, 8, 16 y min <= max: veces seguidas que suena el loop al
   salir sorteado; el resto de las claves se ignora). "Peso inválido" si `weight` no es un entero 0..32; "Repetición
@@ -272,6 +272,13 @@ son opcionales):
     `anchor` = `"start"` / `"end"` (un override por proyecto que se quitó antes): el backend las devuelve tal
     cual, el front las descarta al cargar y no las vuelve a mandar (un `PUT` con un `anchor` de texto da error).
   - "Región inválida", "Nudge inválido", "Fade inválido" o "Anchor inválido" si no cumplen lo anterior.
+  Tono (fase 7; opcionales, sin ellas suena el original; ver "Editor: transpose, KEY LOCK y tonalidad efectiva" en
+  `ARCHITECTURE.md`):
+  - `transpose` = semitonos, número finito con `-12 <= transpose <= 12` (el front lo usa en pasos de 0.1 y no lo
+    manda si es 0). El navegador calcula el buffer transpuesto (misma duración) y el motor toca ese.
+  - `key_lock` = booleano (el front solo manda `true`): compensa el cambio de tono del resample del motor
+    (transpose efectivo = `transpose − 12·log2(play_rate)`). Solo cuenta en loops; en shots se ignora.
+  - "Transpose inválido" o "Key lock inválido" si no cumplen lo anterior.
 
 Responde todos los archivos del proyecto ya actualizados, con la forma de `files` de
 `GET /projects/:id` (con `own` y `available`). Validar la forma del body no necesita el proyecto:

@@ -53,7 +53,7 @@
 // mueven sus bordes). Con cambios destructivos sin guardar se muestra el buffer de trabajo con la región, el
 // anchor y el nudge llevados a él (work_file) y no se editan (ni el FADE) hasta guardar la copia o deshacerlos.
 import { ref, computed, watch, onBeforeUnmount } from "vue"
-import { store, audio_players, save_file_debounced } from "../helpers/composable"
+import { store, source_buffer, save_file_debounced } from "../helpers/composable"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import {
   NUDGE_MAX, FADE_MAX, MIN_LOOP_BEATS, MIN_SHOT_SECS, PREROLL_MIN, file_bpm, loop_region, shot_region, region_beats,
@@ -217,15 +217,15 @@ const anchor_title = computed(() => {
 })
 
 // --- audio del archivo (para el SNAP de shots, AUTO y las lupas) ---
-// canales (máximo 2) del buffer ya cargado (el de trabajo si hay cambios sin guardar), o null. audio_players no es
+// canales (máximo 2) del buffer original ya cargado (el de trabajo si hay cambios sin guardar; nunca el transpuesto
+// que toca el motor), o null. audio_players no es
 // reactivo: se relee al terminar la carga
 const chans = computed(() => {
   void props.file.isLoaded
   void TrackCtrl.isReady
   let wc = dirty.value ? current_chans(props.file.id) : null
   if (wc) return { data: wc.chans.slice(0, 2), sr: wc.sr }
-  let tb = audio_players[props.file.id]?.buffer
-  let buf = tb?.loaded ? tb.get() : null
+  let buf = source_buffer(props.file.id)
   if (!buf) return null
   let out = []
   for (let c = 0; c < Math.min(2, buf.numberOfChannels); c++) out.push(buf.getChannelData(c))

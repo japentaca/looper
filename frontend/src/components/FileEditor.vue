@@ -43,15 +43,19 @@
             </span>
           </template>
 
-          <!-- tonalidad: solo el dueño la cambia (PUT /files/:id) -->
+          <!-- tonalidad del catálogo: solo el dueño la cambia (PUT /files/:id). Transpuesto en este proyecto (fase 7):
+            al lado, la efectiva (music_key + transpose) -->
           <span class="info_label">Key</span>
-          <span v-if="curr_edit_file.own && !store.read_only">
-            <el-select :model-value="curr_edit_file.music_key ?? ''" size="small" class="key_select" filterable
-              :disabled="saving_timing" @change="v => save_timing(curr_edit_file, { music_key: v })">
+          <span class="timing_row">
+            <el-select v-if="curr_edit_file.own && !store.read_only" :model-value="curr_edit_file.music_key ?? ''"
+              size="small" class="key_select" filterable :disabled="saving_timing"
+              @change="v => save_timing(curr_edit_file, { music_key: v })">
               <el-option v-for="o in KEY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
+            <span v-else>{{ key_label(curr_edit_file.music_key) }}</span>
+            <span v-if="key_now.transposed" class="eff_key" :title="key_now.title">→ {{ key_now.text }}<sup>{{
+              key_now.mark }}</sup></span>
           </span>
-          <span v-else>{{ key_label(curr_edit_file.music_key) }}</span>
 
           <!-- anclaje de los disparos one-shot (dato del archivo): solo el dueño lo cambia (PUT /files/:id) -->
           <span class="info_label" :title="ANCHOR_HELP">Anchor</span>
@@ -89,6 +93,20 @@
             :title="match_title" @click="apply_match(curr_edit_file)" />
           <span v-if="match.ok && match.clipped" class="silk match_clip">{{ match.clipped == 'max' ? 'max' : 'min' }}
             {{ db_label(match.volume) }}</span>
+        </div>
+        <!-- tono (fase 7): TRANSPOSE en semitonos (pre-render con Signalsmith, al soltar el knob) y KEY LOCK (compensa
+          el cambio de tono del resample del motor; solo loops). RENDERING mientras se calcula -->
+        <div class="hw_plate pitch" :title="pitch_title">
+          <span class="silk">Transpose</span>
+          <Knob :model-value="curr_edit_file.props.transpose" :min="TRANSPOSE_MIN" :max="TRANSPOSE_MAX"
+            :step="TRANSPOSE_STEP" :size="56" :disabled="store.read_only"
+            @update:model-value="v => curr_edit_file.props.transpose = parse_transpose(v)"
+            @change="on_pitch_change(curr_edit_file)" />
+          <Lcd small :digits="5" :value="fmt_transpose(curr_edit_file.props.transpose)" unit="st" />
+          <LedButton size="small" led="yellow" text="KEY LOCK" :lit="curr_edit_file.props.key_lock"
+            :disabled="store.read_only || curr_edit_file.kind == 'shot'" :title="key_lock_title"
+            @click="toggle_key_lock(curr_edit_file)" />
+          <span class="silk rendering" :class="{ on: is_rendering(curr_edit_file.id) }">rendering…</span>
         </div>
         <!-- peso del archivo en el sorteo de su pista (0 = no sale nunca; ver pick_weighted en composable.js) -->
         <div class="hw_plate weight" :title="weight_title(curr_edit_file)">
@@ -162,6 +180,8 @@
 // Fase 6: ediciones destructivas (EditOps.vue, sesión en helpers/edit_session.js). La sesión sigue al archivo
 // editado; cerrar el editor con cambios sin guardar pregunta antes de descartarlos (CLOSE, Esc, la X o el fondo) y
 // SAVE AS COPY emite "replaced" con la copia (Files.vue pasa a editarla)
+// Fase 7: placa Transpose (transpose y KEY LOCK en project_files.props; pre-render en helpers/pitch.js) y la
+// tonalidad efectiva al lado de la del catálogo
 
 import { ref, watch, computed, onBeforeUnmount } from "vue"
 import { store, save_file, save_file_debounced, WEIGHT_MAX, REPEAT_OPTIONS } from "../helpers/composable"
@@ -180,8 +200,12 @@ import { ElMessage } from 'element-plus'
 import { KEY_OPTIONS, key_label } from "../helpers/music_key"
 import {
   out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, ANCHOR_TEXT, is_previewing, is_armed, togglePreview,
-  preview_title, sync_title
+  preview_title, sync_title, key_view
 } from "../helpers/file_ui"
+import {
+  TRANSPOSE_MIN, TRANSPOSE_MAX, TRANSPOSE_STEP, parse_transpose, effective_transpose, rate_semitones, fmt_semis
+} from "../helpers/transpose"
+import { sync_file_pitch, is_rendering } from "../helpers/pitch"
 
 import * as toneLib from "../helpers/toneLib"
 import { fader_to_db, db_to_fader, db_label, FILE_VOL_MAX_DB, VOL_OFF_DB } from "../helpers/mixer"
@@ -265,6 +289,39 @@ function apply_match(file) {
   if (!can_match.value) return
   file.props.volume = match.value.volume
   onChange(file)
+}
+
+// --- tono (docs/PLAN_EDITOR.md, decisión 5; lógica en helpers/transpose.js, pre-render en helpers/pitch.js) ---
+const key_now = computed(() => curr_edit_file.value ? key_view(curr_edit_file.value) : { transposed: false })
+function fmt_transpose(t) {
+  let n = Math.round((Number(t) || 0) * 10) / 10
+  return n > 0 ? "+" + n.toFixed(1) : n.toFixed(1)
+}
+const key_lock_title = computed(() => curr_edit_file.value?.kind == "shot"
+  ? "KEY LOCK: only for loops (shots play at their original speed)"
+  : "KEY LOCK: keeps the pitch when the engine speeds the loop up or down to the project tempo (re-rendered when the "
+    + "Tempo knob is released)")
+const pitch_title = computed(() => {
+  let f = curr_edit_file.value
+  if (!f) return undefined
+  let parts = ["Transpose in semitones, rendered offline when the knob is released (the length does not change)"]
+  let rs = f.kind == "shot" ? 0 : Math.round(rate_semitones(f.play_rate) * 100) / 100
+  if (f.kind != "shot" && f.props.key_lock) parts.push(`KEY LOCK compensates the engine's tempo change (${fmt_semis(rs)})`)
+  else if (Math.abs(rs) >= 0.05) parts.push(`Without KEY LOCK the engine's tempo change also shifts it by ${fmt_semis(rs)}`)
+  let eff = effective_transpose(f)
+  parts.push(eff ? `The engine plays a copy transposed ${fmt_semis(eff)}` : "The engine plays the original")
+  return parts.join(". ")
+})
+// al soltar el knob (o con la rueda / flechas): se calcula ya (pasa adelante de la cola) y se guarda
+function on_pitch_change(file) {
+  sync_file_pitch(file, true)
+  toneLib.refresh_preview(file.id)
+  save_file_debounced(file)
+}
+function toggle_key_lock(file) {
+  if (store.read_only || file.kind == "shot") return
+  file.props.key_lock = !file.props.key_lock
+  on_pitch_change(file)
 }
 
 // al abrir el editor (o pasar a otro archivo) la grilla vuelve a los beats del archivo
@@ -517,7 +574,7 @@ onBeforeUnmount(() => {
 
 .edit_plates {
   display: grid;
-  grid-template-columns: auto auto auto;
+  grid-template-columns: auto auto auto auto;
   grid-template-rows: auto 1fr;
   gap: 12px;
   align-items: start;
@@ -533,15 +590,47 @@ onBeforeUnmount(() => {
   grid-row: 1 / 3;
 }
 
-.weight {
+.pitch {
   grid-column: 3;
+  grid-row: 1 / 3;
+}
+
+.weight {
+  grid-column: 4;
   grid-row: 1;
   justify-self: start;
 }
 
 .repeat {
-  grid-column: 3;
+  grid-column: 4;
   grid-row: 2;
+}
+
+/* "rendering…" ocupa su lugar siempre (no mueve la placa) y se ve mientras se calcula el transpose */
+.rendering {
+  visibility: hidden;
+}
+
+.rendering.on {
+  visibility: visible;
+  color: #8f1d12;
+  animation: rendering_blink 0.8s steps(2, start) infinite;
+}
+
+@keyframes rendering_blink {
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* tonalidad efectiva (transpuesta en este proyecto) */
+.eff_key {
+  font-weight: 700;
+}
+
+.eff_key sup {
+  margin-left: 1px;
+  font-size: 0.75em;
 }
 
 /* MATCH recortado por el rango del fader: serigrafía roja oscura (sobre el aluminio, como DELETE) */

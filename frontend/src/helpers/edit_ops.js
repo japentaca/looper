@@ -8,15 +8,21 @@
 //   cut = quita [a, b) (acorta); silence = [a, b) a cero (mismo largo); duplicate = repite [a, b) a continuación
 //   (alarga); reverse = invierte [a, b); gain = [a, b) × 10^(db/20). silence y gain llevan una rampa de `ramp`
 //   muestras en cada borde (adentro del rango) para no dejar un click.
+//   stretch (fase 7) = el buffer entero a otro tempo sin cambiar el tono: op = { type, a: 0, b: largo, rate (velocidad:
+//   bpm destino / bpm de antes), out }. El render es asíncrono (Signalsmith, en un Worker): lo hace edit_session.js y
+//   lo guarda en op.out (canales de round(largo / rate) muestras), que apply_op devuelve tal cual (compartidos: nadie
+//   los modifica). Las posiciones se escalan (map_pos) y el bpm del archivo virtual se multiplica por rate.
 // - Posiciones a través de las operaciones (map_pos): la región y el anchor del proyecto, guardados sobre el
 //   archivo original, se llevan al buffer de trabajo (work_file_of) y de ahí a la copia (copy_plan).
 // - Copia: copy_plan / selection_plan (qué parte del buffer, largo, beats, anchor), copy_props (props del
 //   proyecto que pasan a la copia), encode_wav (WAV float de 32 bits).
 import {
-  play_window, window_length, shot_anchor, loop_region, region_beats, file_bpm, parse_fade, parse_nudge, parse_anchor
+  play_window, window_length, shot_anchor, loop_region, region_beats, file_bpm, parse_fade, parse_nudge, parse_anchor,
+  NUDGE_MAX
 } from "./region"
+import { stretch_length, pitch_props_out } from "./transpose"
 
-export const OP_TYPES = ["cut", "silence", "duplicate", "reverse", "gain"]
+export const OP_TYPES = ["cut", "silence", "duplicate", "reverse", "gain", "stretch"]
 // rango del control GAIN (dB)
 export const GAIN_MIN = -24
 export const GAIN_MAX = 12
@@ -41,6 +47,7 @@ export function clamp_range(a, b, n) {
 export function op_length(n, op) {
   if (op.type == "cut") return n - (op.b - op.a)
   if (op.type == "duplicate") return n + (op.b - op.a)
+  if (op.type == "stretch") return op.out ? op.out[0].length : stretch_length(n, op.rate)
   return n
 }
 
@@ -53,6 +60,10 @@ function ramped(i, a, b, g, ramp) {
 
 // aplica una operación: canales nuevos (no toca `chans`)
 export function apply_op(chans, op) {
+  if (op.type == "stretch") {
+    if (!op.out) throw new Error("stretch sin render")
+    return op.out
+  }
   let { a, b } = op
   let len = b - a
   return chans.map(c => {
@@ -96,15 +107,22 @@ export function apply_ops(chans, ops) {
 // posición p (muestras, puede ser fraccionaria) del buffer de antes de la operación, en el de después:
 // cut: lo de adentro del corte queda en su borde, lo de después se corre a la izquierda; duplicate: lo que está
 // desde el fin del rango (incluido) se corre a la derecha (una región que termina justo ahí incluye la repetición;
-// una que empieza ahí, no); el resto no cambia
+// una que empieza ahí, no); stretch: todo escalado por 1 / rate; el resto no cambia
 export function map_pos(p, op) {
   if (op.type == "cut") return p < op.a ? p : p < op.b ? op.a : p - (op.b - op.a)
   if (op.type == "duplicate") return p < op.b ? p : p + (op.b - op.a)
+  if (op.type == "stretch") return p / op.rate
   return p
 }
 export function map_through(p, ops) {
   for (const op of ops) p = map_pos(p, op)
   return p
+}
+// cuánto cambió el tempo con los STRETCH de la lista (producto de sus rate; 1 sin ninguno)
+export function tempo_factor(ops) {
+  let f = 1
+  for (const op of ops) if (op.type == "stretch" && op.rate > 0) f *= op.rate
+  return f
 }
 
 // pico absoluto (lineal) de todos los canales
@@ -146,9 +164,9 @@ export function project_span(f) {
 // archivo "virtual" que describe el buffer de trabajo (largo `work_dur` s, resultado de `ops` sobre el original a
 // `sr` Hz) con la región y el anchor del proyecto llevados a ese buffer: lo usan el preview (play_window,
 // shot_preroll), la pantalla y las lupas mientras hay cambios sin guardar, y copy_plan para la copia. Sin
-// play_rate / in_tempo (los agrega quien lo usa con file_timing). Loops: bpm del original, la región como
-// region_beats explícita (con el nudge del original, salvo que un corte lo deje antes del inicio de la región:
-// entonces lo que entre) y beats = los que entran en el buffer (o los de la región, si son más); shots: region_secs y el anchor guardado
+// play_rate / in_tempo (los agrega quien lo usa con file_timing). Loops: bpm del original (× tempo_factor si hubo
+// STRETCH), la región como region_beats explícita (con el nudge del original, escalado por los STRETCH y a lo sumo
+// NUDGE_MAX, salvo que un corte lo deje antes del inicio de la región: entonces lo que entre) y beats = los que entran en el buffer (o los de la región, si son más); shots: region_secs y el anchor guardado
 // (props.anchor) llevado al buffer de trabajo (sin anchor guardado, el del catálogo sobre los bordes)
 export function work_file_of(f, ops, sr, work_dur) {
   let span = project_span(f)
@@ -169,10 +187,11 @@ export function work_file_of(f, ops, sr, work_dur) {
     else delete props.anchor
     return v
   }
-  let bpm = file_bpm(f)
+  let factor = tempo_factor(ops)
+  let bpm = file_bpm(f) * factor
   if (!(bpm > 0)) return v
   let spb = 60 / bpm
-  let nudge_ms = Math.min(parse_nudge(f.props?.nudge), Math.floor(s * 1000 + 1e-6))
+  let nudge_ms = Math.min(Math.round(parse_nudge(f.props?.nudge) / factor), NUDGE_MAX, Math.floor(s * 1000 + 1e-6))
   let nudge = nudge_ms / 1000
   props.nudge = nudge_ms
   v.bpm = bpm
@@ -226,8 +245,8 @@ export function selection_plan(f, sel) {
   return { from: sel.start, len: Math.min(len, total), total, beats, anchor: null }
 }
 
-// props del proyecto que pasan a la copia (no se hornean): volume, weight, repeat (si repite), fade y el anchor
-// recalculado (shots). region_beats / region_secs / nudge no: ya están horneados
+// props del proyecto que pasan a la copia (no se hornean): volume, weight, repeat (si repite), fade, transpose y KEY
+// LOCK (fase 7) y el anchor recalculado (shots). region_beats / region_secs / nudge no: ya están horneados
 export function copy_props(props, anchor = null) {
   let out = {}
   if (Number.isFinite(props?.volume)) out.volume = props.volume
@@ -235,6 +254,7 @@ export function copy_props(props, anchor = null) {
   if (Array.isArray(props?.repeat) && props.repeat.length == 2 && props.repeat[1] > 1) out.repeat = [...props.repeat]
   let fade = parse_fade(props?.fade)
   if (fade) out.fade = fade
+  Object.assign(out, pitch_props_out(props))
   if (anchor != null && Number.isFinite(anchor)) out.anchor = anchor
   return out
 }

@@ -19,6 +19,15 @@
       <LedButton size="small" text="GAIN" :disabled="!ok('gain') || gain_db == 0" :title="op_title('gain')"
         @click="run('gain')" />
     </div>
+    <!-- STRETCH (fase 7): el loop entero a otro tempo sin cambiar el tono (Signalsmith); por defecto, el del proyecto -->
+    <div v-if="file.kind != 'shot'" class="hw_plate mini" :title="stretch_title">
+      <span class="silk">Stretch</span>
+      <Knob v-model="stretch_bpm" :min="stretch_range.min" :max="stretch_range.max" :step="1" :size="40"
+        :disabled="busy || !tempo_range" />
+      <Lcd small :digits="3" :value="stretch_bpm" unit="BPM" />
+      <LedButton size="small" text="STRETCH" :lit="edit.busy" :blink="edit.busy" :disabled="busy || !stretch_info.ok"
+        :title="stretch_title" @click="do_stretch" />
+    </div>
     <span class="group">
       <LedButton size="small" text="UNDO" :disabled="busy || edit.undo_n == 0" title="Undo the last edit (Ctrl+Z)"
         @click="undo" />
@@ -43,18 +52,25 @@
 // quedan como props del proyecto), se codifica a WAV float y se sube por POST /upload con parent_id, sin
 // normalizar (se guarda lo que se escuchó). SAVE AS COPY reemplaza al archivo en el proyecto (emite "replaced" con
 // la copia: el editor pasa a mostrarla); SAVE SEL AS COPY agrega la selección al lado, con la misma pista y tags.
+// STRETCH (fase 7): el loop entero al BPM del knob (por defecto el del proyecto) sin cambiar el tono; el render va al
+// Worker de Signalsmith y mientras tanto la barra queda ocupada. En la copia los beats se conservan y el backend
+// deduce el BPM nuevo de beats y duración.
 import { ref, computed, watch, onBeforeUnmount } from "vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import { store, add_project_file } from "../helpers/composable"
+import { TrackCtrl } from "../helpers/TrackCtrl"
 import { upload_file, error_text } from "../helpers/api"
 import * as toneLib from "../helpers/toneLib"
 import { is_previewing } from "../helpers/file_ui"
 import { editor_key_ok } from "../helpers/utils"
 import { bake_region, file_bpm, loop_region, shot_region, parse_nudge } from "../helpers/region"
+import { stretch_bpm_range, STRETCH_BPM_MIN, STRETCH_BPM_MAX } from "../helpers/transpose"
 import {
   GAIN_MIN, GAIN_MAX, copy_plan, selection_plan, copy_props, copy_name, strip_ext, encode_wav, peak, gain_to_db
 } from "../helpers/edit_ops"
-import { edit, can_do, edit_do, edit_undo, edit_redo, work_file, current_chans } from "../helpers/edit_session"
+import {
+  edit, can_do, edit_do, edit_undo, edit_redo, work_file, current_chans, stretch_check, edit_stretch
+} from "../helpers/edit_session"
 import LedButton from "./hw/LedButton.vue"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
@@ -84,7 +100,7 @@ const gain_db = ref(-3)
 // "copy" | "region" mientras se guarda; null si no
 const saving = ref(null)
 const loaded = computed(() => !!props.file.isLoaded)
-const busy = computed(() => !!saving.value || !loaded.value)
+const busy = computed(() => !!saving.value || !loaded.value || edit.busy)
 
 function ok(type) {
   return !busy.value && can_do(type)
@@ -113,7 +129,8 @@ const sel_text = computed(() => {
   let len = s.stop - s.start
   return spb.value > 0 ? `SEL ${fmt(len / spb.value, 2)} BEATS` : `SEL ${fmt(len, 3)} S`
 })
-const state_text = computed(() => edit.dirty ? `EDITED · ${edit.undo_n} STEP${edit.undo_n == 1 ? "" : "S"}` : "ORIGINAL")
+const state_text = computed(() => edit.busy ? "STRETCHING…"
+  : edit.dirty ? `EDITED · ${edit.undo_n} STEP${edit.undo_n == 1 ? "" : "S"}` : "ORIGINAL")
 const state_title = computed(() => edit.dirty
   ? "Destructive edits not saved yet: the waveform and the preview use the edited audio; the engine still plays "
     + "the original. SAVE AS COPY keeps them (the original is never overwritten)"
@@ -144,6 +161,40 @@ function undo() {
 }
 function redo() {
   if (!busy.value && edit_redo()) after_change()
+}
+
+// --- STRETCH (fase 7): tempo sin cambiar el tono ---
+// BPM destino; al abrir otro archivo vuelve al tempo del proyecto (dentro del rango posible)
+const stretch_bpm = ref(TrackCtrl.tempo)
+const stretch_info = computed(() => stretch_check(props.file, stretch_bpm.value))
+// rango del knob: hasta ×2 / ×½ del tempo actual (el del buffer de trabajo si ya hubo un STRETCH). Sin datos de tempo,
+// uno cualquiera: el knob queda deshabilitado
+const tempo_range = computed(() => stretch_bpm_range(file_bpm(work_file(props.file) ?? props.file)))
+const stretch_range = computed(() => tempo_range.value ?? { min: STRETCH_BPM_MIN, max: STRETCH_BPM_MAX })
+watch(() => props.file.id, () => {
+  let r = stretch_range.value
+  stretch_bpm.value = Math.min(r.max, Math.max(r.min, TrackCtrl.tempo))
+}, { immediate: true })
+const STRETCH_TEXT = "STRETCH: changes the tempo of the whole loop to the knob's BPM without changing its pitch (the "
+  + "project tempo by default). The beats stay; the copy gets the new BPM"
+const stretch_title = computed(() => {
+  let s = stretch_info.value
+  if (!loaded.value) return STRETCH_TEXT + " (loading…)"
+  if (s.ok) return `${STRETCH_TEXT}. Now ${fmt(s.bpm, 2)} BPM → ${stretch_bpm.value} BPM`
+  let why = {
+    busy: "Rendering…", no_tempo: "The loop has no tempo data", same: "It is already at that tempo",
+    range: "Out of range: up to ×2 or ×½ of its tempo", long: "Too long (2 minutes max while editing)",
+  }[s.reason]
+  return STRETCH_TEXT + (why ? ". " + why : "")
+})
+async function do_stretch() {
+  if (busy.value || !stretch_info.value.ok) return
+  try {
+    if (await edit_stretch(props.file, stretch_bpm.value)) after_change()
+  } catch (e) {
+    console.log("Error en STRETCH", e)
+    fail("STRETCH failed: " + (e?.message ?? e))
+  }
 }
 
 // --- guardar como copia ---
@@ -178,7 +229,7 @@ async function save(mode) {
   let taken = new Set(store.files.map(x => strip_ext(x.original_name).toLowerCase()))
   let over = pk > 1
   let message = (mode == "copy" ? "The copy replaces this file in the project. " : "The copy is added next to this file. ")
-    + `Length ${fmt(plan.total, 2)} s${plan.beats ? ` (${plan.beats} beats)` : ""}.`
+    + `Length ${fmt(plan.total, 2)} s${plan.beats ? ` (${plan.beats} beats, ${fmt(plan.beats * 60 / plan.total, 2)} BPM)` : ""}.`
     + (over ? ` Warning: its peak is +${fmt(gain_to_db(pk), 1)} dBFS (over 0 dB). It is saved as heard, not limited: `
       + "lower it with GAIN first if you do not want that." : "")
   let name

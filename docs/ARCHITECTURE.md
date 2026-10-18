@@ -436,7 +436,7 @@ las escribe y una base nueva no las crea (tampoco se borran de las existentes).
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` (legado), `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), pan: −1..1 (default 0 = centro), rest: 0..1 (default 0), rest_again: 0..0.9 (default null = el valor de rest, con el mismo tope), rest_len: [min, max] de 4 \| 8 \| 16 \| 32 compases (default [4, 4]), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), bars: 1 \| 2 \| 4 \| 8 \| 16 \| 32 \| 64 (default 1), scatter: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), delay: dB \| null (default null = sin delay), fx: [instancia] (default []) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop) y `rest_len` el rango de duración de ese descanso; `on_tag_change`, `density`, `bars` y `scatter` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `fx` (FX de transición: `{ id, type, lead, prob, cond, ...parámetros }`, ver "FX de transición") son de los efectos (ver mixer). Un `drift` guardado de antes (el drift se eliminó) se ignora: no se migra ni se borra. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice), `weight` | `weight` = peso en el sorteo del próximo Tag (entero 0..32, `NOT NULL DEFAULT 16`: los existentes quedaron en 16; 0 = no sale nunca). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
 | `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility` (legado), `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files`, y también los archivos del dueño que usaba y que ya no quedan en ningún proyecto (fila de `files`, `bytes_used` y mp3); los ajenos no se tocan. La migración a proyectos creó uno por usuario existente (nombre `My project`). `visibility` (legado: todos los proyectos son públicos) era `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay) más `tempo_tol`, `reverb` (`{ ir, level }`, ver "Reverb compartida") (tolerancia de tempo en %, 0..12, default 6) y `master` (volumen master en dB, −60 = silencio .. +6, default 0) y `comp` (compresor multibanda del master, `{ on, amount, low, mid, high }`, ver "Dinámica del master"), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
-| `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (la migración a proyectos cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume, weight, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor? }` (`weight` = peso en el sorteo de su pista, entero 0..32; sin dato = 16, lo completa el front; `repeat` = `[min, max]` de 1, 2, 4, 8, 16, veces seguidas que suena al salir sorteado; sin dato = `[1, 1]`, el front no lo guarda si es `[1, 1]`; región y `anchor` del editor: ver "Editor: región" y "Editor: anchor"; `anchor` es un número (segundos): filas viejas pueden tener `anchor` = `"start"` / `"end"`, un override del anclaje que se quitó antes de la fase 4: el front lo descarta al cargar y desaparece al guardar el archivo). Reemplazan a `files.track_group/tags/props` |
+| `project_files` | `id` PK, `project_id` (índice), `file_id` (índice), `track_group`, `tags` (JSON en texto), `props` (JSON en texto) | Fase 3 (la migración a proyectos cargó una fila por cada archivo existente; `GET /projects/:id` las devuelve unidas a `files`; las escribe `PUT /projects/:id/files` (importar, editar, quitar), `/upload` con `project_id` y las borra `DELETE /files/:id` en cascada). Un archivo está como mucho una vez por proyecto (lo valida la API; no hay índice único). Importar exige que el archivo esté disponible; uno que deja de estarlo sigue en el proyecto con `available = false`. Un archivo del catálogo usado en un proyecto (propio o importado): `track_group` = id de `user_track_groups` del mismo proyecto, `tags` = array de ids de `user_tags` del mismo proyecto, `props = { volume, weight, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor?, transpose?, key_lock? }` (`weight` = peso en el sorteo de su pista, entero 0..32; sin dato = 16, lo completa el front; `repeat` = `[min, max]` de 1, 2, 4, 8, 16, veces seguidas que suena al salir sorteado; sin dato = `[1, 1]`, el front no lo guarda si es `[1, 1]`; región y `anchor` del editor: ver "Editor: región" y "Editor: anchor"; `transpose` (semitonos, −12..12) y `key_lock` (booleano): ver "Editor: transpose, KEY LOCK y tonalidad efectiva"; `anchor` es un número (segundos): filas viejas pueden tener `anchor` = `"start"` / `"end"`, un override del anclaje que se quitó antes de la fase 4: el front lo descarta al cargar y desaparece al guardar el archivo). Reemplazan a `files.track_group/tags/props` |
 | `sets` | `id` PK, `user_id`, `name`, `tracks`, `tags` | **legado**: tabla prevista, nunca usada |
 | `reports` | `id` PK, `target_type`, `target_id` (índice), `reporter_user_id` (índice), `reason`, `status`, `ts` | Denuncias (tarea 4.4, `POST /report`). `target_type` = `file` \| `project`; `target_id` = id de `files` o de `projects`; `reporter_user_id` = quien denuncia; `reason` = texto (1 a 500 caracteres); `status` = `open` \| `resolved` \| `dismissed` (`NOT NULL DEFAULT 'open'`; el admin lo cambia con `PUT /admin/reports/:id`, tarea 5.1; solo las `open` cuentan para no duplicar en `POST /report`); `ts` = fecha (ISO sin ms). Sin claves foráneas: borrar el archivo o el proyecto no borra sus denuncias (`GET /admin/reports` las devuelve con `target: null`) |
 | `traffic` | `id` PK (`"YYYY-MM-DD"`, día UTC), `bytes`, `requests` | audio servido por `GET /file/:id`. Total del mes: `select sum(bytes) from traffic where id like '2026-10-%'` |
@@ -612,6 +612,9 @@ app, con `store.read_only = true`:
    libera con `dispose()` (si estaba sonando, recién cuando termina), para no acumular buffers.
 4. `calculate_timing()` calcula `play_rate`, `play_beats` y `in_tempo` de cada archivo según el tempo y la tolerancia (ver "Tempo").
 5. `TrackCtrl.isReady = true` habilita START.
+6. En segundo plano (no se espera): `helpers/pitch.js` calcula offline los buffers transpuestos de los archivos con
+   `transpose` / KEY LOCK (ver "Editor: transpose, KEY LOCK y tonalidad efectiva"); mientras tanto el motor toca los
+   originales. En una recarga del mismo proyecto (después de una subida) los transpuestos ya calculados se reusan.
 
 ### Motor de reproducción (`components/Tracks.vue`)
 
@@ -1272,6 +1275,12 @@ a arrancar en el modo nuevo.
   (`work_buffer` de `edit_session.js`) con la región, el anchor y el tempo del archivo virtual de ese buffer
   (`work_file`: `play_window`, `shot_preroll`, `play_rate`), en los dos modos; el watch de `play_rate` usa también
   el del archivo virtual. Cada operación, UNDO o REDO con el preview de ese archivo sonando lo vuelve a arrancar.
+- **Transpose** (fase 7): `playFile` toma el buffer de `preview_buffer` (`pitch.js`): en sync, el transpuesto del
+  motor (transpose efectivo, con la compensación de KEY LOCK); libre (sin resample), el transpuesto sin esa
+  compensación (si hay KEY LOCK es otro buffer, calculado al pedirlo); con ediciones sin guardar, el buffer de trabajo
+  transpuesto (calculado después de cada operación). Si todavía no está, suena el de origen y, cuando llega,
+  `refresh_preview` lo vuelve a arrancar con el transpuesto (también al cambiar TRANSPOSE o KEY LOCK en el editor).
+  El catálogo y el admin tocan siempre el original.
 - **Libre** (sync off): como siempre, velocidad original, una vez, directo (`preview_input → preview_direct →
   Destination`), con `start(Tone.now(), offset, duration)` y `fadeIn` / `fadeOut` de la región (sin región,
   el archivo entero).
@@ -1513,7 +1522,8 @@ candidatos al cambiar la lista de archivos (ver `start()` en el motor). No hay n
   DUPLICATE valen para todo el archivo. El buffer de trabajo no pasa de 2 minutos (`WORK_MAX_SECS`).
 - **Pila** (`edit_session.js`, una sesión: el archivo del editor abierto): lista de operaciones con UNDO/REDO. No
   se guarda una foto por paso: al deshacer se recalcula desde la base; rehacer y cada operación nueva se aplican
-  sobre el buffer actual. La base es el buffer del player (sin copiar) mientras haya hasta `UNDO_MAX` = 64 pasos;
+  sobre el buffer actual. La base es el buffer original del archivo (`source_buffer` de `composable.js`, sin copiar; no
+  el transpuesto que toca el motor: el transpose no se hornea) mientras haya hasta `UNDO_MAX` = 64 pasos;
   pasado eso la operación más vieja se pliega en la base (deja de deshacerse). El buffer de trabajo es un
   `AudioBuffer` y sus canales se leen de él: como mucho dos buffers extra (base plegada y trabajo, ~42 MB con
   60 s estéreo) más los temporales de una operación. La lista completa (también lo plegado) sirve para llevar la
@@ -1533,7 +1543,8 @@ candidatos al cambiar la lista de archivos (ver `start()` en el motor). No hay n
   en el beat 0 y, en un loop, dura exactamente los beats de la tirada (`round` de la región; lo que falta,
   silencio al final, p. ej. el del nudge; el bpm no cambia). En shots, la región tal cual. No se hornean `volume`,
   `weight`, `repeat`, `fade` ni `anchor`: pasan como props de la copia en el proyecto (`copy_props`; el `anchor`
-  guardado de un shot recalculado al nuevo inicio); `region_beats` / `region_secs` / `nudge` no se copian.
+  guardado de un shot recalculado al nuevo inicio; también `transpose` y `key_lock`, fase 7); `region_beats` /
+  `region_secs` / `nudge` no se copian.
   **SAVE SEL AS COPY** (el "SAVE REGION AS COPY" del plan; se rotula así para no confundirlo con la región del
   proyecto): `selection_plan` = la selección (en loops redondeada a beats enteros, mínimo 1, con silencio al final
   si falta; en shots tal cual, con el anchor guardado si cae adentro).
@@ -1557,4 +1568,72 @@ candidatos al cambiar la lista de archivos (ver `start()` en el motor). No hay n
   se ignora): Supr / Backspace = CUT, Ctrl+D = DUPLICATE, R = REVERSE, Ctrl+Z = UNDO, Ctrl+Shift+Z / Ctrl+Y = REDO;
   Esc en `FileEditor.vue`. Figuran en el `title` de cada botón. Los campos de texto (p. ej. Beats) conservan su
   Ctrl+Z.
-- No incluye (fase 7 / después): STRETCH, CHOP y efectos de Tone renderizados.
+- **STRETCH** (fase 7; placa Stretch de `EditOps.vue`, solo loops): el buffer de trabajo entero a otro tempo sin
+  cambiar el tono, con Signalsmith (`edit_stretch` de `edit_session.js`). Knob de BPM destino (por defecto el tempo
+  del proyecto; enteros, de ×½ a ×2 del tempo actual y dentro de 20..400, los límites del backend:
+  `stretch_bpm_range` de `transpose.js`). La operación es `{ type: "stretch", a: 0, b: largo, rate = bpm destino /
+  bpm actual, out }`: el render es asíncrono (Worker de `stretch_queue.js`, pasa adelante de la cola) y se guarda en
+  `op.out` (largo `round(n / rate)`), así UNDO / REDO no recalculan (un buffer extra por STRETCH en la pila; al
+  plegarse se suelta). Mientras calcula, `edit.busy`: la barra muestra STRETCHING… y no acepta otras operaciones;
+  cerrar el editor o pasar a otro archivo descarta el resultado. Las posiciones se escalan (`map_pos`: `p / rate`), la
+  selección también, y el archivo virtual toma `bpm × tempo_factor(ops)` (producto de los `rate`) con el nudge
+  escalado (tope 250 ms): la región queda en los mismos beats. Al guardar, `copy_plan` da los mismos beats y un largo
+  de `beats × 60 / bpm destino`, y el backend deduce `bpm = beats × 60 / duración` (la duración se mide sobre el WAV
+  subido): queda el BPM elegido (redondeado a centésimas, como siempre). El diálogo de guardar muestra el BPM. Shots:
+  no (no tienen BPM; un stretch por factor queda para después).
+- No incluye (después): CHOP y efectos de Tone renderizados.
+
+### Editor: transpose, KEY LOCK y tonalidad efectiva (`helpers/pitch.js`, `helpers/transpose.js`, `helpers/stretch_*.js`)
+
+Fase 7 de `docs/PLAN_EDITOR.md` (decisión 5). Cambio de tono sin cambiar la velocidad, **pre-renderizado en memoria**:
+el motor no cambia (toca un buffer como cualquier otro) y no gasta CPU mientras suena.
+
+- **Props** (`project_files.props`, por proyecto; `transpose.js`, funciones puras con tests): `transpose` en
+  semitonos (−12..+12, pasos de 0.1; 0 o sin dato = el original) y `key_lock` (booleano). `prepare_file` las
+  normaliza al cargar (`normalize_pitch_props`) y `save_file` manda solo lo que tiene valor (`pitch_props_out`).
+- **Transpose efectivo** (`effective_transpose`): `transpose`, menos `12·log2(play_rate)` con KEY LOCK (solo loops:
+  compensa el resample del motor; p. ej. un loop de 128 BPM en un proyecto de 138 sube ~1,3 semitonos → −1,3),
+  redondeado a 0,01 semitono (`SEMIS_PRECISION`; casi 0 → el original). Los shots van a velocidad original: KEY
+  LOCK no aplica.
+- **Signalsmith Stretch** (npm `signalsmith-stretch`, MIT, versión fija 1.3.2): el paquete solo publica un
+  `AudioWorkletNode` de tiempo real (re-seek cada 128 muestras, handshake por `port`). No se usa así: `stretch_scope.js`
+  simula el `AudioWorkletGlobalScope` (`AudioWorkletProcessor`, `registerProcessor`, `sampleRate`) antes de evaluar el
+  paquete, que entonces registra su processor; se construye una vez y se usa su `wasmModule` (el WASM viene embebido
+  en base64, sin fetch) con la **API offline** de la librería C++ (`stretch_core.js`): `seek()` con las primeras
+  `inputLatency` muestras (la entrada va adelantada), `process()` del resto en bloques con la razón entrada/salida
+  exacta (salida acumulada = `round(entrada acumulada / rate)`) y `flush(outputLatency)`. La salida sale corrida
+  exactamente `outputLatency` muestras (medido, igual para cualquier `rate`): se descartan las primeras y el flush
+  completa el final. Resultado: largo `round(n / rate)` (el mismo con `rate` 1) y el beat 0 en su lugar (tests en
+  `stretch_core.test.js` con el WASM real: impulso en la misma muestra, frecuencia de un seno). Ventajas frente al
+  nodo en un `OfflineAudioContext`: alineación exacta y testeable en Node, sin depender del `port` antes de
+  `startRendering`, y corre en un Worker. Costo: depende de detalles internos del paquete (nombre del processor,
+  `wasmModule`, exports `_presetDefault`, `_seek`, `_process`, `_flush`...): al actualizarlo, correr los tests.
+- **Worker y cola** (`stretch.worker.js`, `stretch_queue.js`): un Worker (import `?worker`; en el build, un archivo
+  iife con el paquete adentro, ~100 kB) y un trabajo a la vez. Los pedidos urgentes (editor, preview, STRETCH)
+  pasan adelante de los de la carga; cada pedido trae `wanted()`, que se mira al salir de la cola (un transpose que
+  ya cambió o un archivo que salió del proyecto no se calcula). Los canales se copian y se transfieren (el original
+  no se toca); `render_buffer` devuelve un `AudioBuffer` nuevo. Si el Worker no anda, aviso único y suena el original.
+- **Buffer del motor** (`pitch.js`): `sync_file_pitch(file)` pone en el player el buffer de su transpose efectivo
+  (`set_play_buffer` de `composable.js`; con 0, el original) o lo pide y, mientras tanto, queda lo que tenía (el
+  original o el transpuesto anterior). Cambiar `player.buffer` no corta lo que suena: cada arranque de
+  `Tone.Player` toma el buffer de ese momento. `composable.js` guarda el original por player (`source_buffer`,
+  WeakMap): lo leen la pantalla de onda, la región (SNAP, AUTO, lupas), las ediciones destructivas y los renders.
+  Cache por id de archivo (los archivos no cambian de contenido): el último transpuesto listo; al cambiar se
+  reemplaza y al salir el archivo del proyecto se suelta. Se llama a `sync_all_pitch()` con un watch sobre
+  `TrackCtrl.timing_basis` (cada `calculate_timing`: carga, alta de una copia, knob Tempo al soltarlo, Tol, compás,
+  región, beats) y sobre la lista de ids: solo se recalcula lo que cambió (con KEY LOCK, los loops cuyo `play_rate`
+  cambió). TRANSPOSE (al soltar el knob, o con rueda / flechas) y KEY LOCK llaman a `sync_file_pitch(file, true)`.
+- **Editor** (`FileEditor.vue`): placa Transpose con el knob (−12..+12, paso 0.1) y su LCD en semitonos, LedButton
+  KEY LOCK (deshabilitado en shots) y "rendering…" titilando mientras hay un render de ese archivo
+  (`is_rendering`). Al lado de la tonalidad del catálogo, la efectiva. En `store.read_only` se ve pero no se edita
+  (los transpuestos del proyecto público se calculan igual al cargar).
+- **Tonalidad efectiva** (`key_display` de `transpose.js`, `key_view` de `file_ui.js`): `music_key` transpuesta al
+  semitono más cercano con la grafía de `KEY_TONICS` (`C#m` + 2 → `Ebm`) y el transpose como superíndice (`+2`; si
+  redondea a 0, el valor con decimal). El `title` da el valor exacto si tiene fracción y, en un loop sin KEY LOCK,
+  cuánto agrega el resample del motor. Se muestra en el editor, el cartucho y la columna Key de la tabla (que ordena
+  por la efectiva). El filtro por tonalidad de la lista sigue usando la del catálogo.
+- **Costo**: CPU al cargar (en el Worker, fuera del hilo principal): ~1,1 s por minuto de audio estéreo (medido en
+  Node con el mismo WASM; un loop de 8 s ≈ 0,15 s), uno a la vez. Memoria: un buffer extra por archivo transpuesto
+  (~21 MB por minuto estéreo, como el original) más, al calcular, la copia de entrada y la salida (temporales); el
+  preview libre con KEY LOCK y el buffer de trabajo transpuesto suman uno más cada uno, solo mientras se usan. El
+  aviso de memoria al abrir un proyecto (`estimate_files_memory`) no cuenta los transpuestos.

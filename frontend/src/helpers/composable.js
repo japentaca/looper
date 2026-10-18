@@ -119,6 +119,7 @@ import {
 import { on_session_lost } from './request'
 import { normalize_fx_list } from './fx'
 import { normalize_region_props, region_props_out } from './region'
+import { normalize_pitch_props, pitch_props_out } from './transpose'
 import { mb, url_autostart } from './utils'
 
 // una respuesta 401/403 "Sin sesión" de cualquier endpoint marca la sesión como perdida. No se
@@ -162,8 +163,8 @@ export async function save_trackGroups() {
   if (!can_save()) return
   await save_collection(data => api.save_project_track_groups(store.project.id, data), store.track_groups, "los track groups")
 }
-// pista, tags y props (volumen, peso, repetición y región: ver region.js) de un archivo dentro del proyecto
-// activo (project_files)
+// pista, tags y props (volumen, peso, repetición, región: ver region.js, y tono: ver transpose.js) de un archivo
+// dentro del proyecto activo (project_files)
 export async function save_file(file) {
   cancel_save_file_debounced(file.id) // este guardado ya lleva todo lo pendiente del archivo
   if (!can_save()) return
@@ -174,6 +175,7 @@ export async function save_file(file) {
   let repeat = parse_repeat(file.props?.repeat)
   if (repeat[1] > 1) data.props.repeat = repeat
   Object.assign(data.props, region_props_out(file.props))
+  Object.assign(data.props, pitch_props_out(file.props))
   await save_collection(() => api.save_project_files(store.project.id, { update: [data] }), null, "los datos del archivo")
 }
 // config de cada pista (track group), guardada en user_track_groups.props.
@@ -529,7 +531,7 @@ async function install_project(p, same) {
   return true
 }
 // deja un archivo leído del backend listo para el store (antes de crear su player): pista que exista, tags, props
-// normalizadas (volumen, peso, repetición, región y anchor del editor) y anchor del catálogo válido
+// normalizadas (volumen, peso, repetición, región y anchor del editor, transpose y KEY LOCK) y anchor del catálogo válido
 function prepare_file(f) {
   if (f.track_group !== null && !trg_of(f)) f.track_group = null
   set_file_tags(f, f.tags)
@@ -540,6 +542,7 @@ function prepare_file(f) {
   f.props.repeat = parse_repeat(f.props.repeat)
   // región y anchor del editor; un viejo props.anchor "start" / "end" se descarta (desaparece al guardar)
   normalize_region_props(f.props)
+  normalize_pitch_props(f.props)
   if (!ANCHORS.includes(f.anchor)) f.anchor = "start"
   f.isLoaded = false
 }
@@ -737,6 +740,28 @@ function dispose_player(player) {
   } else {
     player.dispose()
   }
+}
+// --- buffer original y buffer que toca el motor (fase 7: transpose / KEY LOCK, ver pitch.js) ---
+// El player de cada archivo baja y decodifica el mp3 (el original). Si el archivo está transpuesto, pitch.js le pone
+// otro buffer (calculado offline, mismo largo) con set_play_buffer: el motor y el preview tocan ese. El original se
+// guarda acá, por player (WeakMap: se va con el player), y es el que leen la pantalla de onda, la región, las
+// ediciones destructivas y los renders. Los archivos no cambian de contenido (una edición es otro archivo)
+const player_sources = new WeakMap()
+// AudioBuffer original del archivo, o null si no está cargado
+export function source_buffer(id) {
+  let p = audio_players[id]
+  if (!p) return null
+  return player_sources.get(p) ?? (p.buffer.loaded ? p.buffer.get() : null)
+}
+// el player del archivo pasa a tocar `buf` (AudioBuffer del mismo largo), o el original con null. Lo que ya suena
+// sigue con el buffer anterior (cada arranque de Tone.Player toma el buffer de ese momento). Devuelve true si se aplicó
+export function set_play_buffer(id, buf) {
+  let p = audio_players[id]
+  if (!p || !p.buffer.loaded) return false
+  if (!player_sources.has(p)) player_sources.set(p, p.buffer.get())
+  let next = buf ?? player_sources.get(p)
+  if (p.buffer.get() !== next) p.buffer = next
+  return true
 }
 async function getAudioPlayer(url, file) {
   return new Promise((resolve, reject) => {

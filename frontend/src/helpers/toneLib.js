@@ -8,15 +8,20 @@
 // Un archivo del proyecto suena con su región (play_window de region.js: start/stop, nudge y fade) en los dos
 // modos: lo mismo que toca el motor y que se edita en RegionEditor.vue. Con ediciones destructivas sin guardar
 // (fase 6, edit_session.js) toca el buffer de trabajo, con la región llevada a ese buffer (work_file).
+// Transpose / KEY LOCK (fase 7): el buffer sale de preview_buffer (pitch.js): el transpuesto del motor en sync, el
+// transpuesto sin la compensación de KEY LOCK en libre, el de trabajo transpuesto con ediciones sin guardar. Si todavía
+// se está calculando suena el de origen y, cuando llega, el preview vuelve a arrancar con el transpuesto. Los previews
+// del catálogo y el admin tocan el original.
 import * as Tone from 'tone'
 import { reactive, watch } from "vue"
-import { store, audio_players, files_by_id } from "../helpers/composable"
+import { store, audio_players, files_by_id, source_buffer } from "../helpers/composable"
 import { file_url } from "./api"
 import { vol_db, FILE_VOL_MAX_DB, preview_input, route_preview, gate_engine } from "./mixer"
 import { TrackCtrl } from "./TrackCtrl"
 import { shot_sync_start, preview_pos } from "./preview_sync"
 import { play_window, window_length, bake_region, shot_preroll } from "./region"
 import { work_buffer, work_file } from "./edit_session"
+import { preview_buffer, on_pitch_ready } from "./pitch"
 
 // --- opciones del preview: se recuerdan por navegador (localStorage puede no estar o fallar: defaults) ---
 const SYNC_KEY = "looper_preview_sync"
@@ -49,6 +54,8 @@ let url_request = 0
 // posición en el buffer que se toca en t0), velocidad, largo de la vuelta, silencio de relleno del buffer y
 // región (base = su inicio en el archivo, len = su largo)
 let cur = { start: 0, t0: 0, off: 0, rate: 1, wrap: 0, pad: 0, base: 0, len: Infinity }
+// AudioBuffer que toca el preview actual de un archivo del proyecto (para saber si cambió al llegar un transpuesto)
+let cur_src = null
 // invalida el apagado agendado del "armado" de un preview anterior
 let arm_seq = 0
 const DISPOSE_AFTER = 1 // s después del stop (que se agenda en Tone.now(), con el lookAhead) para liberar el player
@@ -114,9 +121,14 @@ export async function playFile(file, free = false) {
   // con ediciones destructivas sin guardar: el buffer de trabajo y el archivo virtual (región, tempo) de ese buffer
   let wb = work_buffer(file.id)
   let wf = wb ? work_file(file) : null
-  let buffer = wb ?? audio_players[file.id].buffer
+  let sync = preview_opts.sync && !free
+  // transpuesto si corresponde (pitch.js; en libre, sin la compensación de KEY LOCK). El catálogo y el admin (free)
+  // tocan el original: el transpose es del proyecto
+  let buffer = free ? wb ?? source_buffer(file.id) : preview_buffer(file, !sync)
+  if (!buffer) return
+  cur_src = buffer
   let w = play_window(wf ?? file)
-  if (preview_opts.sync && !free) start_sync(file, buffer, volume, w, wf ?? file)
+  if (sync) start_sync(file, buffer, volume, w, wf ?? file)
   else start_free(buffer, volume, w)
   follows_sync = !free
   file.isPreviewing = true
@@ -310,6 +322,14 @@ watch(() => TrackCtrl.isPlaying, () => {
   if (run) release(true)
   gate_engine(Tone.now())
 })
+// transpose nuevo (editor) o llegó un transpuesto (motor o preview) del archivo que suena en el preview: si ahora le
+// toca otro buffer, el preview vuelve a arrancar con ese (en sync, en el próximo compás si el motor anda)
+export function refresh_preview(id) {
+  let f = store.curr_file
+  if (!player || !follows_sync || f.id !== id || !f.isPreviewing || !files_by_id[id]) return
+  if (preview_buffer(f, !preview_opts.sync) !== cur_src) playFile(f)
+}
+on_pitch_ready(refresh_preview)
 // al cambiar de proyecto se corta cualquier preview
 watch(() => store.project?.id, () => playerStop())
 // tempo nuevo (knob Tempo al soltarlo, calculate_timing): un loop en sync sigue al play_rate nuevo, como los

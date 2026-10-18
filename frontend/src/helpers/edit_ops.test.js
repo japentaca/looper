@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest"
 import {
   apply_op, apply_ops, op_length, map_pos, map_through, clamp_range, peak, db_to_gain, gain_to_db, project_span,
-  work_file_of, copy_plan, selection_plan, copy_props, copy_name, strip_ext, encode_wav
+  work_file_of, copy_plan, selection_plan, copy_props, copy_name, strip_ext, encode_wav, tempo_factor
 } from "./edit_ops.js"
 import { play_window, shot_anchor, bake_region } from "./region.js"
 
@@ -135,6 +135,50 @@ describe("región del proyecto sobre el buffer de trabajo", () => {
   })
 })
 
+describe("STRETCH (fase 7)", () => {
+  // stretch de 120 a 150 BPM: rate 1.25, el buffer de 4 s pasa a 3,2 s (el render lo hace edit_session; acá, de mentira)
+  const stretch = (n, rate) => ({ type: "stretch", a: 0, b: n, rate, out: [new Float32Array(Math.round(n / rate))] })
+  it("apply_op devuelve el render y op_length su largo; sin render, el largo esperado", () => {
+    let op = stretch(4000, 1.25)
+    expect(apply_op([new Float32Array(4000)], op)).toBe(op.out)
+    expect(op_length(4000, op)).toBe(3200)
+    expect(op_length(4000, { type: "stretch", a: 0, b: 4000, rate: 0.8 })).toBe(5000)
+    expect(() => apply_op([new Float32Array(4)], { type: "stretch", a: 0, b: 4, rate: 2 })).toThrow()
+  })
+  it("map_pos escala; tempo_factor multiplica", () => {
+    expect(map_pos(1000, { type: "stretch", rate: 1.25 })).toBe(800)
+    expect(tempo_factor([{ type: "cut" }, { type: "stretch", rate: 1.25 }, { type: "stretch", rate: 2 }])).toBe(2.5)
+    expect(tempo_factor([])).toBe(1)
+  })
+  it("loop: el bpm nuevo, los mismos beats; la copia dura beats × 60 / bpm destino", () => {
+    let v = work_file_of(loop(), [stretch(4000, 1.25)], SR, 3.2)
+    expect(v.bpm).toBe(150)
+    expect(v.props.region_beats[0]).toBeCloseTo(0)
+    expect(v.props.region_beats[1]).toBeCloseTo(8)
+    let p = copy_plan(v, 3.2)
+    expect(p.beats).toBe(8)
+    expect(p.total).toBeCloseTo(8 * 60 / 150)
+    // lo que el backend deduce: beats × 60 / duración
+    expect(p.beats * 60 / p.total).toBeCloseTo(150, 6)
+  })
+  it("loop con región y nudge: la región sigue en los mismos beats y el nudge se escala", () => {
+    let v = work_file_of(loop({ region_beats: [2, 6], nudge: 100 }), [stretch(4000, 1.25)], SR, 3.2)
+    expect(v.props.nudge).toBe(80)
+    expect(v.props.region_beats[0]).toBeCloseTo(2)
+    expect(v.props.region_beats[1]).toBeCloseTo(6)
+    expect(copy_plan(v, 3.2)).toMatchObject({ beats: 4 })
+    // más lento: el nudge escalado no pasa de NUDGE_MAX
+    let slow = work_file_of(loop({ nudge: 200 }), [stretch(4000, 0.5)], SR, 8)
+    expect(slow.props.nudge).toBe(250)
+  })
+  it("después de un CUT: se combina con la posición del corte", () => {
+    let ops = [{ type: "cut", a: 1000, b: 2000 }, stretch(3000, 1.5)]
+    let v = work_file_of(loop(), ops, SR, 2)
+    expect(v.bpm).toBe(180)
+    expect(v.props.region_beats[1]).toBeCloseTo(6)
+  })
+})
+
 describe("plan de la copia", () => {
   it("loop sin región ni cambios: los beats del archivo, con el nudge horneado (silencio al final)", () => {
     let p = copy_plan(loop({ nudge: 100 }), 4)
@@ -171,6 +215,11 @@ describe("plan de la copia", () => {
     expect(copy_props({ volume: -3, weight: 10, repeat: [1, 4], fade: 5, nudge: 20, region_beats: [0, 2] }, 0.25))
       .toEqual({ volume: -3, weight: 10, repeat: [1, 4], fade: 5, anchor: 0.25 })
     expect(copy_props({ volume: -6, weight: 16, repeat: [1, 1], fade: 0 })).toEqual({ volume: -6, weight: 16 })
+  })
+  it("copy_props: transpose y KEY LOCK pasan (no se hornean)", () => {
+    expect(copy_props({ volume: -6, weight: 16, transpose: -2.5, key_lock: true }))
+      .toEqual({ volume: -6, weight: 16, transpose: -2.5, key_lock: true })
+    expect(copy_props({ volume: -6, weight: 16, transpose: 0, key_lock: false })).toEqual({ volume: -6, weight: 16 })
   })
   it("copy_name: sin extensión, numerado si ya existe", () => {
     expect(copy_name("Bass Loop 120.wav")).toBe("Bass Loop 120 (edit)")
