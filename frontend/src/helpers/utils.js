@@ -25,7 +25,7 @@ export function use_msg(type = "success") {
   return { msg, set_msg }
 }
 
-// --- atajos de teclado del editor (docs/PLAN_EDITOR.md, decisión 11; Files.vue y RegionEditor.vue) ---
+// --- atajos de teclado del editor (docs/PLAN_EDITOR.md, decisión 11; FileEditor.vue y RegionEditor.vue) ---
 // Solo con el editor abierto y el foco en el editor (o en ninguna parte); nunca con otro diálogo encima
 // (confirmación de borrado, etc.) ni con el foco en un campo de texto (input, select...). `takers` = controles
 // que usan esa tecla y no se la roban: Espacio no en botones ni controles hw (Knob, Fader, RangePads,

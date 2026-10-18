@@ -13,7 +13,7 @@
 
 export const NUDGE_MAX = 250
 export const FADE_MAX = 50
-export const REGION_BEATS_MAX = 1024 // = BEATS_MAX (Files.vue y backend)
+export const REGION_BEATS_MAX = 1024 // = BEATS_MAX (FileEditor.vue y backend)
 export const REGION_SECS_MAX = 120 // los archivos duran hasta 1 minuto; margen
 // largo mínimo de una región que se arrastra o se mueve con las flechas (en el editor)
 export const MIN_LOOP_BEATS = 0.25

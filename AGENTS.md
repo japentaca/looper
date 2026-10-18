@@ -38,9 +38,10 @@ frontend/src/
   App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
-    Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, diálogo de edición
+    Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, filtro por tonalidad, switch SYNC; monta FileEditor y confirma los borrados
     FileCart.vue     # cartucho de la vista Box: calcula adentro si el archivo suena (Files.vue no lee el estado del motor; ver ARCHITECTURE)
-    WaveScreen.vue   # pantalla de onda del editor (diálogo de edición de Files): canvas LCD, grilla de loops/shots, cursores del preview y del motor, región con manijas (docs/PLAN_EDITOR.md)
+    FileEditor.vue   # editor de un archivo (diálogo de edición; lo monta Files.vue con v-model + file, emite delete): RegionEditor, tipo/beats/key/anchor (dueño), Volume/Weight/Repeat, pads de pista y tags, preview SYNC + MIX/IN CONTEXT/SOLO, atajos Espacio/Q/M
+    WaveScreen.vue   # pantalla de onda del editor (FileEditor.vue): canvas LCD, grilla de loops/shots, cursores del preview y del motor, región con manijas (docs/PLAN_EDITOR.md)
     RegionEditor.vue # región del archivo en el proyecto (editor, fase 3): monta WaveScreen + SNAP, NUDGE/AUTO, FADE, lupas, atajos G y ← / →; guarda en project_files.props
     WaveLoupe.vue    # lupa chica del editor (tramo de audio ampliado con marcas): inicio y costura de la región
     SidebarItem.vue  # pad de la sidebar (editable, draggable, se ilumina si suena/está activo); kind="track_group"|"tag" (KINDS)
@@ -74,6 +75,7 @@ frontend/src/
     master_dsp.worklet.test.js # humo del worklet con el AudioWorkletGlobalScope simulado (npm test)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
+    file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, play/stop y títulos del preview y de SYNC
     utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
 deploy/
   deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
@@ -165,12 +167,12 @@ Imitar el estilo existente al editar:
   los componentes las usan en su `<style scoped>` en vez de colores sueltos.
   La app es un "loop player" con la estética de hardware de un MPC: componentes propios en `components/hw/` (sin librería de
   controles), variables `--hw_*`, clases globales `.hw_panel` (chasis con tornillos), `.hw_plate` (placa de aluminio
-  para faders) y `.silk` (serigrafía). El volumen del diálogo de edición de Files también es un `Fader`. El LCD usa
+  para faders) y `.silk` (serigrafía). El volumen del editor de archivos (`FileEditor.vue`) también es un `Fader`. El LCD usa
   la fuente DSEG7 local (`src/assets/fonts/`, OFL). Las texturas son imágenes en `frontend/public/textures/`
   (`chassis.jpg`, `metal.jpg`, `plastic_black.jpg`) usadas como `background-image` con color sólido de respaldo si faltan.
   Diálogos y tablas siguen con Element Plus; un diálogo con `class="hw_dialog"` toma la textura del chasis
-  (edición de Files, FX de transición, Projects e Import; en Projects cada proyecto es un cartucho como los de Files). Sus botones
-  son `LedButton`; en el de edición de Files la pista y los tags se asignan con pads chicos del color de cada uno.
+  (editor de archivos, FX de transición, Projects e Import; en Projects cada proyecto es un cartucho como los de Files). Sus botones
+  son `LedButton`; en el editor de archivos la pista y los tags se asignan con pads chicos del color de cada uno.
 - Idioma: UI mayormente en inglés, mensajes al usuario y comentarios en español. Commits en español,
   cortos y descriptivos.
 - Hay mucho `console.log` comentado; no es necesario limpiarlo salvo que la tarea lo pida.

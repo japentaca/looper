@@ -30,11 +30,11 @@
   </div>
 </template>
 <script setup>
-// Pantalla de onda del editor (diálogo de edición de Files.vue; docs/PLAN_EDITOR.md, fase 1). Canvas con
+// Pantalla de onda del editor (FileEditor.vue; docs/PLAN_EDITOR.md, fase 1). Canvas con
 // estética de LCD: picos min/max por píxel del buffer ya cargado en el Tone.Player del archivo (un carril
 // por canal, L/R si es estéreo), la grilla (beats del loop o tempo del proyecto en un shot) y dos cursores:
 // el del preview (toneLib) y el del motor cuando el archivo suena en su pista. Como FileCart y los
-// medidores, lee el estado del motor y del preview acá adentro: Files.vue no se re-renderiza por eso, y
+// medidores, lee el estado del motor y del preview acá adentro: FileEditor.vue no se re-renderiza por eso, y
 // los cursores se mueven tocando el DOM en cada frame, sin reactividad. El clic en la onda no hace nada.
 // Fase 3: muestra la región que le pasa RegionEditor.vue (`view`, en segundos: afuera atenuado, grilla
 // corrida por el nudge) y sus manijas; al arrastrarlas emite "marker" con el tiempo bajo el puntero (la

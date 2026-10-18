@@ -1,0 +1,68 @@
+// helpers de un archivo compartidos por la lista (Files.vue) y el editor (FileEditor.vue): tempo, tags,
+// anclaje y preview. Sin estado propio
+import { toggle_file_tag, save_file } from "./composable"
+import { TrackCtrl } from "./TrackCtrl"
+import * as toneLib from "./toneLib"
+
+// archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
+// no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
+const unavailable_title = "Unavailable: hidden by an admin or its owner is blocked. It is not played."
+
+// --- tempo (ver file_timing en TrackCtrl.js) ---
+// loop que habría que correr más que la tolerancia del proyecto: tampoco se sortea
+export function out_of_tempo(file) {
+  return file.kind != "shot" && file.in_tempo === false
+}
+export function not_drawable_title(file) {
+  if (file.available === false) return unavailable_title
+  if (out_of_tempo(file)) {
+    // timing_basis y no tempo / tempo_tol: esos cambian en vivo mientras se arrastra el knob (ver TrackCtrl.js)
+    let { tempo, tol } = TrackCtrl.timing_basis
+    return `Out of tempo: at ${fmt_bpm(file.bpm)} BPM it is more than ±${tol}% away from `
+      + `${tempo} BPM (also at half or double time). It is not played.`
+  }
+  return undefined
+}
+export function fmt_bpm(bpm) {
+  let n = Number(bpm)
+  return n > 0 ? String(Math.round(n * 10) / 10) : "–"
+}
+
+export async function toggleTag(file, id) {
+  toggle_file_tag(file, id)
+  await save_file(file)
+}
+
+// --- anclaje de los disparos one-shot (ver file_anchor en composable.js) ---
+export const ANCHOR_TEXT = {
+  start: "Start: the file starts at the trigger point",
+  end: "End: the file ends at the trigger point (riser, reverse crash)",
+}
+
+// el archivo es el que está sonando en el preview (o, en sync, espera su arranque)
+export function is_previewing(file) {
+  return toneLib.previewing(file.id)
+}
+// preview en sync armado: espera el próximo compás (o beat) del motor
+export function is_armed(file) {
+  return toneLib.preview_armed(file.id)
+}
+
+// el botón de preview es play o stop según si ese archivo ya suena en el preview
+// (lo que suena en el motor no se corta desde acá)
+export function togglePreview(file) {
+  if (is_previewing(file)) toneLib.playerStop()
+  else toneLib.playFile(file)
+}
+
+export function preview_title(file) {
+  if (is_armed(file)) return "Armed: starts on the next bar (beat for a shot). Click to cancel"
+  return is_previewing(file) ? "Stop preview" : "Preview"
+}
+
+// --- switch SYNC del preview (toneLib.preview_opts; docs/PLAN_EDITOR.md, decisiones 1 y 2) ---
+export function sync_title() {
+  return toneLib.preview_opts.sync
+    ? "Sync on: preview at the project tempo, looped until stop; with the engine running it starts on the next bar"
+    : "Sync off: preview at the original speed, once"
+}

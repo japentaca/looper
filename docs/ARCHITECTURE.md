@@ -447,7 +447,7 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   `isLoaded`, `duration`, `duration_fixed`, `play_rate`, `play_beats`, `in_tempo`, etc.
   Estos campos **no** existen en la DB.
   Los tags se asignan arrastrando un pad de Tag sobre un archivo (toggle: si ya lo tiene, lo quita)
-  o desde el diálogo de edición de `Files.vue` (✕ en cada chip y un select para agregar).
+  o desde el editor del archivo (`FileEditor.vue`: un pad por Tag que lo prende o lo apaga).
   `Files.vue` muestra la tonalidad (`music_key`; el dueño la cambia en el diálogo de edición) y filtra
   la lista por tónica, con "+ atonal" (`key_matches` de `helpers/music_key.js`, misma regla que el
   catálogo). El filtro solo cambia lo que se muestra: el motor sortea todos los archivos.
@@ -653,7 +653,7 @@ Flujo:
    que editarlos con el transporte en marcha vale desde el próximo. Para los Tags, el próximo sorteo
    es el que se hace al empezar el Tag siguiente: el Tag ya preseleccionado no cambia (salvo que su
    peso pase a 0, ver arriba). Se editan en el diálogo de cada
-   archivo (`Files.vue`, knob WEIGHT) y en `TagDialog.vue` (lápiz del pad del Tag: nombre, color y peso).
+   archivo (`FileEditor.vue`, knob WEIGHT) y en `TagDialog.vue` (lápiz del pad del Tag: nombre, color y peso).
 4. `set_next_step(time)`:
    - Si al Tag le queda 1 beat: activa el Tag preseleccionado (y preselecciona el siguiente),
      recalcula disponibles y, si cambió, corta los tracks cuyo archivo tiene tags y no incluye el
@@ -815,7 +815,7 @@ Reglas para modificar el motor:
   botón START pasa por `request_start()` (ver "Autostart y recuperación"), que lo llama dentro del clic.
 - Los volúmenes están en dB (`props.volume`), aplicados al `Tone.Player` antes de `start` (y al
   player del preview) con `vol_db(..., FILE_VOL_MAX_DB)` de `mixer.js`: −60 dB o menos = silencio.
-  El fader del diálogo de edición de Files usa la misma curva de consola que las pistas, con tope en
+  El fader Volume del editor de archivos (`FileEditor.vue`) usa la misma curva de consola que las pistas, con tope en
   0 dB (−∞..0; 0 dB arriba del todo, −12 dB a ~63 %). Al cargar, un archivo sin volumen válido toma −6 dB.
 
 ### Autostart y recuperación (instalación sin nadie al lado)
@@ -1165,8 +1165,8 @@ Ver también `docs/INSTALACION.md` (cómo lanzar Chrome en modo kiosko).
 
 ### Preview
 
-`helpers/toneLib.js` escucha un archivo suelto desde la lista (`Files.vue` → `playFile`: cartuchos, tabla y
-editor), el catálogo (`ImportFiles.vue`) o el admin. Cada preview crea su propio `Tone.Player` conectado a
+`helpers/toneLib.js` escucha un archivo suelto desde la lista (`Files.vue` → `playFile`: cartuchos, tabla) y el
+editor (`FileEditor.vue`), el catálogo (`ImportFiles.vue`) o el admin. Cada preview crea su propio `Tone.Player` conectado a
 `preview_input` de `mixer.js` y, al cortarse (`release`), lo para en `Tone.now()` y lo libera un segundo
 después; un `onstop` de un player que ya no es el actual se ignora. Para un archivo del proyecto usa el
 buffer de su player. Para uno del catálogo que no está en el proyecto, `playUrl(file, url)` descarga y
@@ -1234,9 +1234,11 @@ a arrancar en el modo nuevo.
 
 Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lectura del motor, sin backend),
 la 2 (preview en sync: ver "Preview") y la 3 (región: ver "Editor: región").
-El editor es el diálogo de edición de `Files.vue` (lápiz del cartucho o de la fila, o el nombre en la
+El editor es `FileEditor.vue`, el diálogo de edición que monta `Files.vue` (v-model + `file`; lápiz del cartucho o de la fila, o el nombre en la
 tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :file :beats :active>` (la
 `WaveScreen` con la región y su barra de controles); debajo, los datos, las placas y los pads de siempre.
+DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo que comparten la lista y el editor
+(fuera de tempo, bpm, `toggleTag`, play/stop y títulos del preview y de SYNC) está en `helpers/file_ui.js`.
 
 - **Onda**: canvas con los colores del LCD (`--hw_lcd_*`, como `hw/Lcd.vue`), picos min/max por píxel del
   dispositivo calculados en el cliente del `AudioBuffer` ya cargado en `audio_players[id]`
@@ -1254,7 +1256,7 @@ tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :
   disparo. Si las líneas quedan a menos de 4 px no se dibujan las de beat (ni las de compás si tampoco
   entran). En un loop el tempo no se lee: mover el knob Tempo no redibuja la pantalla.
 - **Beats en vivo**: el input Beats (solo el dueño) sigue guardando en `@change` como antes; además su
-  evento `input` (al tipear o con +/−) deja el valor en `beats_draft` de `Files.vue`, que va a la
+  evento `input` (al tipear o con +/−) deja el valor en `beats_draft` de `FileEditor.vue`, que va a la
   pantalla como `beats`. Vuelve a `null` (los del archivo) al terminar el guardado, salga bien o mal, y
   al abrir el editor.
 - **Rótulo ×2 / ×½**: si el motor toca el loop con otro largo que sus beats efectivos (los de la región, si
@@ -1267,7 +1269,7 @@ tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :
   antes, hasta que llega se sigue con `prev`, la vuelta que todavía suena). Una leyenda abajo a la derecha dice cuál está
   activo. Se mueven con `requestAnimationFrame` **solo** mientras el diálogo está abierto (`active`) y
   algo suena, tocando el `transform` en el DOM: igual que `FileCart.vue` y los medidores, el estado del
-  motor y del preview se lee adentro del componente y `Files.vue` no se re-renderiza por eso.
+  motor y del preview se lee adentro del componente y ni `FileEditor.vue` ni `Files.vue` se re-renderizan por eso.
   Aproximaciones: se ignora la latencia de salida del dispositivo, y si el tempo cambia (knob Tempo) con
   el loop sonando, el cursor del motor usa el `rate` del arranque hasta la próxima vuelta del loop.
 - El clic en la onda no hace nada (solo se arrastran las manijas de la región). Funciona igual en
@@ -1275,7 +1277,7 @@ tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :
 - **Preview** (fase 2): al pie del editor, PLAY/STOP (LED que titila mientras está armado), SYNC y el
   selector MIX / IN CONTEXT / SOLO (atenuado sin sync o con el motor parado, donde no cuenta). Cerrar el
   editor corta el preview del archivo editado.
-- **Atajos** (listeners de `window` solo con el editor abierto: `on_editor_key` en `Files.vue` y `on_key` en
+- **Atajos** (listeners de `window` solo con el editor abierto: `on_editor_key` en `FileEditor.vue` y `on_key` en
   `RegionEditor.vue`): Espacio = play/stop del preview, Q = SYNC, M = rota MIX → IN CONTEXT → SOLO, G = SNAP,
   ← / → = mueven el último marcador tocado; figuran en el `title` de cada botón. Reglas de foco comunes
   (`editor_key_ok` de `helpers/utils.js`): solo si el foco está en el editor (o en ninguna parte; no con otro
