@@ -424,7 +424,8 @@ onBeforeUnmount(() => {
 /* LCD con los colores de hw/Lcd.vue; el canvas es transparente encima del fondo */
 .wave_screen {
   position: relative;
-  flex: 1 1 100%;
+  /* alto fijo: en la columna flex de RegionEditor un flex-basis de 100% lo dejaba en 0 */
+  flex: none;
   height: 150px;
   overflow: hidden;
   border-radius: 4px;
