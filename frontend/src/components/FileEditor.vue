@@ -55,18 +55,30 @@
         </div>
       </div>
 
-      <!-- placas: Volume a la izquierda (dos filas), Weight y Repeat apiladas a la derecha -->
+      <!-- placas: Volume y Loudness a la izquierda (dos filas cada una), Weight y Repeat apiladas a la derecha -->
       <div class="edit_plates">
         <!-- volumen del archivo (dB) como fader sobre placa de aluminio -->
         <div class="hw_plate volume">
           <span class="silk">Volume</span>
-          <!-- posición 0..1 con la misma curva de consola que las pistas, con tope en 0 dB (fader_to_db en mixer.js) -->
+          <!-- posición 0..1 con la misma curva de consola que las pistas, con tope en +12 dB (fader_to_db en mixer.js) -->
           <Fader :model-value="db_to_fader(curr_edit_file.props.volume, FILE_VOL_MAX_DB)" :min="0" :max="1" :step="0.01"
             :length="150" :marks="volume_marks" :title="db_label(curr_edit_file.props.volume)"
             @update:model-value="v => curr_edit_file.props.volume = fader_to_db(v, FILE_VOL_MAX_DB)"
             @change="onChange(curr_edit_file)" />
           <Lcd small :digits="3" :value="curr_edit_file.props.volume > VOL_OFF_DB ? curr_edit_file.props.volume : '---'"
             unit="dB" />
+        </div>
+        <!-- loudness medida en el backend (ebur128, archivo entero) con el Volume del proyecto aplicado, y MATCH
+          (helpers/loudness.js): lleva el Volume a la loudness promedio de los otros archivos de la pista -->
+        <div class="hw_plate loudness" :title="LOUDNESS_HELP">
+          <span class="silk">Loudness</span>
+          <Lcd small caption="Integrated" :digits="4" :value="fmt_level(level_lufs)" unit="LUFS" />
+          <Lcd small caption="True peak" :digits="4" :value="fmt_level(level_peak)" unit="dB"
+            :title="level_peak > 0 ? 'Over 0 dB: the master limiter catches it' : undefined" />
+          <LedButton size="small" led="green" text="MATCH" :lit="is_matched" :disabled="!can_match"
+            :title="match_title" @click="apply_match(curr_edit_file)" />
+          <span v-if="match.ok && match.clipped" class="silk match_clip">{{ match.clipped == 'max' ? 'max' : 'min' }}
+            {{ db_label(match.volume) }}</span>
         </div>
         <!-- peso del archivo en el sorteo de su pista (0 = no sale nunca; ver pick_weighted en composable.js) -->
         <div class="hw_plate weight" :title="weight_title(curr_edit_file)">
@@ -158,6 +170,7 @@ import {
 
 import * as toneLib from "../helpers/toneLib"
 import { fader_to_db, db_to_fader, db_label, FILE_VOL_MAX_DB, VOL_OFF_DB } from "../helpers/mixer"
+import { level_with_volume, match_volume, fmt_level, LOUDNESS_SILENCE } from "../helpers/loudness"
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false }, // diálogo visible
@@ -202,9 +215,42 @@ function set_beats_draft(v) {
 }
 
 
-// marcas en dB ubicadas según la curva; abajo del todo = silencio
-const volume_marks = [0, -6, -12, -24, -36].map(v => ({ value: db_to_fader(v, FILE_VOL_MAX_DB), label: v }))
+// marcas en dB ubicadas según la curva (con tope +12, el 0 queda a ~63 %); abajo del todo = silencio
+const volume_marks = [12, 6, 0, -12, -24].map(v => ({ value: db_to_fader(v, FILE_VOL_MAX_DB), label: v > 0 ? "+" + v : v }))
   .concat({ value: 0, label: "-∞" })
+
+// --- loudness y MATCH (docs/PLAN_EDITOR.md, decisión 8; cálculos en helpers/loudness.js) ---
+const LOUDNESS_HELP = "Integrated loudness (EBU R128) and true peak of the whole file, measured on the server, "
+  + "with this project's Volume applied. --- = not measured yet, silent, or Volume off"
+const level_lufs = computed(() => level_with_volume(curr_edit_file.value, curr_edit_file.value?.loudness, VOL_OFF_DB))
+const level_peak = computed(() => level_with_volume(curr_edit_file.value, curr_edit_file.value?.peak, VOL_OFF_DB))
+const match = computed(() => curr_edit_file.value
+  ? match_volume(curr_edit_file.value, store.files, { max_db: FILE_VOL_MAX_DB, off_db: VOL_OFF_DB })
+  : { ok: false, reason: "no_track" })
+const can_match = computed(() => match.value.ok && !store.read_only)
+// encendido si el Volume ya es el que daría MATCH
+const is_matched = computed(() => match.value.ok && Math.abs(curr_edit_file.value.props.volume - match.value.volume) < 0.05)
+const match_title = computed(() => {
+  let m = match.value
+  let f = curr_edit_file.value
+  if (!m.ok) {
+    if (m.reason == "no_track") return "MATCH: assign the file to a track first"
+    if (m.reason == "not_measured") {
+      return f?.loudness <= LOUDNESS_SILENCE ? "MATCH: the file is silent" : "MATCH: loudness not measured yet"
+    }
+    return "MATCH: no other measured files in its track"
+  }
+  if (store.read_only) return "MATCH: read only"
+  let text = `MATCH: Volume to ${db_label(m.volume)}, the average loudness of the other ${m.count} file(s) of its `
+    + `track (${m.target.toFixed(1)} LUFS)`
+  if (m.clipped) text += `. Needs ${db_label(m.wanted)}: limited to the fader ${m.clipped == "max" ? "top" : "bottom"}`
+  return text
+})
+function apply_match(file) {
+  if (!can_match.value) return
+  file.props.volume = match.value.volume
+  onChange(file)
+}
 
 // al abrir el editor (o pasar a otro archivo) la grilla vuelve a los beats del archivo
 watch([() => props.file, () => props.modelValue], ([, open]) => {
@@ -428,18 +474,36 @@ onBeforeUnmount(() => {
 
 .edit_plates {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto auto;
   grid-template-rows: auto 1fr;
   gap: 12px;
   align-items: start;
 }
 
 .volume {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+
+.loudness {
+  grid-column: 2;
   grid-row: 1 / 3;
 }
 
 .weight {
+  grid-column: 3;
+  grid-row: 1;
   justify-self: start;
+}
+
+.repeat {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+/* MATCH recortado por el rango del fader: serigrafía roja oscura (sobre el aluminio, como DELETE) */
+.match_clip {
+  color: #8f1d12;
 }
 
 .dialog_footer {

@@ -36,6 +36,10 @@ export default async function do_migrations() {
   await migrate_file_durations()
   // oculto por el admin (moderación): 0 | 1. Fuera del catálogo y del sorteo, sin cascada
   await add_column("files", "hidden", integer(0))
+  // loudness integrada (LUFS) y true peak (dBFS) del mp3 entero (ebur128, utils.measure_ebur128); null = sin
+  // medir. Se miden al subir; los null los completa fill_file_loudness en segundo plano, después del listen
+  await add_column("files", "loudness", float())
+  await add_column("files", "peak", float())
 
   await create_table("user_track_groups")
   await add_column("user_track_groups", "user_id", string(36))
@@ -109,6 +113,40 @@ async function migrate_file_durations() {
     await global.knex("files").where({ id: file.id }).update({ duration: info.duration })
   }
   if (fallidos) console.warn(`  ${fallidos} archivo(s) quedaron sin duration`)
+}
+
+// `files.loudness` / `files.peak` de los archivos que no las tengan, medidas con ebur128. No es parte de
+// do_migrations: index.js la lanza sin esperarla después del listen (con ~1000 archivos tarda minutos y no
+// tiene que demorar el arranque). Secuencial, de a un ffmpeg con prioridad baja, así no le saca CPU a las
+// subidas ni a los requests. Tolerante a errores: un archivo que falla (mp3 que falta, ffmpeg que no lo lee)
+// se avisa y queda null; se reintenta en el próximo arranque (cada intento falla rápido). Un archivo silencioso
+// no es un error: queda medido con el piso (-70, ver utils.parse_ebur128) y no se vuelve a medir.
+const FILL_WARN_MAX = 10 // avisos individuales de archivos fallidos; el resto solo cuenta en el resumen
+const FILL_PROGRESS_EVERY = 100
+export async function fill_file_loudness() {
+  let files = await global.knex("files").whereNull("loudness").select("id", "user_id")
+  if (!files.length) return
+  console.log(`Mido loudness de ${files.length} archivo(s) con ebur128, en segundo plano`)
+  let t0 = Date.now()
+  let ok = 0
+  let failed = 0
+  for (let [n, file] of files.entries()) {
+    try {
+      let m = await utils.measure_ebur128(utils.audio_path(file.user_id, file.id), true)
+      // si se borró mientras tanto, el update no toca nada
+      await global.knex("files").where({ id: file.id }).update({ loudness: m.loudness, peak: m.peak })
+      ok++
+    } catch (e) {
+      failed++
+      if (failed <= FILL_WARN_MAX) {
+        let reason = String(e.stderr || e.message || e).trim().split("\n").pop()
+        console.warn(`  sin loudness: ${file.id} (${reason})`)
+      }
+    }
+    if ((n + 1) % FILL_PROGRESS_EVERY == 0) console.log(`  loudness: ${n + 1}/${files.length}`)
+  }
+  let secs = Math.round((Date.now() - t0) / 1000)
+  console.log(`Loudness: ${ok} medido(s), ${failed} fallido(s), en ${secs} s`)
 }
 
 // crea la tabla solo con la PK `id` (uuid); las columnas se agregan con add_column

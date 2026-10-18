@@ -65,7 +65,9 @@ que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
 | `global.redisClient` | cliente ioredis (también usado como store de sesión, prefijo `looper_s:`). Con `redis_username` en `.env` se autentica con ese usuario ACL; en el servidor es uno propio limitado a `~looper*` (ver `docs/DEPLOY.md`), así que toda clave nueva de Redis tiene que empezar con `looper` |
 
 Orden de arranque: dotenv → knex → express (`express.json()`) → sesión (Redis) → CORS → router `/api`
-→ `await do_migrations()` → `listen`.
+→ `await do_migrations()` → `listen` → (ya escuchando, sin esperarlo) `fill_file_loudness()` de `db_migrations.js`:
+mide en segundo plano `files.loudness` / `files.peak` de los archivos que las tengan en `null` (ver "Loudness
+(`files.loudness` / `files.peak`)").
 
 Todos los endpoints están en `backend/routes/api.js` (ver `docs/API.md`). El middleware
 `express-fileupload` se aplica **solo a `POST /upload`**, después de los chequeos previos (ver "Subida de
@@ -325,10 +327,12 @@ estadísticas en paralelo):
 3. `utils.convert` a `storage_path/<user_id>/<file_id>.mp3` dentro de una **cola global con
    concurrencia 1** (cadena de promesas en memoria: el VPS tiene 1 vCPU). Todo se recodifica a MP3
    V0, también los mp3, normalizado a -18 LUFS / -1 dBTP con ganancia fija (ver `convert` abajo).
-   Se loguea la medición y la ganancia aplicada (no se guardan en la base).
+   Se loguea la medición y la ganancia aplicada (no se guardan en la base). En el mismo turno de la cola,
+   `utils.measure_ebur128` mide el mp3 resultante (`files.loudness` / `files.peak`, ver "Loudness"); si falla,
+   la subida sigue (quedan `null`, se loguea y las completa el relleno del próximo arranque).
 4. Transacción: se recalcula la cuota (`users.max_seconds` o `default_max_seconds` contra
    `sum(files.duration)` del usuario), se inserta la fila en `files` (`duration`, `kind`, `bpm`, `beats`,
-   `ts` y `size` real del mp3) y se suma `size` a `users.bytes_used`.
+   `loudness`, `peak`, `ts` y `size` real del mp3) y se suma `size` a `users.bytes_used`.
 
 Responde `{ stat: true, text, data: archivo }` o `{ stat: false, text }` con un código por tipo de
 rechazo (ver `API.md`). En `finally` se borran los temporales y, si no se registró, el mp3
@@ -373,6 +377,35 @@ rutas van como argumentos, así que espacios o caracteres raros no rompen nada).
   Los archivos subidos antes de la normalización se procesan una vez con `backend/normalize_existing.js`
   (ver `docs/DEPLOY.md`).
 
+#### Loudness (`files.loudness` / `files.peak`)
+
+Fase 5 de `docs/PLAN_EDITOR.md` (decisión 8). Distinto de la normalización de `convert` (que mide la entrada con
+loudnorm para elegir la ganancia y no guarda nada): esto mide **el mp3 ya convertido, entero** (no la región del
+proyecto) y lo guarda, para mostrarlo en el editor y para MATCH.
+
+- `measure_ebur128(file, low_priority)` → `{ loudness, peak }`: `ffmpeg -af ebur128=peak=true:framelog=verbose
+  -f null -` (`-threads 1`; `framelog=verbose` evita una línea cada 100 ms; con el `apad` de abajo) y `parse_ebur128` (pura) lee el
+  `Summary` de stderr: `I` (loudness integrada, LUFS) y `Peak` (true peak sobremuestreado, dBFS), redondeados a
+  décimas. Lanza si ffmpeg falla (mp3 que falta) o no hay Summary. Con `low_priority` el proceso corre con
+  `os.setPriority(pid, 10)` (nice 10; en Windows "por debajo de lo normal").
+- **Golpes cortos**: ebur128 integra bloques de 400 ms; un archivo más corto no completa ninguno y daría −70
+  (como silencio). Antes de medir se rellena con silencio hasta 0,4 s (`apad=whole_dur=0.4`, `EBUR128_MIN_SECONDS`):
+  queda un bloque con la energía del golpe repartida en 400 ms (un tono de 0,2 s a −20 dBFS da −23 LUFS). Los de
+  0,4 s o más no cambian.
+- **Silencio**: debajo de la compuerta absoluta ebur128 da `-70.0 LUFS` y, en silencio digital, `Peak: -inf`. Los
+  dos se guardan con piso `LOUDNESS_FLOOR = -70`: el archivo queda **medido** (no `null`, no se reintenta) y el
+  front toma `loudness <= -70` como silencio (muestra "---", no cuenta en MATCH).
+- Costo: ~0,6 s por minuto de audio en la máquina de desarrollo (~100× tiempo real; casi todo es el true peak).
+- **Relleno de los existentes** (`fill_file_loudness`, `db_migrations.js`): no es parte de `do_migrations`;
+  `index.js` lo lanza en el callback de `listen` sin esperarlo. Toma los `files` con `loudness` null y los
+  mide **de a uno** (secuencial, ffmpeg con prioridad baja: no le gana CPU a las subidas ni a los requests),
+  con log "Mido loudness de N archivo(s)…", progreso cada 100 y un resumen con el tiempo. Un archivo que falla
+  (mp3 faltante o ilegible) se avisa (hasta 10 avisos individuales) y queda `null`: se reintenta en el próximo
+  arranque (cada intento falla rápido; no hay marca de "fallido"). Con ~1170 archivos de hasta 1 min, el primer
+  arranque tarda unos minutos en completarlos (ver `docs/DEPLOY.md`); después no hace nada.
+- Los importados con `import_manifest.js` (corre aparte del servidor) quedan `null` hasta el próximo
+  arranque del backend.
+
 La duración que da ffprobe de un mp3 ya convertido es ~30 ms mayor que la del original (estimación
 por el padding del encoder): la duración "real" de un archivo conviene medirla sobre la entrada.
 
@@ -385,7 +418,7 @@ las escribe y una base nueva no las crea (tampoco se borran de las existentes).
 | Tabla | Columnas | Notas |
 |---|---|---|
 | `users` | `id` PK, `password` (hash bcrypt), `email` (único, minúsculas), `name` (único, nombre público), `ts`, `bytes_used`, `max_bytes_uploaded` (legado), `props` (legado), `status`, `role`, `bio`, `max_seconds` | `status` = `pending` \| `active` \| `blocked`; `role` = `user` \| `admin`; `bio` = texto breve público (~280); `max_seconds` = cuota de audio en segundos (`null` = `default_max_seconds` de `.env`, default 1200; la usa `/upload`). Índices únicos `users_email_unique` y `users_name_unique` (en SQLite los `NULL` no chocan; el único es sensible a mayúsculas en `name`). Al crear `status`/`role` una migración (ya quitada) dejó a los usuarios existentes `active`/`user` y a `jntaca@gmail.com` `admin` y pasó a minúsculas los emails; en una base nueva el primer admin se pone a mano (`role = 'admin'`). Si hay emails o nombres repetidos, la migración falla y el backend no arranca hasta resolverlos a mano. `max_bytes_uploaded` no se usa. `props` (**obsoleta** desde la fase 3: la migración a proyectos la copió a `projects.props` del primer proyecto del usuario; queda como respaldo; nada la lee ni la escribe: la config sale de `GET /projects/:id` y se guarda con `PUT /projects/:id`; `save_user_props` se eliminó en la tarea 3.6) = era la config global del usuario: `{ tempo: BPM (10..160, default 138), beats_x_bar: "3" \| "4" (default "4"), tag_range: [min, max] exponentes n de 2^n beats del cambio de Tag (5..9, default [6, 7]), delay: { type (default "pingpong"), division (default "8n."), feedback: 0..0.9 (default 0.4), level: dB −24..+6 (default 0) } }` (ver mixer) |
-| `files` | `id`, `user_id`, `original_name`, `track_group` (legado), `tags` (legado), `size`, `props` (legado), `tag` (legado), `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna una migración (ya quitada) la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `anchor` = anclaje de un disparo one-shot: `start` (empieza en el punto de disparo) \| `end` (termina en él: riser, crash invertido) (`NOT NULL DEFAULT 'start'`); las pistas de loops lo ignoran; es el default del catálogo: cada proyecto puede guardar su propio punto en `project_files.props.anchor` (fase 4 del editor, ver "Editor: anchor"). Una migración (ya quitada) completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos que ya existían tomaron la fecha de modificación de su mp3. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: una migración lo copió a `tags`. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: la migración a proyectos las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; los archivos nuevos las dejan en null). Metadatos (`original_name`, `kind`, `beats`, `music_key`, `anchor`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
+| `files` | `id`, `user_id`, `original_name`, `track_group` (legado), `tags` (legado), `size`, `props` (legado), `tag` (legado), `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak`, `ts`, `hidden` | sin PK; `hidden` = oculto por el admin (entero 0 \| 1, `NOT NULL DEFAULT 0`: los existentes y los insert que no lo mencionan quedan en 0; lo lee la API de archivos en proyectos para `available` e impedir importarlo; lo escribe el admin con `PUT /admin/files/:id/hidden`, tarea 5.1; catálogo y motor, fases 3–5); `duration` = segundos (float, medida con ffprobe sobre el archivo subido; la cuota suma esto); `kind` = `loop` \| `shot` (`NOT NULL DEFAULT 'loop'`); en los loops `beats` (entero) lo carga el creador y `bpm` (float) lo deduce el backend (`beats × 60 / duration`); en los shots ambos `null`. `music_key` = tonalidad (texto, hasta 8): nota con grafía fija más `m` si es menor (`G`, `C#m`, `Bb`), `atonal` (sin tonalidad: combina con cualquiera) o `null` (sin dato); la normaliza y sugiere por el nombre `utils.js` (`normalize_key`, `suggest_key`; misma lógica en `frontend/src/helpers/music_key.js`); al crear la columna una migración (ya quitada) la completó con la sugerencia del nombre de cada archivo; sirve para filtrar (catálogo y lista de archivos), el motor no la usa. `anchor` = anclaje de un disparo one-shot: `start` (empieza en el punto de disparo) \| `end` (termina en él: riser, crash invertido) (`NOT NULL DEFAULT 'start'`); las pistas de loops lo ignoran; es el default del catálogo: cada proyecto puede guardar su propio punto en `project_files.props.anchor` (fase 4 del editor, ver "Editor: anchor"). Una migración (ya quitada) completó los loops sin beats con la cuenta que antes hacía el front (`round(duration × tempo / 60)`, con el tempo de su primer proyecto) y como `bpm` dejó ese tempo cuando la cuenta daba a menos de 2 % (la `duration` de los archivos viejos se midió sobre el mp3, con el relleno del encoder); con un bpm fuera de 20..400 pasan a shot; `ts` = fecha de alta (ISO sin ms, como `users.ts`). La migración completa `duration` en cada arranque para los archivos que la tengan en `null`, midiendo su mp3 con `utils.probe` (no se recodifica; si el mp3 falta o no es audio avisa y queda `null`); al crear `ts` los archivos que ya existían tomaron la fecha de modificación de su mp3. `loudness` = loudness integrada en LUFS y `peak` = true peak en dBFS (float, decimales) del mp3 entero, medidos con ebur128 (`null` = sin medir; −70 en los dos = silencio; ver "Loudness" en Backend): los mide `/upload` y los `null` los completa `fill_file_loudness` en segundo plano en cada arranque. `/upload` carga `duration`, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak` y `ts`; `props = { volume: dB (−60 = silencio .. 0, default -6) }` (archivos viejos pueden tener `oneShot: bool`: obsoleto, se ignora; el one-shot es por pista). Un archivo puede tener varios tags. `tag` era el tag único: una migración lo copió a `tags`. `track_group`, `tags` y `props` son **obsoletas** desde la fase 3: la migración a proyectos las copió tal cual a `project_files` (una fila por archivo en el primer proyecto de su dueño); quedan como respaldo y ya nada las lee ni las escribe (desde la tarea 3.4 la pista, los tags y el volumen se editan por proyecto con `PUT /projects/:id/files`; `save_fileData` se eliminó; los archivos nuevos las dejan en null). Metadatos (`original_name`, `kind`, `beats`, `music_key`, `anchor`; `bpm` se recalcula) los edita solo el dueño con `PUT /files/:id`; `DELETE /files/:id` borra el archivo y en cascada sus filas de `project_files` en todos los proyectos. Disponible (`available` en la API) = `hidden = 0` y dueño `active`. `GET /catalog` lista solo los disponibles (de todos los usuarios), con el nombre público y la bio del dueño y `uses` = filas de `project_files` que lo usan (índice en `project_files.file_id`) |
 | `user_track_groups` | `id` PK, `user_id`, `name`, `color` (#hex), `props` (JSON en texto), `silences` (legado), `project_id` (índice) | Cada track group es una **pista** (la UI lo rotula "Track"). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API lee y reemplaza las pistas por proyecto con `GET /projects/:id` y `PUT /projects/:id/track_groups`). `user_id` se sigue cargando (= dueño del proyecto). `props = { volume: dB (default 0), pan: −1..1 (default 0 = centro), rest: 0..1 (default 0), rest_again: 0..0.9 (default null = el valor de rest, con el mismo tope), rest_len: [min, max] de 4 \| 8 \| 16 \| 32 compases (default [4, 4]), mode: "loop" \| "oneshot" (default "loop"), on_tag_change: bool (default false), density: 0..1 (default 0), bars: 1 \| 2 \| 4 \| 8 \| 16 \| 32 \| 64 (default 1), scatter: 0..1 (default 0), reverb: dB \| null (default null = sin reverb), delay: dB \| null (default null = sin delay), fx: [instancia] (default []) }`. `rest` = probabilidad de que la pista descanse al terminar cada loop (solo modo loop) y `rest_len` el rango de duración de ese descanso; `on_tag_change`, `density`, `bars` y `scatter` son los disparadores del modo one-shot (ver motor); `reverb` (send a la reverb compartida, `null` = nada, porque `-Infinity` no sobrevive a JSON), `delay` (send al delay global, ídem) y `fx` (FX de transición: `{ id, type, lead, prob, cond, ...parámetros }`, ver "FX de transición") son de los efectos (ver mixer). Un `drift` guardado de antes (el drift se eliminó) se ignora: no se migra ni se borra. `silences` es una columna vieja: no se usa, no se devuelve y no se debe reutilizar (los silencios van en `props.rest`) |
 | `user_tags` | `id` PK, `user_id`, `name`, `color`, `project_id` (índice), `weight` | `weight` = peso en el sorteo del próximo Tag (entero 0..32, `NOT NULL DEFAULT 16`: los existentes quedaron en 16; 0 = no sale nunca). `project_id` = proyecto al que pertenece (fase 3; cargado por la migración a proyectos en las filas existentes; la API los lee y reemplaza por proyecto con `GET /projects/:id` y `PUT /projects/:id/tags`). `user_id` se sigue cargando (= dueño del proyecto) |
 | `projects` | `id` PK, `user_id` (dueño, índice), `name`, `visibility` (legado), `hidden`, `props` (JSON en texto), `ts` | Fase 3; endpoints `/projects` (ver `API.md`). Un solo dueño: toda la API filtra por `user_id` y un proyecto ajeno responde 404. Borrar un proyecto borra sus pistas, tags y filas de `project_files`, y también los archivos del dueño que usaba y que ya no quedan en ningún proyecto (fila de `files`, `bytes_used` y mp3); los ajenos no se tocan. La migración a proyectos creó uno por usuario existente (nombre `My project`). `visibility` (legado: todos los proyectos son públicos) era `private` \| `public` (`NOT NULL DEFAULT 'private'`); `hidden` = oculto por el admin (0 \| 1, `NOT NULL DEFAULT 0`; lo escribe `PUT /admin/projects/:id/hidden`, tarea 5.1); `props` = config del proyecto, misma forma que `users.props` (tempo, `beats_x_bar`, `tag_range`, delay) más `tempo_tol`, `reverb` (`{ ir, level }`, ver "Reverb compartida") (tolerancia de tempo en %, 0..12, default 6) y `master` (volumen master en dB, −60 = silencio .. +6, default 0) y `comp` (compresor multibanda del master, `{ on, amount, low, mid, high }`, ver "Dinámica del master"), que pasa a quedar obsoleta; `ts` = fecha de alta (ISO sin ms) |
@@ -829,7 +862,9 @@ Reglas para modificar el motor:
 - Los volúmenes están en dB (`props.volume`), aplicados al `Tone.Player` antes de `start` (y al
   player del preview) con `vol_db(..., FILE_VOL_MAX_DB)` de `mixer.js`: −60 dB o menos = silencio.
   El fader Volume del editor de archivos (`FileEditor.vue`) usa la misma curva de consola que las pistas, con tope en
-  0 dB (−∞..0; 0 dB arriba del todo, −12 dB a ~63 %). Al cargar, un archivo sin volumen válido toma −6 dB.
+  `FILE_VOL_MAX_DB` = +12 dB (fase 5 del editor; antes 0: los dB guardados no cambian, solo su posición): −∞..+12,
+  0 dB a ~63 % del recorrido, −12 dB a ~40 %; marcas +12, +6, 0, −12, −24, −∞. El limitador del master cubre el clip.
+  Al cargar, un archivo sin volumen válido toma −6 dB.
 
 ### Autostart y recuperación (instalación sin nadie al lado)
 
@@ -1391,3 +1426,22 @@ start/stop). El anchor es el punto del shot que cae en el beat.
   caption de la pantalla dice lo mismo ("GRID 120 BPM · ANCHOR 0.350 S").
 - **Grilla de shots**: desde el anchor efectivo hacia los dos lados (`grid_lines` con `anchor_t`).
 - En `store.read_only`: se ven la manija, el rótulo y la grilla; no se arrastra, no hay DEFAULT ni flechas.
+
+### Editor: loudness y MATCH (`components/FileEditor.vue`, `helpers/loudness.js`)
+
+Fase 5 de `docs/PLAN_EDITOR.md` (decisión 8). Los datos son `loudness` y `peak` de cada archivo (ver "Loudness"
+en Backend); no toca el motor.
+
+- **Placa LOUDNESS** al lado de Volume: dos LCD, "INTEGRATED" (LUFS) y "TRUE PEAK" (dB), con el `volume` del
+  proyecto aplicado (`level_with_volume`: medición + volume, a décimas; se actualiza mientras se mueve el fader).
+  "---" si no hay medición, si el archivo es silencioso (`loudness <= -70`) o si Volume está en −∞. Pico > 0 dB:
+  el `title` avisa que lo agarra el limitador del master.
+- **MATCH** (`match_volume`): lleva el `volume` del archivo a la loudness promedio de los **otros** archivos de su
+  pista: promedio aritmético (en LUFS) de `loudness + volume` de cada uno, solo los medidos, no silenciosos y con
+  Volume > −∞; volumen = promedio − loudness propia (no depende del volumen actual: es idempotente). Se recorta al
+  rango del fader (tope `FILE_VOL_MAX_DB` = +12, piso −59,9 dB, lo más bajo que todavía suena); si recorta, un
+  rótulo rojo "MAX/MIN ±x dB" debajo del botón y el `title` dice cuánto hacía falta. Guarda como el fader
+  (`save_file_debounced`; vale desde el próximo arranque del archivo). El LED se prende si el Volume ya es el de
+  MATCH. Deshabilitado (con `title` que explica) sin pista, sin medición propia (o silencioso), sin otros
+  archivos medidos en la pista, o en `store.read_only`.
+- No incluye (para después): preview del catálogo/importar nivelado con `files.loudness`.

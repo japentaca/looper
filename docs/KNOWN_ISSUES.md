@@ -36,6 +36,10 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   menos de ~0,4 s no se pueden medir y quedan sin tocar. Como `GET /file/:id` se sirve `immutable`, el
   front pide `/api/file/<id>?v=<AUDIO_VERSION>` (`file_url` en `helpers/api.js`): al reprocesar los
   mp3 del servidor hay que subir ese número y desplegar, o los navegadores siguen con el archivo viejo.
+- 🟡 `files.loudness` / `files.peak` (fase 5 del editor) se miden una vez: si se vuelve a correr
+  `normalize_existing.js` (recodifica los mp3) quedan desactualizadas. Hay que ponerlas en `null` para esos
+  archivos y reiniciar el backend (las vuelve a medir en segundo plano). `import_manifest.js` no las mide:
+  quedan `null` hasta el próximo reinicio. Se miden sobre el archivo entero, no sobre la región del proyecto.
 - 🟡 `users.bytes_used` es correcto (recalculado desde `sum(files.size)` en oct 2026, sumado en `upload` y
   descontado en `DELETE /files/:id`), pero es solo informativo: la cuota es en segundos de audio
   (`max_seconds` contra `sum(files.duration)`). `max_bytes_uploaded` no se usa (legado: una base nueva ya no la crea).

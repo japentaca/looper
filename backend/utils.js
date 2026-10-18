@@ -1,4 +1,5 @@
 import util from 'util'
+import os from 'os'
 import child_process from 'child_process'
 import ffmpeg_static from 'ffmpeg-static'
 import ffprobe_static from 'ffprobe-static'
@@ -12,9 +13,14 @@ function ffprobe_path() {
   return global.config?.path_to_ffprobe || ffprobe_static.path
 }
 
-// execFile sin shell: las rutas van como argumentos, sin interpolar en un comando
-async function run_full(bin, args) {
-  return await exec_file(bin, args, { windowsHide: true, maxBuffer: 10 * 1024 * 1024 })
+// execFile sin shell: las rutas van como argumentos, sin interpolar en un comando. Con low_priority el
+// proceso corre con menos prioridad (nice 10; en Windows, "por debajo de lo normal"), para trabajos de fondo
+async function run_full(bin, args, low_priority = false) {
+  let p = exec_file(bin, args, { windowsHide: true, maxBuffer: 10 * 1024 * 1024 })
+  if (low_priority && p.child?.pid) {
+    try { os.setPriority(p.child.pid, 10) } catch { /* sin permiso o ya terminó: queda con la prioridad normal */ }
+  }
+  return await p
 }
 async function run(bin, args) {
   const { stdout } = await run_full(bin, args)
@@ -128,6 +134,56 @@ async function convert(in_file, out_file, measured = null) {
   return { input_i: m.input_i, input_tp: m.input_tp, gain }
 }
 
+// ---------- medición de loudness (files.loudness / files.peak) ----------
+// Filtro ebur128 de ffmpeg sobre el mp3 ya convertido (el archivo entero): loudness integrada (LUFS, EBU R128)
+// y true peak (dBFS, sobremuestreado). Por debajo de la compuerta absoluta ebur128 da -70.0 LUFS y en silencio
+// digital el pico da "-inf": los dos se guardan con piso LOUDNESS_FLOOR, así un archivo silencioso queda medido
+// (no null, no se vuelve a medir) y el front lo toma como silencio (loudness <= -70)
+const LOUDNESS_FLOOR = -70
+// largo mínimo que se le da al audio antes de medir (un bloque de ebur128)
+const EBUR128_MIN_SECONDS = 0.4
+
+// parsea el Summary que ebur128 escribe al final de stderr. Devuelve { loudness, peak } (redondeados a
+// décimas, con piso LOUDNESS_FLOOR) o null si no encuentra el Summary con los dos valores. Función pura
+function parse_ebur128(stderr) {
+  let text = String(stderr ?? "")
+  let at = text.lastIndexOf("Summary:")
+  if (at < 0) return null
+  text = text.slice(at)
+  let i = /\bI:\s*(-?inf|-?\d+(?:\.\d+)?)\s*LUFS/.exec(text)
+  let peak = /\bPeak:\s*(-?inf|-?\d+(?:\.\d+)?)\s*dBFS/.exec(text)
+  if (!i || !peak) return null
+  let num = v => {
+    if (v == "-inf") return LOUDNESS_FLOOR
+    let n = parseFloat(v)
+    if (!Number.isFinite(n)) return null
+    return Math.max(LOUDNESS_FLOOR, Math.round(n * 10) / 10)
+  }
+  let r = { loudness: num(i[1]), peak: num(peak[1]) }
+  return r.loudness == null || r.peak == null ? null : r
+}
+
+// mide loudness y true peak de un archivo con ebur128 (salida descartada). Devuelve { loudness, peak }.
+// Lanza si ffmpeg falla (p. ej. el archivo no existe) o si no se pudo leer el Summary. Con low_priority
+// ffmpeg corre con menos prioridad (relleno en segundo plano: fill_file_loudness en db_migrations.js)
+async function measure_ebur128(file, low_priority = false) {
+  const { stderr } = await run_full(ffmpeg_path(), [
+    '-hide_banner', '-nostats', '-loglevel', 'info',
+    '-threads', '1',
+    '-i', file,
+    '-map', '0:a:0',
+    '-vn', '-sn', '-dn',
+    // apad: ebur128 integra bloques de 400 ms y uno más corto (un golpe) daría -70 como si fuera silencio; con
+    // silencio hasta 0,4 s queda un bloque: la energía del golpe repartida en 400 ms (los más largos no cambian).
+    // framelog=verbose: sin una línea cada 100 ms (con -loglevel info solo queda el Summary)
+    '-af', `apad=whole_dur=${EBUR128_MIN_SECONDS},ebur128=peak=true:framelog=verbose`,
+    '-f', 'null', '-'
+  ], low_priority)
+  let r = parse_ebur128(stderr)
+  if (!r) throw new Error("ebur128: no se pudo leer el Summary")
+  return r
+}
+
 function get_file_extension(file) {
   let ext = file.split('.').pop()
   return ext.toLowerCase()
@@ -211,6 +267,9 @@ export default {
   convert,
   measure_loudness,
   loudness_gain,
+  parse_ebur128,
+  measure_ebur128,
+  LOUDNESS_FLOOR,
   get_file_extension,
   now_ts,
   audio_path,

@@ -38,9 +38,11 @@ const TAPE_LOWPASS_HZ = 2000 // filtro dentro del lazo del delay "tape": cada re
 // El fader no es lineal en dB: como en una consola, la posición 0..1 da una ganancia ∝ posición³
 // (dB = VOL_MAX_DB + 60·log10(pos)). Así hay resolución cerca de 0 dB (≈ 79 % del recorrido; −12 dB
 // a la mitad) y la parte de abajo cae rápido hasta el silencio. Lo guardado sigue siendo dB.
-// max_db = tope del fader: VOL_MAX_DB en pistas y master, FILE_VOL_MAX_DB en el volumen de un archivo.
+// max_db = tope del fader: VOL_MAX_DB en pistas y master, FILE_VOL_MAX_DB en el volumen de un archivo
+// (+12: deja subir un archivo bajo hasta la loudness de su pista, ver MATCH; el limitador del master cubre el
+// clip. Con esta curva el 0 dB queda a ~63 % del recorrido).
 export const VOL_MAX_DB = 6
-export const FILE_VOL_MAX_DB = 0
+export const FILE_VOL_MAX_DB = 12
 export const VOL_OFF_DB = -60 // este valor (o menos) = fader abajo del todo = silencio
 const VOL_SILENT_DB = -120 // lo que se aplica al nodo en silencio: no se usa -Infinity (rampas
 // exponenciales a 0 y Volume.mute, que mira volume === -Infinity, lo confundirían con un mute)

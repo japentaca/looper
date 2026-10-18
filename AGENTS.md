@@ -26,10 +26,10 @@ con LLMs.
 
 ```
 backend/
-  index.js           # arranque: dotenv → globals (config, knex, redisClient) → sesión → CORS → /api → migraciones → listen
+  index.js           # arranque: dotenv → globals (config, knex, redisClient) → sesión → CORS → /api → migraciones → listen → loudness en segundo plano
   routes/api.js      # TODOS los endpoints REST (un solo router)
-  db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn)
-  utils.js           # probe (ffprobe: ¿es audio?, duración) y convert (ffmpeg → mp3 V0), extensión de archivo
+  db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn) + fill_file_loudness (relleno en segundo plano tras el listen)
+  utils.js           # probe (ffprobe: ¿es audio?, duración), convert (ffmpeg → mp3 V0), measure_ebur128 (loudness/pico), extensión de archivo
   ecosystem.config.cjs # pm2 en el servidor (app `looper`, una instancia fork, sin secretos)
 frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
@@ -73,6 +73,7 @@ frontend/src/
     region.js        # funciones puras de la región (start/stop, nudge, fade): play_window del motor y el preview, snap, cruce por cero, AUTO, lupas (tests en region.test.js)
     master_dsp.worklet.js # AudioWorkletProcessor "looper-master" (adapta master_dsp.js; lo carga mixer.js con ?worker&url; el import va en la 1.ª línea)
     master_dsp.worklet.test.js # humo del worklet con el AudioWorkletGlobalScope simulado (npm test)
+    loudness.js      # editor: lecturas de loudness/pico con el volumen del proyecto y cálculo de MATCH (puro; loudness.test.js)
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, play/stop y títulos del preview y de SYNC
@@ -143,7 +144,7 @@ Antes de dar una tarea por terminada:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js` y `region.test.js`) deben pasar todos.
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js` y `loudness.test.js`) deben pasar todos.
 3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.

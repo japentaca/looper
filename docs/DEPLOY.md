@@ -257,6 +257,23 @@ cd /var/lib/looper && sudo -u looper -H node -e "
 No reemplaza a un backup de verdad: queda en el mismo disco, y los backups siguen fuera del plan.
 Borrar los respaldos viejos a mano.
 
+### Loudness en segundo plano (después de cada arranque)
+
+Desde la fase 5 del editor, `files.loudness` / `files.peak` se miden con ffmpeg `ebur128`. Al arrancar, ya
+escuchando, el backend mide **en segundo plano** los archivos que no las tengan (`fill_file_loudness` en
+`db_migrations.js`; detalle en "Loudness" de `docs/ARCHITECTURE.md`): de a uno, con ffmpeg a prioridad baja
+(nice 10). No demora el arranque ni el chequeo de `deploy.sh`; mientras dura, el editor muestra "---" en los
+que faltan y MATCH los ignora.
+
+- **Primer arranque con esta versión**: hay que medir todos (~1170 archivos). En la máquina de desarrollo un
+  archivo de 1 min tarda ~0,6 s; con archivos de hasta 1 min (la mayoría bastante menos) son del orden de
+  **3 a 12 minutos**, más en el VPS si está cargado. El log dice "Mido loudness de N archivo(s)…", el avance
+  cada 100 y al final "Loudness: X medido(s), Y fallido(s), en Z s":
+  `sudo -u looper -H pm2 logs looper --lines 50`.
+- Los fallidos (mp3 que falta o ilegible) quedan `null` y se reintentan en cada arranque (fallan rápido). Un
+  reinicio a mitad de camino no pierde nada: sigue con los que quedaron `null`.
+- Después del primer relleno no hace nada (solo los importados con `import_manifest.js`, ver abajo).
+
 ### Importar audios en lote (`import_manifest.js`)
 
 Para cargar una librería entera a una cuenta sin pasar por el navegador: se arma una carpeta con los
@@ -278,6 +295,9 @@ sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre
 sudo -u looper -H nice node import_manifest.js --user=<email> --project="<nombre>" /var/tmp/import/manifest.json
 rm -rf /var/tmp/import
 ```
+
+Los importados quedan sin `loudness` / `peak` (el script no los mide) hasta el próximo reinicio del backend
+(`sudo systemctl restart pm2-looper`), que los mide en segundo plano.
 
 ### Normalizar los audios ya subidos (una vez)
 

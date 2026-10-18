@@ -154,11 +154,16 @@ el diálogo de proyectos y en la galería: segundos × 44 100 × 2 canales × 4 
   props: { tempo, tempo_tol, beats_x_bar, tag_range, delay, reverb, master, comp }, // config del proyecto; {} si no hay nada guardado (el front completa los defaults)
   track_groups: [{ id, name, color, props: { volume, pan, rest, rest_again, rest_len, mode, on_tag_change, density, bars, scatter, reverb, delay, fx } }], // props: {} si no hay nada
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
-  files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, // del catálogo (files); anchor "start" | "end"
+  files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, // del catálogo (files); anchor "start" | "end"; loudness (LUFS) y peak (dBFS): ver abajo
             track_group, tags: [tag_id, ...], props: { volume, weight?, repeat?, region_beats?, region_secs?, nudge?, fade?, anchor? }, // del proyecto (project_files); weight 0..32, sin dato = 16; repeat [min, max], sin dato = [1, 1]; región y anchor: ver PUT /projects/:id/files
             name: "<id>.mp3", own: bool, available: bool }] // own: el archivo es del usuario (si no, es importado)
 }
 ```
+
+`loudness` (loudness integrada EBU R128, LUFS) y `peak` (true peak, dBFS) son números con una décima, medidos con
+ebur128 sobre el mp3 entero (no sobre la región del proyecto) y sin el volumen del proyecto aplicado; `null` = todavía
+sin medir (los existentes se completan en segundo plano al arrancar el backend); `-70` en los dos = archivo silencioso.
+Vienen en todas las formas de archivo (proyecto, proyecto público, catálogo, `PUT /files/:id`, `/upload`).
 
 `id` de cada archivo es el id del archivo del catálogo (el de `GET /file/:id`). `props.oneShot` viejo
 puede venir en archivos migrados: se ignora. `available` es `false` si el admin ocultó el archivo
@@ -274,7 +279,7 @@ Solo el **dueño** del archivo: uno ajeno o inexistente responde 404 `{ stat: fa
 inexistente" }` (sin distinguir). Archivo en la **forma del catálogo**:
 
 ```js
-{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, name: "<id>.mp3", own: bool, available: bool }
+{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, name: "<id>.mp3", own: bool, available: bool }
 ```
 
 - `PUT /files/:id` `{ original_name?, kind?, beats?, bpm?, music_key?, anchor? }`: solo lo que venga. `original_name` se
@@ -313,7 +318,7 @@ desempata por `id`, así el paginado es estable). Respuesta:
 
 ```js
 {
-  items: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, name: "<id>.mp3",
+  items: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, name: "<id>.mp3",
             own: bool,                 // el archivo es del usuario de la sesión
             available: true,           // siempre (el catálogo solo lista disponibles); misma forma que el resto de los archivos
             uses: n,                   // cantidad de proyectos que lo usan (filas de project_files, de cualquier usuario)
@@ -364,7 +369,7 @@ default 24); vacíos se ignoran, fuera de rango o repetidos → 400. Orden: los 
   creator: { name, bio },
   track_groups: [{ id, name, color, props }],      // como en GET /projects/:id
   tags: [{ id, name, color, weight }], // weight: peso 0..32 en el sorteo del próximo Tag (default 16)
-  files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, ts, name: "<id>.mp3", available: true,
+  files: [{ id, original_name, size, duration, kind, bpm, beats, music_key, anchor, loudness, peak, ts, name: "<id>.mp3", available: true,
             track_group, tags, props }]            // forma de GET /projects/:id, sin `own`
 }
 ```
@@ -442,8 +447,10 @@ Solo usuarios `active` (lo garantiza `require_session`). Orden de los chequeos:
 3. **Conversión** en la cola global (concurrencia 1) a MP3 VBR V0 44,1 kHz estéreo sin metadatos
    (todo se recodifica, también los mp3), normalizado a -18 LUFS / -1 dBTP con una ganancia fija
    (sin compresión; ver `convert` en `docs/ARCHITECTURE.md`). La duración ya se midió sobre la entrada. Si ffmpeg falla → 422 "No se pudo convertir <nombre>".
+   En el mismo turno de la cola se mide el mp3 resultante con ebur128 (`loudness`, `peak`); si esa medición falla la
+   subida sigue igual (quedan `null` y se completan en el próximo arranque).
 4. **Transacción**: vuelve a calcular la cuota (por si cambió mientras se convertía; 403 si ya no
-   entra), inserta la fila en `files` (`duration` medida sobre la entrada, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `ts`,
+   entra), inserta la fila en `files` (`duration` medida sobre la entrada, `kind`, `bpm`, `beats`, `music_key`, `anchor`, `loudness`, `peak`, `ts`,
    `size` del mp3, `tags = []`) y suma `size` a `users.bytes_used`. Con `project_id`, vuelve a
    comprobar que el proyecto siga siendo del usuario (404 si se borró mientras se convertía) e
    inserta la fila de `project_files`: el archivo queda en ese proyecto sin pista, sin tags y con

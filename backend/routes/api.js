@@ -539,7 +539,7 @@ router.post("/projects", require_session, route("Error POST projects", async (re
 
 // columnas de `files` que se devuelven (más el estado del dueño, para calcular `available`)
 const FILE_COLUMNS = ["f.id", "f.user_id", "f.original_name", "f.size", "f.duration", "f.kind", "f.bpm",
-  "f.beats", "f.music_key", "f.anchor", "f.ts", "f.hidden", "u.status as owner_status"]
+  "f.beats", "f.music_key", "f.anchor", "f.loudness", "f.peak", "f.ts", "f.hidden", "u.status as owner_status"]
 const FILE_NAME_MAX = 128
 // props de un archivo en un proyecto (project_files.props): solo estas claves (lista blanca). Las de la región
 // (editor, fase 3; ver frontend/src/helpers/region.js): region_beats / region_secs, nudge y fade; anchor (fase 4)
@@ -586,7 +586,8 @@ function file_available(r) {
 function file_out(r, user_id) {
   return {
     id: r.id, original_name: r.original_name, size: r.size, duration: r.duration, kind: r.kind ?? "loop",
-    bpm: r.bpm, beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start", ts: r.ts, name: r.id + ".mp3",
+    bpm: r.bpm, beats: r.beats, music_key: r.music_key ?? null, anchor: r.anchor ?? "start",
+    loudness: r.loudness ?? null, peak: r.peak ?? null, ts: r.ts, name: r.id + ".mp3",
     own: r.user_id === user_id, available: file_available(r),
   }
 }
@@ -1539,9 +1540,19 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
     out_file = utils.audio_path(user_id, file_id)
     // todo se recodifica (también los mp3) a MP3 VBR V0 44.1 kHz estéreo sin metadatos, normalizado
     // a -18 LUFS / -1 dBTP con ganancia fija
+    // después, en el mismo turno de la cola, se mide el mp3 resultante con ebur128 (files.loudness / peak). Si la
+    // medición falla, la subida sigue: quedan null y las completa fill_file_loudness en el próximo arranque
+    let level = { loudness: null, peak: null }
     try {
-      let ln = await enqueue_conversion(() => utils.convert(file.tempFilePath, out_file))
-      console.log("Convertido", file_id, `I=${ln.input_i} LUFS TP=${ln.input_tp} dBTP ganancia=${ln.gain} dB`)
+      await enqueue_conversion(async () => {
+        let ln = await utils.convert(file.tempFilePath, out_file)
+        console.log("Convertido", file_id, `I=${ln.input_i} LUFS TP=${ln.input_tp} dBTP ganancia=${ln.gain} dB`)
+        try {
+          level = await utils.measure_ebur128(out_file)
+        } catch (e) {
+          console.log("Error midiendo loudness", file_id, String(e.message).split("\n")[0])
+        }
+      })
     } catch (e) {
       console.log("Error convirtiendo", file.name, e.message)
       return fail(422, `No se pudo convertir ${file.name}`)
@@ -1559,6 +1570,8 @@ router.post('/upload', require_session, upload_precheck, upload_parser, async (r
       beats: timing.beats,
       music_key: music_key,
       anchor: anchor,
+      loudness: level.loudness,
+      peak: level.peak,
       ts: utils.now_ts(),
     }
     try {

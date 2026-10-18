@@ -65,10 +65,13 @@ app_server.use(cors(corsOptions))
 import api from './routes/api.js'
 app_server.use("/api", api)
 
-import do_migrations from "./db_migrations.js"
+import do_migrations, { fill_file_loudness } from "./db_migrations.js"
 // el esquema tiene que estar completo antes de aceptar requests
 await do_migrations()
 
 console.log("Listening on ", global.config.service_port)
-app_server.listen(global.config.service_port)
+app_server.listen(global.config.service_port, () => {
+  // ya escuchando: loudness de los archivos sin medir, en segundo plano (no se espera; un error no corta nada)
+  fill_file_loudness().catch(e => console.log("Error midiendo loudness", e))
+})
 
