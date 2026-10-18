@@ -1,6 +1,6 @@
 <template>
   <!-- Esc lo maneja on_editor_key (primero quita la selección); cerrar con cambios destructivos sin guardar pregunta -->
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(980px, 96vw)"
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(1120px, 96vw)"
     class="hw_dialog editor_dialog" align-center draggable :close-on-press-escape="false" :before-close="before_close">
     <div class="edit_body">
       <!-- pantalla de onda a todo el ancho (grilla, cursores) con la región debajo: start/stop, SNAP, NUDGE, FADE

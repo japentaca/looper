@@ -1333,7 +1333,7 @@ Plan completo en `docs/PLAN_EDITOR.md`; están implementadas la fase 1 (solo lec
 la 2 (preview en sync: ver "Preview"), la 3 (región: ver "Editor: región"), la 4 (anchor: ver "Editor: anchor"), la 5
 (loudness: ver "Editor: loudness y MATCH") y la 6 (ver "Editor: ediciones destructivas").
 El editor es `FileEditor.vue`, el diálogo de edición que monta `Files.vue` (v-model + `file`; lápiz del cartucho o de la fila, o el nombre en la
-tira), agrandado a `min(980px, 96vw)`: arriba, a todo el ancho, `<RegionEditor :file :beats :active>` (la
+tira), agrandado a `min(1120px, 96vw)` (así las lupas START y SEAM entran en el renglón de la región): arriba, a todo el ancho, `<RegionEditor :file :beats :active>` (la
 `WaveScreen` con la región y su barra de controles) y `<EditOps>` (ediciones destructivas; no en `store.read_only`);
 debajo, los datos (con "Derived from" si es una copia), las placas y los pads de siempre.
 DELETE emite `delete`: la confirmación y el borrado siguen en `Files.vue`. Lo que comparten la lista y el editor
