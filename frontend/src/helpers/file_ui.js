@@ -1,8 +1,9 @@
 // helpers de un archivo compartidos por la lista (Files.vue) y el editor (FileEditor.vue): tempo, tags,
 // anclaje y preview. Sin estado propio
-import { toggle_file_tag, save_file } from "./composable"
+import { toggle_file_tag, save_file, file_anchor } from "./composable"
 import { TrackCtrl } from "./TrackCtrl"
 import * as toneLib from "./toneLib"
+import { shot_anchor } from "./region"
 
 // archivo no disponible (oculto por el admin o dueño bloqueado): queda en el proyecto pero el motor
 // no lo sortea. Se muestra atenuado (cartucho y fila de la tabla).
@@ -37,6 +38,27 @@ export async function toggleTag(file, id) {
 export const ANCHOR_TEXT = {
   start: "Start: the file starts at the trigger point",
   end: "End: the file ends at the trigger point (riser, reverse crash)",
+}
+// margen para decidir si un anchor del proyecto cae en un borde de la región (s)
+const ANCHOR_EDGE_EPS = 0.001
+// anchor efectivo de un archivo para la lista (cartucho y tabla): null si es "start" (lo normal, no se marca);
+// si no { key ("end" | "point", para ordenar), text (pre-roll en s si es un punto intermedio), title }. Un shot
+// usa el anchor del proyecto (props.anchor, recortado a la región: shot_anchor de region.js) si tiene; si no,
+// y en los loops, el del catálogo (files.anchor)
+export function list_anchor(file) {
+  let a = file.kind == "shot" && file.props?.anchor != null ? shot_anchor(file) : null
+  if (!a || a.saved == null) {
+    return file_anchor(file) == "end" ? { key: "end", text: "end", title: "Catalog anchor. " + ANCHOR_TEXT.end } : null
+  }
+  if (a.stop != null && Math.abs(a.at - a.stop) < ANCHOR_EDGE_EPS) {
+    return { key: "end", text: "end", title: "Project anchor. " + ANCHOR_TEXT.end }
+  }
+  let pre = a.at - a.start
+  if (pre < ANCHOR_EDGE_EPS) return null
+  return {
+    key: "point", text: pre.toFixed(2) + " s",
+    title: `Project anchor: the point ${pre.toFixed(3)} s after the start of the region falls on the trigger point`
+  }
 }
 
 // el archivo es el que está sonando en el preview (o, en sync, espera su arranque)

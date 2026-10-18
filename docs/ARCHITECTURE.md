@@ -487,7 +487,7 @@ las filas del usuario en **todos** sus proyectos y reinsertaban sin `project_id`
   Anclaje de los disparos one-shot: `file_anchor(file)` de `composable.js` da el del catálogo
   (`anchor ?? "start"`, dato del archivo); es el default: el proyecto puede guardar su propio punto
   (`props.anchor`, segundos) y el anchor efectivo lo da `shot_anchor` de `region.js` (ver "Editor: anchor"). En el diálogo de edición
-  el dueño cambia el del catálogo con Start/End (`PUT /files/:id`); los demás solo lo ven. El cartucho (vista Box) marca "⇥end" y la tabla tiene la columna Anchor (solo marca END);
+  el dueño cambia el del catálogo con Start/End (`PUT /files/:id`); los demás solo lo ven. El cartucho (vista Box) y la columna Anchor de la tabla marcan el anchor efectivo (`list_anchor` de `file_ui.js`: el del proyecto si el shot tiene `props.anchor`, si no el del catálogo): "⇥end" o el pre-roll de un punto intermedio ("⇥0.35 s"); start no se marca;
   `ImportFiles.vue` marca con "⇥" los del catálogo con anclaje end.
 - `store.track_groups`: al cargar se completa `props` con los defaults (`trg_default_props()` en
   `composable.js`) más lo guardado. Las pistas nuevas (`addTrackGroup` en `App.vue`) nacen con los

@@ -43,7 +43,7 @@
             <template v-if="file.isLoaded">{{ file.duration_fixed }} s · {{ timing_text(file) }}<template
                 v-if="file.music_key"> · {{ file.music_key }}</template></template>
             <template v-else>loading…</template>
-            <span v-if="file_anchor(file) == 'end'" class="anchor_mark" :title="anchor_title(file)"> · ⇥end</span>
+            <span v-if="list_anchor(file)" class="anchor_mark" :title="list_anchor(file).title"> · ⇥{{ list_anchor(file).text }}</span>
             <span v-if="file.available === false" class="unavailable_mark"> · unavailable</span>
             <span v-else-if="out_of_tempo(file)" class="unavailable_mark"> · out of tempo</span>
           </p>
@@ -106,10 +106,12 @@
             </span>
           </template>
         </el-table-column>
-        <!-- anclaje efectivo de los disparos one-shot: solo se marca "end" (start es lo normal) -->
-        <el-table-column label="Anchor" sortable :sort-by="(row) => file_anchor(row)" width="90">
+        <!-- anclaje efectivo de los disparos one-shot (el del proyecto o el del catálogo, list_anchor): start es lo
+          normal y no se marca; "end" o el pre-roll de un punto intermedio -->
+        <el-table-column label="Anchor" sortable :sort-by="(row) => list_anchor(row)?.key ?? ''" width="90">
           <template #default="scope">
-            <span v-if="file_anchor(scope.row) == 'end'" class="anchor_mark" :title="anchor_title(scope.row)">⇥END</span>
+            <span v-if="list_anchor(scope.row)" class="anchor_mark" :title="list_anchor(scope.row).title">⇥{{
+              list_anchor(scope.row).text.toUpperCase() }}</span>
           </template>
         </el-table-column>
         <!-- sin v-if en la columna: el-table mezcla las celdas si una columna aparece después -->
@@ -148,7 +150,7 @@
 <script setup>
 
 import { ref, watch, computed } from "vue"
-import { store, audio_players, files_by_id, trg_of, save_file, delete_project_file, file_anchor } from "../helpers/composable"
+import { store, audio_players, files_by_id, trg_of, save_file, delete_project_file } from "../helpers/composable"
 import LedButton from "./hw/LedButton.vue"
 import Led from "./hw/Led.vue"
 import FileCart from "./FileCart.vue"
@@ -156,7 +158,7 @@ import FileEditor from "./FileEditor.vue"
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { KEY_TONICS, key_label, key_matches } from "../helpers/music_key"
 import {
-  out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, ANCHOR_TEXT, is_previewing, is_armed, togglePreview,
+  out_of_tempo, not_drawable_title, fmt_bpm, toggleTag, list_anchor, is_previewing, is_armed, togglePreview,
   preview_title, sync_title
 } from "../helpers/file_ui"
 
@@ -201,11 +203,6 @@ watch(() => store.edit_file_id, (id) => {
   if (files_by_id[id]) editFile(files_by_id[id])
   store.edit_file_id = null
 })
-
-// --- anclaje de los disparos one-shot (ver file_anchor en composable.js) ---
-function anchor_title(file) {
-  return ANCHOR_TEXT[file_anchor(file)]
-}
 
 async function ondrop(e, file) {
   drag_id.value = null
