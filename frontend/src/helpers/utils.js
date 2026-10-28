@@ -16,6 +16,18 @@ export function url_autostart() {
   return new URLSearchParams(window.location.search).get("autostart") == "1"
 }
 
+// link de un proyecto (botón LINK): ?play=1 en la URL actual. Al terminar de cargar, el diálogo de carga
+// muestra PLAY (el navegador no deja sonar sin un gesto). A diferencia de ?autostart=1 sí avisa de la memoria
+export function url_play() {
+  return new URLSearchParams(window.location.search).get("play") == "1"
+}
+
+// link para abrir el proyecto `id` en la vista pública y tocarlo (todos los proyectos son públicos salvo los
+// ocultos por el admin)
+export function project_link(id) {
+  return `${window.location.origin}/p/${id}?play=1`
+}
+
 // aviso de un diálogo (el-alert): msg = { type, text }; set_msg(type, text) lo reemplaza
 export function use_msg(type = "success") {
   const msg = reactive({ type, text: "" })

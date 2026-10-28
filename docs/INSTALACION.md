@@ -32,6 +32,8 @@ https://looper.jape.com.ar/p/<id>?autostart=1
 `/?autostart=1`, sigue funcionando pero necesita sesión: ver "Sin link público" abajo.)
 
 - Es una vez por carga de página: si después se hace STOP, no vuelve a arrancar solo hasta recargar.
+- No confundir con `?play=1` (el link que copia el botón LINK): ese pide un clic en PLAY al terminar de
+  cargar, avisa de la memoria y no reintenta; sirve para compartir, no para un kiosko.
 - Con `?autostart=1` no se muestra el aviso de memoria de un proyecto grande ("Load anyway?"): se
   carga igual, porque en una instalación no hay nadie para contestarlo. En el modo lectura tampoco
   hay diálogos de login: nada bloquea el arranque.

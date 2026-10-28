@@ -136,8 +136,10 @@ async function do_create() {
 
 async function do_open(row) {
   if (!await confirm_stop("open another project")) return
+  // se cierra ya: el avance de la carga lo muestra el diálogo de carga (LoadingDialog.vue)
+  visible.value = false
   await run(async () => {
-    if (await switch_project(row.id)) visible.value = false
+    await switch_project(row.id)
   })
 }
 

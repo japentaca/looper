@@ -559,6 +559,13 @@ app, con `store.read_only = true`:
   `docs/INSTALACION.md`, tarea 4.5). Solo con `?autostart=1`, si la carga falla por algo pasajero
   (sin respuesta, 5xx o 429) la vista reintenta sola con backoff (5 s, 10 s, 20 s... tope 60 s, sin
   límite); un 404 no se reintenta.
+- `?play=1` es el link del botón **LINK** de la barra superior de la app (`project_link` en `utils.js`:
+  `/p/<id>?play=1`, para el proyecto activo; deshabilitado si el admin lo ocultó, porque daría 404).
+  A diferencia de `?autostart=1` sí muestra el aviso de memoria y no reintenta: al terminar la carga,
+  el diálogo de carga (`LoadingDialog.vue` con `play`) queda armado con **PLAY**. El clic es el gesto
+  que pide el navegador: `do_play` llama a `Tone.start()` dentro del evento e incrementa
+  `store.play_request`, que `Tracks.vue` observa para hacer `request_start()` (con el contexto ya
+  corriendo no aparece el overlay). CLOSE lo cierra sin tocar. Se rearma en la próxima carga.
 
 ### Carga inicial
 
@@ -610,6 +617,10 @@ app, con `store.read_only = true`:
    todos carguen (`Promise.allSettled`).
    Cada player que termina (bien o con error) suma a `store.load_progress.done`; `App.vue` lo
    muestra como barra de avance (cantidad de archivos, no bytes) y contador junto al LED de estado.
+   Al abrir un proyecto (no en una recarga del mismo: `store.load_progress.dialog = !same`) además se
+   muestra el **diálogo de carga** (`LoadingDialog.vue`, en `App.vue` y en la vista pública): modal, sin
+   cerrar, con un anillo de 24 LEDs que se encienden según el avance y uno amarillo que gira encima.
+   PROJECTS se cierra apenas se aprieta OPEN para que no lo tape.
    Si es una recarga (después de una subida o de un re-login), el player anterior de cada archivo se
    libera con `dispose()` (si estaba sonando, recién cuando termina), para no acumular buffers.
 4. `calculate_timing()` calcula `play_rate`, `play_beats` y `in_tempo` de cada archivo según el tempo y la tolerancia (ver "Tempo").

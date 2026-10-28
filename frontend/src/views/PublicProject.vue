@@ -22,7 +22,8 @@
         @click="report_visible = true">REPORT</button>
     </PublicBar>
 
-    <main v-loading="loading" class="main">
+    <!-- el spinner solo hasta leer el proyecto: el avance de los audios lo muestra el diálogo de carga -->
+    <main v-loading="loading && !store.load_progress.total" class="main">
       <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon />
 
       <section v-if="info" class="hw_panel info">
@@ -46,6 +47,7 @@
 
       <Tracks v-if="info" class="tracks" />
     </main>
+    <LoadingDialog :play="play" />
     <ReportDialog v-model="report_visible" :target="info ? { type: 'project', id: info.id, name: info.name } : null" />
   </div>
 </template>
@@ -58,6 +60,7 @@ import Tracks from "../components/Tracks.vue"
 import Lcd from "../components/hw/Lcd.vue"
 import Led from "../components/hw/Led.vue"
 import ReportDialog from "../components/ReportDialog.vue"
+import LoadingDialog from "../components/LoadingDialog.vue"
 import { get_user_info } from "../helpers/api"
 import {
   store, load_public_project, unload_public_project, request_open_project, estimate_files_memory,
@@ -67,6 +70,8 @@ import { TrackCtrl, stop_transport } from "../helpers/TrackCtrl"
 import { url_autostart } from "../helpers/utils"
 
 const route = useRoute()
+// link del botón LINK (?play=1): al terminar de cargar, el diálogo de carga ofrece PLAY
+const play = computed(() => route.query.play == "1")
 
 // datos para mostrar (lo que suena vive en el store): { id, name, creator: { name, bio }, files,
 // memory (bytes estimados de los audios decodificados, la misma cuenta del aviso de memoria) }

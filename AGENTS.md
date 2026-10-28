@@ -60,6 +60,7 @@ frontend/src/
     ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria; no lista lo que ya está en el proyecto)
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
     PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)
+    LoadingDialog.vue # diálogo de carga de un proyecto (anillo de LEDs con el avance); con el link ?play=1 queda armado con PLAY (el gesto para sonar)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob (prop disabled: atenuado y sin respuesta), Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, GrLed (LED de reducción de ganancia), StepLeds, RangePads (rango [min, max] sobre una lista de valores)
   helpers/
@@ -92,7 +93,7 @@ frontend/src/
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, tonalidad efectiva (key_view), play/stop y títulos del preview y de SYNC
-    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
+    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, url_play, project_link (botón LINK), use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
 deploy/
   deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
   .env.deploy.example # datos de conexión (copiar a .env.deploy, gitignored; sin IPs ni secretos en git)

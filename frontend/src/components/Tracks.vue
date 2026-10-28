@@ -882,6 +882,9 @@ watch(() => TrackCtrl.isReady, (ready) => {
   request_start()
 }, { immediate: true })
 
+// PLAY del diálogo de carga (?play=1): el clic ya reanudó el AudioContext (es un gesto), acá solo se hace START
+watch(() => store.play_request, () => request_start())
+
 // recuperación: si con el transporte corriendo el AudioContext pasa a "suspended" o "interrupted"
 // (otra app tomó el audio, el SO lo suspendió, cambió el dispositivo de salida...) se reintenta
 // resume() con backoff (1 s, 2 s, 4 s... hasta 30 s entre intentos, sin límite de intentos mientras

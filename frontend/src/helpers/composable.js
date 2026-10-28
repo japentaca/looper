@@ -69,8 +69,12 @@ export const store = reactive({
   tags: reactive([]),
   curr_file: {},
   loading: true,
-  // avance de la carga de audios (archivos terminados / total), para la barra de la parte superior
-  load_progress: { done: 0, total: 0 },
+  // avance de la carga de audios (archivos terminados / total), para la barra de la parte superior y el
+  // diálogo de carga (LoadingDialog.vue). dialog = la carga es de un proyecto que se abre (no una recarga del
+  // mismo, p.ej. después de una subida): solo entonces se muestra el diálogo
+  load_progress: { done: 0, total: 0, dialog: false },
+  // PLAY del diálogo de carga (?play=1): cada incremento le pide START al motor (Tracks.vue)
+  play_request: 0,
   alreadyMounted: false,
   // true si el backend dijo que no hay sesión (401/403) con el usuario ya cargado. La reproducción
   // sigue (los audios están en memoria) pero no se guardan cambios; App.vue lo muestra en el LED.
@@ -425,6 +429,9 @@ export async function load_public_project(id) {
   store.read_only = true
   // START deshabilitado hasta que terminen de cargar los audios (y el autostart espera a eso)
   TrackCtrl.isReady = false
+  // sin el avance del proyecto anterior (el diálogo de carga mostraría su total hasta crear los players)
+  store.load_progress.done = 0
+  store.load_progress.total = 0
   // las tiras no deben mostrar el estado de la corrida anterior (otro proyecto, o antes de ir a la galería)
   TrackCtrl.tracks.splice(0)
   let p
@@ -496,6 +503,7 @@ async function install_project(p, same) {
   console.log("begin loading files")
   store.load_progress.done = 0
   store.load_progress.total = store.files.length
+  store.load_progress.dialog = !same
   for (let i = 0; i < store.files.length; i++) {
     let f = store.files[i]
     files_by_id[f.id] = f
@@ -687,6 +695,7 @@ function unload_project() {
   for (let fid of Object.keys(files_by_id)) delete files_by_id[fid]
   store.load_progress.done = 0
   store.load_progress.total = 0
+  store.load_progress.dialog = false
   // no queda ningún audio por cargar: sin esto, en la primera carga de la página isReady seguiría en
   // false y Projects.vue tendría deshabilitados Open/Create/Delete (no se podría salir de NO PROJECT)
   TrackCtrl.isReady = true

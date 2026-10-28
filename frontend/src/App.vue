@@ -45,6 +45,10 @@
         </Lcd>
         <LedButton size="small" text="PROJECTS" @click="projectsVisible = true" />
         <LedButton size="small" text="IMPORT" :disabled="!store.project" @click="importVisible = true" />
+        <!-- link a la vista pública del proyecto que, al cargar, ofrece PLAY (los ocultos por el admin dan 404) -->
+        <LedButton size="small" text="LINK" :disabled="!store.project || !!store.project.hidden"
+          :title="store.project?.hidden ? 'Oculto por el admin: el link no funciona' : 'Copiar el link para abrir y tocar este proyecto'"
+          @click="copy_link" />
       </div>
 
       <div v-if="store.curr_file.isPreviewing" class="preview">
@@ -116,6 +120,7 @@
     <Projects v-if="store.isLogged == true" v-model="projectsVisible" />
     <OpenProject v-if="store.isLogged == true" @choose="projectsVisible = true" />
     <ImportFiles v-if="store.isLogged == true" v-model="importVisible" />
+    <LoadingDialog />
     <GalleryDialog v-model="galleryVisible" />
     <!-- solo para role = admin: a los demás ni se monta (el backend igual lo exige con require_admin) -->
     <Admin v-if="is_admin" v-model="adminVisible" />
@@ -135,6 +140,7 @@ import GalleryDialog from "./components/GalleryDialog.vue"
 import Admin from "./components/Admin.vue"
 import Uploader from "./components/Uploader.vue"
 import Tracks from "./components/Tracks.vue"
+import LoadingDialog from "./components/LoadingDialog.vue"
 import Led from "./components/hw/Led.vue"
 import Lcd from "./components/hw/Lcd.vue"
 import LedButton from "./components/hw/LedButton.vue"
@@ -149,6 +155,8 @@ import { store, doLogout, store_get_user_info, rebuildIndexes, save_tags, save_t
 import * as uuid from "uuid"
 
 import { playerStop } from "./helpers/toneLib"
+import { project_link } from "./helpers/utils"
+import { ElMessage, ElMessageBox } from "element-plus"
 
 
 async function addTrackGroup() {
@@ -195,6 +203,17 @@ const status_title = computed(() => store.session_lost
 const loading_audio = computed(() => store.isLogged == true && !TrackCtrl.isReady && store.load_progress.total > 0)
 
 const FX_TYPE_KEYS = Object.keys(FX_TYPES)
+
+// copia el link del proyecto activo; si el portapapeles no está disponible (http sin localhost, permisos) se muestra
+async function copy_link() {
+  let link = project_link(store.project.id)
+  try {
+    await navigator.clipboard.writeText(link)
+    ElMessage({ type: "success", message: "Link copiado" })
+  } catch {
+    ElMessageBox.alert(link, "Project link", { confirmButtonText: "OK" }).catch(() => { })
+  }
+}
 
 const activeCollapsable = ref('2')
 const accountVisible = ref(false) // diálogo de cuenta (bio y cambio de clave)
