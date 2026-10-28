@@ -20,6 +20,8 @@ script `backend/import_manifest.js` y el procedimiento de respaldo de `docs/DEPL
    borrar la carpeta.
 6. Armar pistas y tags del proyecto (respaldo y dry-run otra vez).
 7. Verificar e informar.
+8. Acortar los loops que solo repiten el mismo patrón (`backend/trim_loops.js`; también sirve después,
+   sobre un proyecto ya armado).
 
 ## 1. Relevamiento
 
@@ -162,9 +164,11 @@ y borrar la carpeta.
 sirve con `Cache-Control: immutable` por un año, así que pisar el mp3 con el mismo id no llega a
 un navegador que ya lo cargó. Con un script de una sola vez, después de respaldar: copiar el mp3
 nuevo (de `utils.convert`) con un **id nuevo**, y en una transacción cambiar `files.id`,
-`duration` y `size`, `project_files.file_id` (única tabla que lo referencia) y ajustar
-`users.bytes_used` por la diferencia; después borrar el mp3 viejo. Buscar los archivos por
-`original_name` y dueño: los ids de la prueba local no son los de prod.
+`duration` y `size` (y `beats`, `bpm`, `loudness`, `peak` si cambian), lo que referencia el id
+(`project_files.file_id`, `files.parent_id` de las copias del editor, `reports.target_id` con
+`target_type = 'file'`) y ajustar `users.bytes_used` por la diferencia; después borrar el mp3 viejo.
+Buscar los archivos por `original_name` y dueño: los ids de la prueba local no son los de prod.
+Para acortar loops que se repiten, `backend/trim_loops.js apply` hace todo esto (sección 8).
 
 ## 6. Pistas y tags del proyecto
 
@@ -239,3 +243,70 @@ y una pista de loops cortos (1–2 compases) cambia de loop en cada vuelta y sue
 - Informar: qué entró y qué no (y por qué), reparto por pista y tag, archivos sin pista, rutas de
   los respaldos, y que la mezcla (volúmenes) y la escucha quedan para el dueño. Nada de esto se
   puede verificar de oído desde acá.
+
+## 8. Acortar loops que se repiten (`backend/trim_loops.js`)
+
+Muchos loops de las librerías repiten el mismo patrón en todo su largo (un bajo de 32 beats que es 8
+veces el mismo compás, un hat de 32 que es el mismo compás). No aportan nada y pesan: todo se
+decodifica al cargar (~350 MB de RAM por cada 1000 s) y cuentan en la cuota. Cortados a su período
+real y con más `repeat`, suenan igual y pesan una fracción. Se aplicó por primera vez en Apex
+Psytrance (2026-10-19): 110 de 142 loops, el proyecto pasó de 2063 a 881 s.
+
+**Análisis** (`backend/loop_period.js`, funciones puras con tests en `loop_period.test.js`): para cada
+P de 4, 8, 16, 32 que divide a `beats`, compara cada bloque de P beats contra el primero. El largo
+del beat es muestras / beats (no el BPM del nombre): a 145 BPM son 18248,3 muestras, los bloques no
+caen en muestras enteras y medio sample ya ensucia una resta en los agudos. Por eso decide una
+medida espectral (magnitud con ventanas alineadas al inicio de cada bloque, en graves / medios /
+agudos) y la diferencia del **peor beat** de cada bloque, no el promedio (un fill de un beat casi no
+mueve el total). El residuo de forma de onda (Lanczos, ±3 muestras) se informa pero no decide: un
+sampler arranca cada golpe en una muestra entera y la compresión de bus hace que capas iguales no
+resten limpio. Decisiones:
+
+| decisión | criterio (peor beat de cada bloque) | qué se hace |
+|---|---|---|
+| cortar | todos ≤ −28 dB | se corta (en Apex: bajos, capas de hats/perc/snare, −30 a −200 dB) |
+| casi | todos ≤ −20 dB | se escucha; en Apex eran drum beats con un hat por compás que varía apenas, en agudos (graves y medios idénticos): se cortaron |
+| variación | los bloques distintos lo son en pocos beats (un fill, un remate) | por defecto no: se pierde la variación |
+| no cortar | ningún P se repite | synths, grooves con hats que cambian, barridos |
+
+Calibración (umbrales en `THRESHOLDS`): un bloque repetido da < −100 dB (o −35…−50 en los agudos si
+cae en otra fase de muestreo); +1 dB de ganancia por compás, −16; un beat reemplazado, > 0; un filtro
+que abre a lo largo del loop, > 0 en todos los bloques. La distribución de Apex tiene huecos cerca
+de −30 y −20. Con otra librería, mirar la tabla antes de confiar en los umbrales.
+
+**Pasos** (respaldo y dry-run antes de escribir en prod, como siempre):
+
+1. Servidor, solo lectura: `node trim_loops.js export --user=<email> --project=<nombre o id> > estado.json`
+   (loops del proyecto que son del usuario, con pista y `props`). Bajarlo a local.
+2. Local: un `fuentes.json` `{ "<original_name>": "<wav original>" }` armado con un script de una sola
+   vez según cómo se renombró la librería (Apex: `"APEX_" + nombre sin " - APEXPSY Zenhiser"`). El wav
+   tiene que ser el que se importó (mismo procesamiento del build): si dura distinto, se saltea.
+3. Local: `node trim_loops.js analyze estado.json fuentes.json <dir> --min-beats=8 --listen`: escribe
+   `<dir>/plan.json`, `<dir>/tabla.md` (beats antes → después, peor beat de cada bloque, decisión y
+   motivo, ahorro en s y RAM) y en `<dir>/escuchar/` el A/B de los "casi" y las "variación" (A =
+   original, B = el corte repetido). **El dueño escucha y decide** antes de seguir.
+   `--min-beats=8` lo eligió el dueño en Apex: con 8 beats y `repeat` [4, 16] cada sorteo suena 32–128
+   beats, igual que un loop de 32 con [1, 4]; a 4 beats la regla da 16–64 (cambia el doble de seguido).
+4. Local: `node trim_loops.js cut <dir>/plan.json --accept=cortar,casi`: corta los primeros P beats
+   exactos (`round(P × muestras / beats)`, sin fundido: la costura es la del bloque 2 → 1) del wav
+   original y lo convierte con `utils.convert` **con la medición del original** (misma ganancia que en la
+   importación: en Apex el mp3 nuevo decodifica idéntico, muestra a muestra, al importado en el tramo
+   común). Escribe `<dir>/trim.json` y `<dir>/mp3/`.
+5. Servidor: respaldo, copiar `trim.json` y `mp3/` a `/var/tmp`, `node trim_loops.js apply --user=<email>
+   <trim.json> --dry-run`, revisar y aplicar sin `--dry-run`. Por archivo (buscado por `original_name` y
+   dueño): id nuevo, `duration`, `size`, `beats`, `bpm`, `loudness`, `peak`; `project_files.file_id` de
+   todos los proyectos que lo usan, `files.parent_id`, `reports.target_id`, `users.bytes_used`; borra el
+   mp3 viejo. `props.repeat`: si era el de por defecto (`default_repeat`: ≤ 8 beats [4, 16], 16 [2, 8],
+   32 [1, 4], más [1, 2]) pasa al del largo nuevo; si el dueño lo había tocado, se multiplica por
+   viejo / nuevo con tope en 16. Volumen, peso y lo demás quedan. Un archivo con región (`region_beats`,
+   `region_secs`, `nudge`, `fade`) o `anchor` numérico en algún proyecto **no se toca** (se avisa). Es
+   repetible: lo ya cortado se saltea.
+6. Verificar (`GET /api/file/<id>` = 200, conteos, mp3 en disco = filas) y avisar al dueño que **recargue
+   la app**: una pestaña vieja pisa los cambios al guardar.
+
+**Librerías estiradas en local con Signalsmith** (PsyTrance NRG a 145, Psytrance Evolution 2 a 142): el
+phase vocoder cambia las fases y los bloques no son idénticos muestra a muestra. El análisis espectral
+sirve igual (fuentes = los wav estirados del build); para cortar, cortar el wav **original** a su tempo
+(P beats de su largo) y volver a estirarlo con el script del build (repitiendo el loop a los lados para
+la costura, como `build_pm.mjs` / `build_nrg.mjs`), convertir con `utils.convert` y armar el `trim.json`
+a mano (mismo formato que el de `cut`) para el paso 5.

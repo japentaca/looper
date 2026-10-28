@@ -31,6 +31,9 @@ backend/
   db_migrations.js   # "migraciones" idempotentes caseras (hasTable/hasColumn) + fill_file_loudness (relleno en segundo plano tras el listen)
   utils.js           # probe (ffprobe: ¿es audio?, duración), convert (ffmpeg → mp3 V0, normalizado salvo las copias del editor), measure_ebur128 (loudness/pico), extensión de archivo
   ecosystem.config.cjs # pm2 en el servidor (app `looper`, una instancia fork, sin secretos)
+  import_manifest.js # importación en lote de una librería (a mano, ver docs/LIBRERIAS.md)
+  trim_loops.js      # acorta los loops que repiten el mismo patrón a su período real (export / analyze / cut / apply; docs/LIBRERIAS.md, sección 8)
+  loop_period.js     # funciones puras de trim_loops.js: período de un loop (espectrograma por bloque), decisión, repeat (tests en loop_period.test.js, node:test)
 frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
   router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue)
@@ -155,6 +158,7 @@ Antes de dar una tarea por terminada:
    Lint: `cd backend && npm run lint` (idem en `frontend`). ESLint con flat config, **sin Prettier**:
    solo chequea sin punto y coma, indentación de 2 y errores comunes (en Vue, `flat/essential`).
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
+   Tests: `cd backend && npm test` (`node --test`, sin Vitest: por ahora `loop_period.test.js`).
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
    (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js`, `edit_ops.test.js`, `transpose.test.js`, `stretch_core.test.js` y `detect.test.js`) deben pasar todos.
 3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `edit_session.js`, `pitch.js`, `stretch_*.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
@@ -162,7 +166,8 @@ Antes de dar una tarea por terminada:
 4. Decir explícitamente qué se verificó y qué no.
 
 Los tests nuevos van con Vitest, junto al archivo que prueban (`*.test.js`), importando
-`describe/it/expect` de `"vitest"` (sin globals); `npm test` los toma solos.
+`describe/it/expect` de `"vitest"` (sin globals); `npm test` los toma solos. En el backend (que no tiene
+Vitest) van con `node:test` y `node:assert/strict`, también junto al archivo.
 
 ## Convenciones de código
 
