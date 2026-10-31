@@ -147,5 +147,5 @@ no lo que dicen los planes), agregar sus tomas a `manual_shots.js`, regenerarlas
   captura, porque el script corre con autoplay permitido y el cartel no aparece.
 - **Chequeo automático:** `src/manual/sections.test.js` (en `npm test`) verifica los links al glosario y a las
   secciones y que las capturas, los webp y las tomas de `manual_shots.js` coincidan.
-- **Capturas de los diálogos:** las tomas de los diálogos con `?` (editor, FX, Projects, Import) se sacaron antes de
-  agregarlo; se ven sin el botón hasta la próxima vez que se regeneren.
+- **Capturas de los diálogos:** las tomas de los diálogos con `?` (editor, FX, Projects, Import) se regeneraron
+  después de agregarlo (con los arreglos de la barra superior, Files y el editor).
