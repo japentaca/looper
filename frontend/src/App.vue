@@ -79,13 +79,13 @@
           <SidebarItem v-for="(track_group, index) in store.track_groups" :key="track_group.id" kind="track_group"
             :index="index" />
         </div>
-        <el-button class="add_btn" size="small" @click="addTrackGroup">+ Track</el-button>
+        <el-button v-if="store.isLogged == true" class="add_btn" size="small" @click="addTrackGroup">+ Track</el-button>
 
         <div class="side_title">Tags</div>
         <div class="pads">
           <SidebarItem v-for="(tag, index) in store.tags" :key="tag.id" kind="tag" :index="index" />
         </div>
-        <el-button class="add_btn" size="small" @click="addTag">+ Tag</el-button>
+        <el-button v-if="store.isLogged == true" class="add_btn" size="small" @click="addTag">+ Tag</el-button>
 
         <!-- FX de transición: un pad por tipo del catálogo (helpers/fx.js); se arrastran a una tira de Tracks -->
         <template v-if="!store.read_only">
@@ -102,7 +102,8 @@
             <Tracks />
 
             <el-collapse v-model="activeCollapsable" class="sections">
-              <el-collapse-item title="Upload Files" name="1">
+              <!-- sin sesión no se puede subir (el backend responde 401): no se muestra -->
+              <el-collapse-item v-if="store.isLogged == true" title="Upload Files" name="1">
                 <uploader />
               </el-collapse-item>
               <el-collapse-item title="Files" name="2">
