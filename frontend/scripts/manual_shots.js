@@ -219,6 +219,35 @@ const fake_drag = (pad, i) => page => page.evaluate((pad, i) => {
   document.body.appendChild(ghost)
 }, pad, i)
 
+// congela las animaciones CSS (CDP): cada destello de LED que arranca después queda en su primer cuadro, encendido.
+// Va justo antes de capturar, con un sleep de más de un beat para que los LEDs del beat vuelvan a destellar
+const freeze_leds = async page => {
+  let cdp = await page.createCDPSession()
+  await cdp.send("Animation.enable")
+  await cdp.send("Animation.setPlaybackRate", { playbackRate: 0 })
+}
+// los guardados del proyecto (PUT/POST a /api/projects...) se contestan "ok" sin llegar al backend: la toma puede
+// mover perillas sin cambiar el proyecto de demo del sandbox (las demás tomas lo verían cambiado)
+const block_saves = async page => {
+  await page.setRequestInterception(true)
+  page.on("request", r => {
+    if (["PUT", "POST"].includes(r.method()) && r.url().includes("/api/projects")) {
+      r.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": BASE,
+        "Access-Control-Allow-Credentials": "true" }, body: JSON.stringify({ stat: true }) })
+    } else r.continue()
+  })
+}
+// el LCD del Tag actual muestra n beats restantes (el LCD rellena con "!", el dígito vacío de DSEG7)
+const wait_tag_left = n => page => page.waitForFunction(
+  n => document.querySelector(".g_tag .lcd .value")?.textContent.replace(/!/g, "").trim() == String(n), { timeout: 90000, polling: 20 }, n)
+// la tira i suena un loop (el LCD dice "/<beats>", no REST ni vacío)
+const wait_strip_playing = i => page => page.waitForFunction(
+  i => document.querySelectorAll(".strip")[i]?.querySelector(".lcd .unit")?.textContent.startsWith("/"),
+  { timeout: 90000 }, i)
+// clic en el botón `b` (0 = M, 1 = S) de la tira i
+const strip_mute_solo = (i, b) => page => page.evaluate((i, b) =>
+  document.querySelectorAll(".strip")[i].querySelectorAll(".mute_solo button")[b].click(), i, b)
+
 // ---------- tomas ----------
 // { id, url, login?, viewport?, steps?: [paso], selector? | clip?: { x, y, width, height } | paso que lo devuelve,
 //   marks?: [{ n, sel, i?, at?, dx?, dy? }], after?: [paso] }
@@ -507,6 +536,116 @@ const SHOTS = [
       { n: 3, sel: ".el-table__header th", i: 5, at: "tr" },
       { n: 4, sel: ".el-table__header th", i: 8, at: "tr" },
       { n: 5, sel: ".row_actions", i: 0, at: "tl", dx: -12 },
+    ],
+  },
+  // --- nivel 1: tocar, cómo elige el motor, mixer, compartir ---
+  {
+    id: "transport",
+    url: "/?autostart=1",
+    login: true,
+    // en los últimos beats del Tag: el LED CHANGE destella (congelado encendido con freeze_leds)
+    steps: [wait_ready, wait_no_dialog, wait_playing, wait_tag_left(4), freeze_leds, sleep(600)],
+    selector: ".tracks_panel .controls",
+    marks: [
+      { n: 1, sel: ".g_transport .led_button", i: 0, at: "tr", dx: 6 },
+      { n: 2, sel: ".g_transport .led_button", i: 1, at: "tr", dx: 6 },
+      { n: 3, sel: ".g_tempo .lcd", at: "tr", dx: 6, dy: -14 },
+      { n: 4, sel: ".g_tempo .knob", i: 1, at: "tr", dx: 10 },
+      { n: 5, sel: ".g_position .lcd", at: "tr", dx: 6, dy: -14 },
+      { n: 6, sel: ".g_position .toggle", at: "tr", dx: 10 },
+      { n: 7, sel: ".g_range .hw_plate", at: "tr", dx: 6, dy: -12 },
+      { n: 8, sel: ".g_tag .lcd", at: "tr", dx: 6, dy: -14 },
+      { n: 9, sel: ".g_tag .warn", at: "tr", dx: 10 },
+      { n: 10, sel: ".g_master .knob", at: "tr", dx: 8 },
+      { n: 11, sel: ".g_delay", at: "tl", dx: -16, dy: -14 },
+    ],
+  },
+  {
+    id: "strips",
+    url: "/?autostart=1",
+    login: true,
+    // alta para que entren las tiras enteras; al doble de resolución porque la toma es chica
+    viewport: { width: 1440, height: 1300, deviceScaleFactor: 2 },
+    // Lead (tira 4) tocando un loop e Impacts (5, one-shot) con un disparo hecho
+    steps: [wait_ready, wait_no_dialog, wait_playing, sleep(3000), wait_strip_playing(4), freeze_leds, sleep(600)],
+    clip: clip_around([[".strip", 4], [".strip", 5]], { pad: 6 }),
+    marks: [
+      // tira loop (Lead)
+      { n: 1, sel: ".strips > .strip:nth-child(5) .led_button", at: "tl", dx: -26, dy: -8 },
+      { n: 2, sel: ".strips > .strip:nth-child(5) .meter", at: "tl", dx: -24 },
+      { n: 3, sel: ".strips > .strip:nth-child(5) .lcd", at: "tl", dx: -26 },
+      { n: 4, sel: ".strips > .strip:nth-child(5) .steps", at: "bl", dx: -26, dy: 16 },
+      { n: 5, sel: ".strips > .strip:nth-child(5) .file_name", at: "bl", dx: -26, dy: 26 },
+      { n: 6, sel: ".strips > .strip:nth-child(5) .rest_knobs", at: "tl", dx: -24 },
+      { n: 7, sel: ".strips > .strip:nth-child(5) .rest_ctrls .range_pads", at: "bl", dx: -26, dy: 10 },
+      // tira one-shot (Impacts)
+      { n: 8, sel: ".strips > .strip:nth-child(6) .led_button", at: "tr", dx: 24, dy: -8 },
+      { n: 9, sel: ".strips > .strip:nth-child(6) .lcd", at: "tr", dx: 24 },
+      { n: 10, sel: ".strips > .strip:nth-child(6) .oneshot_ctrls .knob", i: 0, at: "tr", dx: 20 },
+      { n: 11, sel: ".strips > .strip:nth-child(6) .oneshot_ctrls .knob", i: 1, at: "tr", dx: 20 },
+      { n: 12, sel: ".strips > .strip:nth-child(6) .oneshot_ctrls .knob", i: 2, at: "tl", dx: -24 },
+      { n: 13, sel: ".strips > .strip:nth-child(6) .oneshot_ctrls .led_button", at: "tr", dx: 20 },
+    ],
+  },
+  {
+    id: "mixer",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1440, height: 1300 },
+    // Perc (tira 2) en mute: se atenúa
+    steps: [wait_ready, wait_no_dialog, wait_playing, strip_mute_solo(2, 0), sleep(6000), freeze_leds, sleep(600)],
+    selector: ".tracks_panel .tracks_list",
+    marks: [
+      { n: 1, sel: ".strip .strip_name", i: 0, at: "tr", dx: 30 },
+      { n: 2, sel: ".strips_head", at: "tr", dx: 0 },
+      { n: 3, sel: ".strip .meter", i: 0, at: "tl", dx: -24 },
+      { n: 4, sel: ".strip .file_name", i: 1, at: "bl", dx: -6, dy: 22 },
+      { n: 5, sel: ".strip .fader", i: 0, at: "tr", dx: 6 },
+      { n: 6, sel: ".strip .fx_ctrls", i: 0, at: "bl", dx: -10, dy: 22 },
+      { n: 7, sel: ".strip .fx_chips", i: 0, at: "bl", dx: -12, dy: 14 },
+      { n: 8, sel: ".strip .mute_solo", i: 2, at: "br", dx: 20, dy: 4 },
+    ],
+  },
+  {
+    id: "master_meter",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1440, height: 900, deviceScaleFactor: 2 },
+    // Master al máximo (+6 dB) para que el limitador trabaje y se encienda LIM; sin guardar (block_saves)
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, sleep(2000),
+      async page => {
+        await page.evaluate(() => document.querySelector(".g_master .knob svg").focus())
+        for (let k = 0; k < 5; k++) await page.keyboard.press("PageUp")
+      },
+      // el LED LIM parpadea con la música: cuando se enciende, los medidores se congelan en ese cuadro (sin más
+      // requestAnimationFrame, el bucle de mixer.js deja de actualizarlos)
+      sleep(3000), page => page.waitForFunction(() => {
+        if (!document.querySelector(".topbar .gr .led.lit")) return false
+        window.requestAnimationFrame = () => 0
+        return true
+      }, { timeout: 60000, polling: 10 }), sleep(300)],
+    clip: clip_around([[".topbar .status", 0], [".topbar .master", 0]], { pad: 6 }),
+  },
+  {
+    id: "report",
+    url: "/",
+    login: true,
+    viewport: { width: 1200, height: 900 },
+    // denuncia de un archivo ajeno del catálogo (IMPORT): se escribe el motivo, no se manda
+    steps: [open_last, click_text("IMPORT", ".topbar"), wait_dialog("Import from catalog"),
+      page => page.waitForSelector("[data-shot] .icons.report"),
+      page => page.evaluate(() => document.querySelector("[data-shot] .icons.report").click()),
+      wait_dialog("Report file"),
+      async page => {
+        await page.type("[data-shot] textarea", "Este sonido es de una librería comercial que no es royalty free.")
+        await page.click("[data-shot] .el-dialog__title")
+        await sleep(300)()
+      }],
+    selector: "[data-shot]",
+    marks: [
+      { n: 1, sel: "[data-shot] .target", at: "tr", dx: 0 },
+      { n: 2, sel: "[data-shot] textarea", at: "tr", dx: -4, dy: -4 },
+      { n: 3, sel: "[data-shot] .el-dialog__footer .el-button--danger", at: "tl", dx: -16, dy: -4 },
     ],
   },
 ]

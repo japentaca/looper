@@ -113,7 +113,7 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
   id: "overview",               // archivo: public/manual/overview.webp
   url: "/?autostart=1",         // ruta del frontend
   login: true,                  // entra como demo antes de abrir la url
-  viewport: { width: 1440, height: 1600 }, // opcional (default 1440×900)
+  viewport: { width: 1440, height: 1600 }, // opcional (default 1440×900; deviceScaleFactor: 2 para tomas chicas)
   steps: [wait_ready, wait_no_dialog, wait_playing, sleep(9000)], // pasos previos, en orden
   // selector: ".el-dialog",    // opcional: captura solo ese elemento
   // clip: { x, y, width, height }, // opcional: recorte del viewport (o un paso que lo devuelve: clip_around)
@@ -134,7 +134,11 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
   de Element Plus con ese título y lo marca con `data-shot`: la toma usa `selector: "[data-shot]"`), `open_last`
   (contesta OPEN a la pregunta de entrada y espera la carga), `scroll_to(sel, i)`, `files_box` (vista Box de Files),
   `tutorial_project({ unassigned, query })`, `choose_upload_files` (elige wav sintéticos en Upload Files, sin
-  subirlos) y `fake_drag(pad, i)` (un pad "arrastrado" sobre un cartucho de Files, a mitad de camino). Para recortes
+  subirlos), `fake_drag(pad, i)` (un pad "arrastrado" sobre un cartucho de Files, a mitad de camino),
+  `wait_tag_left(n)` (al Tag actual le quedan n beats), `wait_strip_playing(i)` (la tira i toca un loop),
+  `strip_mute_solo(i, b)` (M o S de la tira i), `freeze_leds` (congela las animaciones CSS: los destellos de LED que
+  arrancan después quedan encendidos; va con un `sleep` de más de un beat antes de capturar) y `block_saves` (contesta
+  "ok" a los guardados del proyecto sin que lleguen al backend: la toma puede mover perillas sin cambiar la demo). Para recortes
   calculados en la página, `clip: clip_around([[selector, índice], ...], { pad, height })`. Para algo puntual se
   escribe la función en la misma toma.
 - Para la vista pública sonando se usa `?play=1` + `click_play`, no `?autostart=1`: con este último el START

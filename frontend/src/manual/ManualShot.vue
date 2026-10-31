@@ -136,6 +136,7 @@ figcaption {
 
 .legend li {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
   gap: 10px;
   color: var(--text);
@@ -162,6 +163,11 @@ figcaption {
     width: 18px;
     height: 18px;
     font-size: 10px;
+  }
+
+  /* un link largo ("→ 20 · Delay, reverb y COMP del master") sin cortar desbordaba la página en celular */
+  .go {
+    white-space: normal;
   }
 }
 

@@ -46,6 +46,13 @@ defineProps({
   margin-bottom: 4px;
 }
 
+/* .silk no corta líneas (nowrap, global): un título largo desbordaba la nota en celular */
+.head .silk {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.4;
+}
+
 .body :deep(p) {
   margin: 4px 0 0;
 }
