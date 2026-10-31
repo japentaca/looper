@@ -119,7 +119,7 @@
           <span class="silk">Volume</span>
           <!-- posición 0..1 con la misma curva de consola que las pistas, con tope en +12 dB (fader_to_db en mixer.js) -->
           <Fader :model-value="db_to_fader(curr_edit_file.props.volume, FILE_VOL_MAX_DB)" :min="0" :max="1" :step="0.01"
-            :length="150" :marks="volume_marks" :title="db_label(curr_edit_file.props.volume)"
+            :length="150" :marks="volume_marks" :title="db_label(curr_edit_file.props.volume)" :disabled="store.read_only"
             @update:model-value="v => curr_edit_file.props.volume = fader_to_db(v, FILE_VOL_MAX_DB)"
             @change="onChange(curr_edit_file)" />
           <Lcd small :digits="3" :value="curr_edit_file.props.volume > VOL_OFF_DB ? curr_edit_file.props.volume : '---'"
@@ -154,14 +154,15 @@
         <!-- peso del archivo en el sorteo de su pista (0 = no sale nunca; ver pick_weighted en composable.js) -->
         <div class="hw_plate weight" :title="weight_title(curr_edit_file)">
           <span class="silk">Weight</span>
-          <Knob v-model="curr_edit_file.props.weight" :min="0" :max="WEIGHT_MAX" :size="56"
+          <Knob v-model="curr_edit_file.props.weight" :min="0" :max="WEIGHT_MAX" :size="56" :disabled="store.read_only"
             @change="onChange(curr_edit_file)" />
           <Lcd small :digits="2" :value="curr_edit_file.props.weight" />
         </div>
         <!-- repetición: al salir sorteado, el loop suena seguido un número de veces al azar dentro de este rango -->
         <div class="hw_plate repeat" title="Times in a row the loop plays when drawn (random within the range; a Tag change cuts it)">
           <span class="silk">Repeat</span>
-          <RangePads v-model="curr_edit_file.props.repeat" :options="REPEAT_OPTIONS" @change="onChange(curr_edit_file)" />
+          <RangePads v-model="curr_edit_file.props.repeat" :options="REPEAT_OPTIONS" :disabled="store.read_only"
+            @change="onChange(curr_edit_file)" />
           <span class="silk">{{ repeat_label(curr_edit_file.props.repeat) }}</span>
         </div>
       </div>

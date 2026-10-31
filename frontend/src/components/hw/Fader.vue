@@ -1,5 +1,5 @@
 <template>
-  <div class="fader">
+  <div class="fader" :class="{ disabled }">
     <div class="body" :style="{ height: length + 'px' }">
       <!-- escala serigrafiada a la izquierda -->
       <div class="scale">
@@ -7,8 +7,9 @@
           <span class="mark_label">{{ m.label }}</span><span class="mark_line"></span>
         </span>
       </div>
-      <div ref="track" class="track" tabindex="0" role="slider" :aria-label="label" :aria-valuemin="min"
-        :aria-valuemax="max" :aria-valuenow="modelValue" @pointerdown="onDown" @wheel.prevent="onWheel" @keydown="onKey">
+      <div ref="track" class="track" :tabindex="disabled ? -1 : 0" role="slider" :aria-label="label" :aria-valuemin="min"
+        :aria-valuemax="max" :aria-valuenow="modelValue" :aria-disabled="disabled" @pointerdown="onDown" @wheel="onWheel"
+        @keydown="onKey">
         <span class="slot"></span>
         <span class="cap" :style="{ bottom: `calc(11px + ${ratio(modelValue)} * (100% - 22px))` }"></span>
       </div>
@@ -19,6 +20,7 @@
 <script setup>
 // Fader vertical: se arrastra (el clic en la ranura salta a esa posición), con la rueda o con las flechas.
 // marks = [{ value, label }] para la escala. Emite update:modelValue al mover y "change" al soltar.
+// Con disabled se ve atenuado y no responde (ni toma foco).
 import { ref } from "vue"
 
 const props = defineProps({
@@ -28,7 +30,8 @@ const props = defineProps({
   step: { type: Number, default: 1 },
   length: { type: Number, default: 110 },
   marks: { type: Array, default: () => [] },
-  label: { type: String, default: "" }
+  label: { type: String, default: "" },
+  disabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(["update:modelValue", "change"])
 
@@ -52,6 +55,7 @@ function value_at(client_y) {
 }
 
 function onDown(e) {
+  if (props.disabled) return
   let el = track.value
   el.setPointerCapture(e.pointerId)
   let start_v = props.modelValue
@@ -83,10 +87,13 @@ function set_value(v) {
 }
 
 function onWheel(e) {
+  if (props.disabled) return
+  e.preventDefault()
   set_value(props.modelValue + (e.deltaY < 0 ? props.step : -props.step))
 }
 
 function onKey(e) {
+  if (props.disabled) return
   let delta = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key]
   if (!delta) return
   e.preventDefault()
@@ -164,6 +171,11 @@ function onKey(e) {
     linear-gradient(180deg, transparent 45%, #f2f0ea 45% 55%, transparent 55%),
     linear-gradient(180deg, #6a6c70 0%, #3a3b3e 48%, #2a2b2e 52%, #4b4d51 100%);
   box-shadow: 0 3px 4px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.fader.disabled .track {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .track:focus-visible .cap {
