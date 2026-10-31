@@ -1007,7 +1007,12 @@ function set_next_step(time, n, downbeat) {
     get_available_files_x_tag(current_TAG.tag?.id)
 
     for (const track of tracks) {
-      if (!track.curr_file) continue
+      if (!track.curr_file) {
+        // pista loop callada por falta de candidatos (esperaba el próximo compás, ver loop_step): revisa ya, en el
+        // cambio de Tag, que es cuando suelen aparecer (aunque el cambio no caiga en un downbeat, p. ej. en 3/4)
+        if (!track.resting && !is_oneshot(track.track_group)) track.remaining_beats = 0
+        continue
+      }
       // solo se cortan los loops que no tienen el tag nuevo; los que tienen varios tags (p.ej. A y B)
       // siguen sonando al pasar de A a B
       if (tag_cuts(track.curr_file, from_id, current_TAG.tag)) {
@@ -1043,14 +1048,14 @@ function set_next_step(time, n, downbeat) {
       return
     }
     // FX de transición: se evalúan después del paso, con remaining_beats / repeats_left ya de este beat
-    if (loop_step(track, time)) fx_step(track, time)
+    if (loop_step(track, time, n)) fx_step(track, time)
   })
 
 }
 
-// paso de una pista loop. Devuelve true si en este beat la pista está sonando una tirada (un loop y
-// sus repeticiones), false si descansa o queda en silencio
-function loop_step(track, time) {
+// paso de una pista loop (n = número de beat del transporte). Devuelve true si en este beat la pista está sonando
+// una tirada (un loop y sus repeticiones), false si descansa o queda en silencio
+function loop_step(track, time, n) {
   if (track.remaining_beats == 0) {
     // repetición: el loop que terminó vuelve a arrancar en este beat sin sortear otro (si sigue
     // siendo sorteable: no se quitó del proyecto, no se le bajó el peso a 0, sigue en tempo).
@@ -1086,10 +1091,14 @@ function loop_step(track, time) {
 
     // pista sin archivos sorteables (ninguno disponible, compatible con el Tag y dentro de la
     // tolerancia de tempo): queda en silencio. El loop que terminó se suelta (si no, el LCD quedaba
-    // congelado en su último beat)
+    // congelado en su último beat). Vuelve a mirar en el próximo compás (o en el cambio de Tag, ver
+    // set_next_step), no en cada beat: si un cambio de tempo, de Tol o de archivos le trae candidatos a
+    // mitad de compás, el loop no arranca fuera de la grilla
     let candidates = draw_candidates(track)
     if (!candidates.length) {
       drop_file(track, time)
+      let bpb = parseInt(TrackCtrl.beats_x_bar)
+      track.remaining_beats = bpb - (n % bpb) - 1
       return false
     }
     let f = pick_weighted(candidates, file_weight)

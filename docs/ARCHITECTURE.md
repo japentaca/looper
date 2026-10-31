@@ -742,7 +742,10 @@ Flujo:
      `time` (hilo principal ocupado) se avisa por consola (`agendado N ms tarde`).
    - Por cada track con `remaining_beats == 0`: primero el dado de descanso (ver abajo); si no
      descansa y no tiene archivos disponibles para el Tag, queda en silencio (suelta el loop que
-     terminó: `curr_file = null`, LCD vacío); si no, sortea con peso (`props.weight` del archivo en el proyecto) un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
+     terminó: `curr_file = null`, LCD vacío) y vuelve a mirar en el próximo downbeat
+     (`remaining_beats` hasta el fin del compás, con el `n` del beat) o en el cambio de Tag (que pone en 0
+     el `remaining_beats` de las pistas loop calladas así): si un cambio de tempo, de Tol o de archivos le trae
+     candidatos a mitad de compás, no arranca fuera de la grilla; si no, sortea con peso (`props.weight` del archivo en el proyecto) un archivo disponible de su track group, lo arranca en `time` (tiempo de audio exacto que da Tone) y fija
      `remaining_beats = play_beats - 1`. Si no, decrementa (en descanso solo cuenta) y actualiza el progreso.
    - **Repetición (`props.repeat` del archivo en el proyecto, `[min, max]` de 1, 2, 4, 8, 16)**: al
      sortear y arrancar un archivo, `draw_repeat` elige al azar (uniforme) un valor del rango:

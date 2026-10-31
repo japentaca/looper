@@ -110,7 +110,8 @@
   </p>
   <p>
     Si no queda ningún candidato, la pista se calla hasta que vuelva a haber alguno: con el próximo Tag, otro tempo u
-    otra tolerancia.
+    otra tolerancia. Vuelve a entrar en el cambio de Tag o, si los candidatos aparecen a mitad de compás (porque
+    moviste el tempo, por ejemplo), en el primer tiempo del compás siguiente: siempre en la grilla.
   </p>
 
   <h4>Descansos</h4>
