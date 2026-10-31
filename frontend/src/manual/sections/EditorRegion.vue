@@ -103,9 +103,9 @@
       { n: 1, x: 19.5, y: 3.4, text: 'La grilla, de trazos, sigue al tempo del proyecto desde el anchor.' },
       { n: 2, x: 3.2, y: 22.9, text: 'La manija del anchor: la lengüeta de abajo.' },
       { n: 3, x: 37.7, y: 31.5, text: 'El anchor que vale (acá, el de catálogo: START) y DEFAULT para volver a él.' },
-      { n: 4, x: 9, y: 81.2, to: 'editor_pitch', text: 'La nota detectada.' },
-      { n: 5, x: 33, y: 77.5, to: 'editor_pitch', text: 'La nota destino de TUNE TO.' },
-      { n: 6, x: 43.5, y: 78.5, to: 'editor_pitch', text: 'TUNE TO: transpone el sonido a esa nota.' },
+      { n: 4, x: 26.5, y: 79.5, to: 'editor_pitch', text: 'La nota detectada.' },
+      { n: 5, x: 9.6, y: 85.5, to: 'editor_pitch', text: 'La nota destino de TUNE TO.' },
+      { n: 6, x: 37.8, y: 86.6, to: 'editor_pitch', text: 'TUNE TO: transpone el sonido a esa nota.' },
       { n: 7, x: 69.6, y: 74, to: 'editor_pitch', text: 'El transpose que puso TUNE TO.' },
     ]" />
   <p>

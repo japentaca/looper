@@ -88,14 +88,15 @@
               <template v-else>
                 <span class="det_text" :title="note_det_title">{{ det.result.note }} {{ fmt_cents(det.result.cents) }}</span>
                 <span v-if="note_now" class="eff_key" title="With this project's transpose">→ {{ note_now }}</span>
-                <template v-if="!store.read_only">
+                <!-- el select y TUNE TO van juntos: si no entran en la fila, bajan a la siguiente -->
+                <span v-if="!store.read_only" class="timing_row">
                   <el-select v-model="tune_target" size="small" class="tune_select" :title="TUNE_HELP">
                     <el-option v-for="t in tune_options" :key="t.midi" :value="t.midi"
                       :label="`${t.note} (${fmt_semis(t.semis)})${t.tonic ? ' · key' : ''}`" />
                   </el-select>
                   <LedButton size="small" led="yellow" text="TUNE TO" :disabled="tune_semis_now == null"
                     :title="tune_title" @click="apply_tune" />
-                </template>
+                </span>
               </template>
             </span>
           </template>
@@ -612,10 +613,17 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+/* sus partes no se encogen ni se parten: si no entran (la fila Detected de un shot), la fila sigue abajo */
 .timing_row {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
+}
+
+.timing_row > * {
+  flex: none;
+  white-space: nowrap;
 }
 
 .edit_info {
@@ -814,7 +822,7 @@ onBeforeUnmount(() => {
 }
 
 .tune_select {
-  width: 150px;
+  width: 180px;
 }
 
 /* tonalidad efectiva (transpuesta en este proyecto) */
