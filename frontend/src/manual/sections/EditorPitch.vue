@@ -31,7 +31,8 @@
     </li>
     <li>
       Al lado de <Ui>Key</Ui> aparece la tonalidad con que suena (<i>G → A<sup>+2</sup></i>). También la muestran el
-      cartucho y la tabla de <Ui>Files</Ui>, y el filtro por tonalidad usa esa.
+      cartucho y la tabla de <Ui>Files</Ui>, y el filtro por tonalidad usa esa. Un archivo atonal (o sin tonalidad)
+      no muestra nada: no tiene tonalidad que cambiar.
     </li>
     <li>Al guardar una copia en el editor, el transpose no se graba en el audio: pasa a la copia como ajuste.</li>
   </ul>

@@ -95,8 +95,14 @@ describe("tonalidad efectiva", () => {
     let e = key_display("C", 0.3)
     expect(e.text).toBe("C")
     expect(e.mark).toBe("+0.3")
-    expect(key_display("atonal", -2).text).toBe("atonal")
     expect(key_display("G", 1, 1.3).title).toContain("KEY LOCK off")
+  })
+  it("key_display: atonal o sin tonalidad no muestra transposición aunque la tenga", () => {
+    for (let k of ["atonal", null, undefined, "", "xyz"]) {
+      let d = key_display(k, -2, 1.3)
+      expect(d).toMatchObject({ text: key_display(k, 0).text, mark: null, transposed: false, title: undefined })
+    }
+    expect(key_display("atonal", 3).text).toBe("atonal")
   })
 })
 

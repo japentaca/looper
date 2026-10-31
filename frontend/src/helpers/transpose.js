@@ -100,18 +100,18 @@ export function fmt_semis(s) {
 // lo que muestran el editor, el cartucho y la tabla del proyecto: { text (tonalidad efectiva: music_key + transpose
 // redondeado al semitono), mark (transpose con signo, redondeado al semitono; null sin transponer), transposed, title
 // (el valor exacto si tiene fracción) }. resample = semitonos que agrega el resample del motor (loops sin KEY LOCK;
-// 0 = no se aclara)
+// 0 = no se aclara). Sin tonalidad (sin dato o atonal) no hay tonalidad efectiva: se muestra como sin transponer
 export function key_display(music_key, transpose, resample = 0) {
   let t = parse_transpose(transpose)
   let base = key_label(music_key)
-  if (!t) {
+  let k = normalize_key(music_key)
+  if (!t || !k || k == KEY_ATONAL) {
     return { text: base, mark: null, transposed: false, title: undefined }
   }
   let n = Math.round(t)
-  let text = music_key ? key_label(transpose_key(music_key, t)) : base
+  let text = key_label(transpose_key(music_key, t))
   let mark = n != 0 ? fmt_semis(n) : fmt_semis(t)
-  let title = `Transposed ${fmt_semis(t)} semitones in this project`
-    + (music_key && music_key != KEY_ATONAL ? ` (catalog key ${music_key})` : "")
+  let title = `Transposed ${fmt_semis(t)} semitones in this project (catalog key ${music_key})`
   if (n != t) title += `; the key shown is rounded to the nearest semitone (${fmt_semis(n)})`
   if (Math.abs(resample) >= 0.05) title += `. The engine's tempo change adds ${fmt_semis(clean(resample))} (KEY LOCK off)`
   return { text, mark, transposed: true, title }
