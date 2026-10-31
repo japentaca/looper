@@ -98,7 +98,8 @@
       <Lcd :value="fader" :digits="3" />
     </div>
     <ul class="how">
-      <li><b>Arrastrá</b> hacia arriba o hacia abajo (no en círculo). Con <Kbd>Shift</Kbd>, más fino.</li>
+      <li><b>Arrastrá</b> hacia arriba o hacia abajo (no en círculo). En una perilla, con <Kbd>Shift</Kbd>, más
+        fino.</li>
       <li>O usá la <b>rueda del mouse</b> encima del control.</li>
       <li>En un fader, un clic en la ranura lo lleva directo ahí.</li>
       <li>

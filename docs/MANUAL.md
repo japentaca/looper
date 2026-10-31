@@ -13,6 +13,9 @@ tomas.
   sandbox, nunca con los datos reales: el sandbox es una copia de `storage/` fuera del repo y la cuenta que se
   ve es la de demo. Antes de commitear una captura, mirarla: no tiene que mostrar datos privados (emails,
   proyectos de otros usuarios que no sean públicos, etc.).
+- `npm test` incluye `src/manual/sections.test.js`: cada `<Term t>` existe en el glosario, cada link interno va a una
+  sección, cada captura citada existe y cada webp de `public/manual/` se usa y tiene su toma en `manual_shots.js` (sin
+  huérfanos). Si se saca una captura de una sección, borrar el webp y su toma.
 - Los números de las anotaciones no van quemados en la imagen: son `callouts` de `<ManualShot>` en % sobre la
   captura. Si una captura cambia de diseño, actualizar también sus posiciones (las imprime el script).
 
@@ -149,8 +152,8 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
   (la misma instancia que usa la app: `store`, etc.), así que solo andan contra `npm run dev`. Para recortes
   calculados en la página, `clip: clip_around([[selector, índice], ...], { pad, height })`. Para algo puntual se
   escribe la función en la misma toma.
-- Para la vista pública sonando se usa `?play=1` + `click_play`, no `?autostart=1`: con este último el START
-  inmediato falla en la vista pública (ver `docs/KNOWN_ISSUES.md`).
+- Para la vista pública sonando las tomas usan `?play=1` + `click_play` (lo que ve un visitante con un link de
+  LINK). `?autostart=1` también anda en la vista pública desde el commit 028182c (antes el START inmediato fallaba).
 - **Marks:** `sel` (selector CSS; `i` = cuál de los que coinciden, default 0), `at` = `center` (default) o una
   esquina `tl` | `tr` | `bl` | `br` (a 16 px de los bordes), `dx` / `dy` = corrimiento en px. Elegir lugares
   que no tapen lo que se explica y que no queden pegados entre sí (en celular la captura se achica y los

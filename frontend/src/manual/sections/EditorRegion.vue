@@ -62,7 +62,8 @@
       Mantené <Kbd>Shift</Kbd> mientras arrastrás para invertirlo por un momento. Queda recordado en ese navegador.
     </li>
     <li>
-      <Kbd>←</Kbd> / <Kbd>→</Kbd> mueven la última manija que tocaste (la roja): con SNAP, un beat; sin SNAP, 1 ms.
+      <Kbd>←</Kbd> / <Kbd>→</Kbd> mueven la última manija que tocaste (la roja): con SNAP, un beat (en un one-shot, al cruce por cero
+      siguiente); sin SNAP, 1 ms.
       <Kbd>Shift</Kbd> invierte. Para elegir una manija sin moverla, hacé clic en su lengüeta.
     </li>
   </ul>

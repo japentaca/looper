@@ -110,7 +110,8 @@
   </table>
   <p>
     Los de la región (<Kbd>G</Kbd> y las flechas) están en <a href="#editor_region" @click.prevent="go('editor_region')">Región</a>
-    y los de las ediciones, en <a href="#editor_edits" @click.prevent="go('editor_edits')">Ediciones</a>.
+    y los de las ediciones, en <a href="#editor_edits" @click.prevent="go('editor_edits')">Ediciones</a>. Todos juntos, en
+    <a href="#shortcuts" @click.prevent="go('shortcuts')">Atajos de teclado</a>.
   </p>
   <p>
     El preview del diálogo <Ui>IMPORT</Ui> es más simple: suena siempre suelto y con el archivo original, porque

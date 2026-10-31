@@ -1,5 +1,10 @@
 # Plan: manual de uso (`/manual`)
 
+> **Estado: implementado** (oct 2026), en las 8 fases de abajo: 44db115 (1, esqueleto), f7292d5 (2, capturas),
+> 3e14387 (3), 9c69602 y a7a6c80 (4 y 5, nivel 1), eb6e818 y e117abd (6 y 7, nivel 2) y el commit de la fase 8
+> (apéndices, `?` de los diálogos, regla en `AGENTS.md`, revisión de coherencia). Cómo mantenerlo: `docs/MANUAL.md`.
+> Las decisiones quedan como referencia; los desvíos están en "Desvíos" al final.
+
 Manual para el iniciado, con capturas, dentro de la misma app y con su estética. Decisiones acordadas
 con el dueño el 2026-10-30. Se implementa por fases, un commit por fase (subagentes en secuencia);
 las pruebas a mano en el navegador van al final.
@@ -126,3 +131,21 @@ no lo que dicen los planes), agregar sus tomas a `manual_shots.js`, regenerarlas
 - Que los controles reales embebidos respondan y no disparen audio.
 - Revisar que el texto coincida con la app (rótulos, comportamiento) y que las capturas no muestren datos
   que no deban ser públicos.
+
+## Desvíos (lo que cambió al implementarlo)
+
+- **MANUAL abre en otra pestaña desde la app:** el botón de `App.vue` hace `window.open("/manual")` para no cortar lo
+  que suena (en `PublicBar.vue` es un link común). Los `?` de los diálogos también (`components/ManualHelp.vue`, con
+  `manual_link(id)` de `helpers/utils.js`): editor → `#editor`, FX → `#fx`, Projects → `#projects`, Import → `#audio`.
+- **Sin visibilidad de proyectos:** la app no tiene ese ajuste (todos los proyectos son públicos, salvo los que oculta
+  la moderación), así que `projects` lo dice en vez de explicar una visibilidad.
+- **Sandbox anónimo:** además de copiar `storage/`, `backend/manual_sandbox.js` oculta los proyectos de los demás
+  usuarios y los renombra `artist_<n>` (sin email real ni bio), así las capturas de la galería y del catálogo no
+  muestran datos reales.
+- **Apéndices:** `shortcuts` es una tabla armada a mano desde el código (si cambia un atajo hay que actualizarla);
+  `troubleshooting` muestra el cartel *Click to start* con una maqueta (el `LedButton` real, sin función) en vez de una
+  captura, porque el script corre con autoplay permitido y el cartel no aparece.
+- **Chequeo automático:** `src/manual/sections.test.js` (en `npm test`) verifica los links al glosario y a las
+  secciones y que las capturas, los webp y las tomas de `manual_shots.js` coincidan.
+- **Capturas de los diálogos:** las tomas de los diálogos con `?` (editor, FX, Projects, Import) se sacaron antes de
+  agregarlo; se ven sin el botón hasta la próxima vez que se regeneren.

@@ -1,8 +1,12 @@
 <template>
   <!-- importar archivos del catálogo al proyecto activo (se abre desde la barra superior). Chasis del aparato
     (hw_dialog); el catálogo no trae los archivos que ya están en el proyecto (exclude_project) -->
-  <el-dialog v-model="visible" title="Import from catalog" width="min(960px, 96vw)" class="hw_dialog" align-center
-    @open="on_open" @closed="toneLib.stop_foreign_preview()">
+  <el-dialog v-model="visible" width="min(960px, 96vw)" class="hw_dialog" align-center @open="on_open"
+    @closed="toneLib.stop_foreign_preview()">
+    <template #header="{ titleId, titleClass }">
+      <span :id="titleId" :class="titleClass">Import from catalog</span>
+      <ManualHelp section="audio" />
+    </template>
     <div class="filters">
       <el-input v-model="filters.q" class="f_text" maxlength="64" clearable placeholder="Name contains…"
         @keyup.enter="search(1)" @clear="search(1)" />
@@ -142,6 +146,7 @@ import * as toneLib from "../helpers/toneLib"
 import { fmt_date, mb, use_msg } from "../helpers/utils"
 import ReportDialog from "./ReportDialog.vue"
 import LedButton from "./hw/LedButton.vue"
+import ManualHelp from "./ManualHelp.vue"
 import LedMeter from "./hw/LedMeter.vue"
 import { KEY_TONICS, key_label } from "../helpers/music_key"
 

@@ -28,6 +28,12 @@ export function project_link(id) {
   return `${window.location.origin}/p/${id}?play=1`
 }
 
+// link a una sección del manual (/manual#<id>; los ids son fijos, ver manual/sections.js). Lo usan los "?" de
+// los diálogos (ManualHelp.vue), que lo abren en otra pestaña para no cortar lo que suena
+export function manual_link(id) {
+  return `/manual#${id}`
+}
+
 // aviso de un diálogo (el-alert): msg = { type, text }; set_msg(type, text) lo reemplaza
 export function use_msg(type = "success") {
   const msg = reactive({ type, text: "" })

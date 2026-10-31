@@ -1,8 +1,11 @@
 <template>
   <!-- proyectos del usuario: abrir, crear, renombrar y borrar (se abre desde la barra superior). Chasis del
     aparato (hw_dialog) con una bahía hundida donde cada proyecto es un cartucho con etiqueta de papel -->
-  <el-dialog v-model="visible" title="Projects" width="min(760px, 96vw)" class="hw_dialog" align-center
-    @open="on_open">
+  <el-dialog v-model="visible" width="min(760px, 96vw)" class="hw_dialog" align-center @open="on_open">
+    <template #header="{ titleId, titleClass }">
+      <span :id="titleId" :class="titleClass">Projects</span>
+      <ManualHelp section="projects" />
+    </template>
     <div class="create">
       <span class="silk">New</span>
       <el-input v-model="new_name" maxlength="64" placeholder="New project name" :disabled="busy"
@@ -57,6 +60,7 @@ import { ref } from "vue"
 import { ElMessageBox } from "element-plus"
 import Led from "./hw/Led.vue"
 import LedButton from "./hw/LedButton.vue"
+import ManualHelp from "./ManualHelp.vue"
 import {
   store, refresh_projects, switch_project, flush_pending_saves, store_get_user_info,
   project_memory, project_memory_warn, project_memory_title, fmt_memory

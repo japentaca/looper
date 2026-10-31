@@ -31,7 +31,8 @@
       Con <Ui>SNAP</Ui> encendido, los bordes se pegan a los beats (en un one-shot, a los cruces por cero). Con
       <Kbd>Shift</Kbd> mientras arrastrás, al revés.
     </li>
-    <li><Kbd>←</Kbd> / <Kbd>→</Kbd> mueven el último borde que soltaste: un beat con SNAP, 1 ms sin SNAP.</li>
+    <li><Kbd>←</Kbd> / <Kbd>→</Kbd> mueven el último borde que soltaste: un beat con SNAP (en un one-shot, al cruce por cero
+      siguiente), 1 ms sin SNAP.</li>
     <li>Un clic en la onda, o <Kbd>Esc</Kbd>, la quita.</li>
   </ul>
 
@@ -42,7 +43,7 @@
     </thead>
     <tbody>
       <tr>
-        <td><Ui>CUT</Ui></td><td><Kbd>Supr</Kbd></td>
+        <td><Ui>CUT</Ui></td><td><Kbd>Supr</Kbd> o <Kbd>Retroceso</Kbd></td>
         <td>Quita el tramo: el archivo se acorta y lo de después se corre.</td><td>No anda</td>
       </tr>
       <tr>

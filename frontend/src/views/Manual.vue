@@ -254,11 +254,6 @@ onBeforeUnmount(() => {
   padding-left: 22px;
 }
 
-.content :deep(.pending) {
-  color: var(--muted);
-  font-style: italic;
-}
-
 .content :deep(a:not([class])) {
   color: var(--accent);
 }
@@ -367,10 +362,6 @@ onBeforeUnmount(() => {
   .content :deep(img) {
     max-width: 100%;
     break-inside: avoid;
-  }
-
-  .content :deep(.pending) {
-    color: #555;
   }
 
   .content :deep(a:not([class])) {

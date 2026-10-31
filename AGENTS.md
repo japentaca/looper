@@ -41,7 +41,7 @@ frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
   router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue), /manual (views/Manual.vue); scrollBehavior para las anclas
   views/             # vistas públicas sin sesión: Gallery.vue (galería), PublicProject.vue (proyecto público en modo lectura: store.read_only, nada se guarda), Manual.vue (manual de uso: índice lateral + todas las secciones en una página)
-  manual/            # manual (docs/PLAN_MANUAL.md): sections.js (ids = anclas fijas, nivel, número, título), sections/*.vue (una sección por archivo), ManualShot (captura con callouts en %), Ui, Term, Kbd, Note, nav.js
+  manual/            # manual (docs/PLAN_MANUAL.md): sections.js (ids = anclas fijas, nivel, número, título), sections/*.vue (una sección por archivo), ManualShot (captura con callouts en %), Ui, Term, Kbd, Note, nav.js; sections.test.js (coherencia: glosario, anclas, capturas)
   App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
@@ -59,11 +59,12 @@ frontend/src/
     Uploader.vue     # subida de archivos (el-upload)
     Login.vue        # diálogo de login y registro (con la licencia); muestra los mensajes del backend
     Account.vue      # diálogo de cuenta propia: bio y cambio de clave
-    Projects.vue     # diálogo de proyectos: abrir, crear, renombrar, borrar, visibilidad
+    Projects.vue     # diálogo de proyectos: abrir, crear, renombrar, borrar (no hay visibilidad: todos son públicos)
     OpenProject.vue  # pregunta al entrar (recarga o login) si se abre el último proyecto, otro o ninguno
     ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria; no lista lo que ya está en el proyecto)
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
     PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería, manual y app)
+    ManualHelp.vue   # "?" chico en el encabezado de un diálogo (editor, FX, Projects, Import): abre /manual#<sección> en otra pestaña
     LoadingDialog.vue # diálogo de carga de un proyecto (anillo de LEDs con el avance); con el link ?play=1 queda armado con PLAY (el gesto para sonar)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob (prop disabled: atenuado y sin respuesta), Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, GrLed (LED de reducción de ganancia), StepLeds, RangePads (rango [min, max] sobre una lista de valores)
@@ -97,7 +98,7 @@ frontend/src/
     api.js           # wrappers de endpoints
     request.js       # instancia axios (baseURL = VITE_APP_BACKEND, withCredentials)
     file_ui.js       # helpers que comparten la lista (Files.vue) y el editor (FileEditor.vue): fuera de tempo, bpm, toggleTag, ANCHOR_TEXT, tonalidad efectiva (key_view), play/stop y títulos del preview y de SYNC
-    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, url_play, project_link (botón LINK), use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
+    utils.js         # helpers chicos compartidos: fmt_date, mb, url_autostart, url_play, project_link (botón LINK), manual_link ("?" de los diálogos), use_msg (aviso de los diálogos), editor_key_ok (foco de los atajos del editor)
 deploy/
   deploy.sh          # despliegue al VPS desde la máquina de desarrollo (bash deploy/deploy.sh): ssh → pull, npm ci, build_prd, restart
   .env.deploy.example # datos de conexión (copiar a .env.deploy, gitignored; sin IPs ni secretos en git)
@@ -167,7 +168,8 @@ Antes de dar una tarea por terminada:
    Los `error` hay que dejarlos en cero en lo que se toca; las advertencias heredadas se limpian de a poco.
    Tests: `cd backend && npm test` (`node --test`, sin Vitest: por ahora `loop_period.test.js`).
 2. Frontend: `cd frontend && npm run build` debe compilar sin errores. Tests: `cd frontend && npm test`
-   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js`, `edit_ops.test.js`, `transpose.test.js`, `stretch_core.test.js` y `detect.test.js`) deben pasar todos.
+   (Vitest en Node, `vitest run`; por ahora `src/helpers/master_dsp.test.js`, `master_dsp.worklet.test.js`, `wave.test.js`, `preview_sync.test.js`, `region.test.js`, `loudness.test.js`, `edit_ops.test.js`, `transpose.test.js`, `stretch_core.test.js`, `detect.test.js` y `src/manual/sections.test.js`) deben pasar todos.
+   Si se tocó el manual, revisar `/manual` en el navegador (escritorio y ~390 px).
 3. Si se tocó la reproducción (`Tracks.vue`, `engine_oneshot.js`, `engine_fx.js`, `composable.js`, `TrackCtrl.js`, `toneLib.js`, `preview_sync.js`, `region.js`, `edit_session.js`, `pitch.js`, `stretch_*.js`, `mixer.js`, `master_dsp.js`, `master_dsp.worklet.js`):
    describir qué se debe probar a mano en el navegador (el audio no se puede verificar en CI).
 4. Decir explícitamente qué se verificó y qué no.
@@ -220,3 +222,7 @@ Imitar el estilo existente al editar:
   filtra sus queries por `user_id: req.user.id` (lo deja el chequeo de sesión por request, que lee
   `status` y `role` de la base; no usar `req.session.isLogged` ni `req.session.u_info`). Ver
   "Cómo agregar un endpoint" en `docs/API.md`.
+- **Manual de uso** (`/manual`): si un cambio altera lo que el usuario ve o hace, actualizar en el mismo cambio la
+  sección que lo cuenta (`frontend/src/manual/sections/`, y la tabla de `Shortcuts.vue` si es un atajo) y, si cambió
+  la pantalla, regenerar sus capturas con `npm run manual_shots -- <ids>` en el sandbox (`docs/MANUAL.md`). Los ids
+  de las secciones son anclas fijas (los usan los links y los `?` de los diálogos): no se cambian.

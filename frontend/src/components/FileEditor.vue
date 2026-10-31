@@ -1,7 +1,12 @@
 <template>
   <!-- Esc lo maneja on_editor_key (primero quita la selección); cerrar con cambios destructivos sin guardar pregunta -->
-  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" :title="curr_edit_file.original_name" width="min(1120px, 96vw)"
+  <el-dialog v-if="curr_edit_file != null" v-model="dialogVisible" width="min(1120px, 96vw)"
     class="hw_dialog editor_dialog" align-center draggable :close-on-press-escape="false" :before-close="before_close">
+    <!-- título: el nombre del archivo, con el "?" del manual -->
+    <template #header="{ titleId, titleClass }">
+      <span :id="titleId" :class="titleClass">{{ curr_edit_file.original_name }}</span>
+      <ManualHelp section="editor" />
+    </template>
     <div class="edit_body">
       <!-- pantalla de onda a todo el ancho (grilla, cursores) con la región debajo: start/stop, SNAP, NUDGE, FADE
         y lupas (RegionEditor.vue). La grilla de un loop sigue al input Beats mientras se edita (beats_draft) -->
@@ -242,6 +247,7 @@ import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import RegionEditor from "./RegionEditor.vue"
 import EditOps from "./EditOps.vue"
+import ManualHelp from "./ManualHelp.vue"
 import { edit, edit_open, edit_close, confirm_discard, set_selection } from "../helpers/edit_session"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
 import { editor_key_ok, SPACE_TAKERS } from "../helpers/utils"

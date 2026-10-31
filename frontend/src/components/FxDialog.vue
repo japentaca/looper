@@ -3,8 +3,11 @@
     su chip de la tira (Tracks.vue). Edita la instancia en vivo (sin copia) y guarda las pistas con
     save_trackGroups_debounced() en cada cambio. El motor lee la instancia en cada disparo, así que los
     cambios valen desde la próxima tirada (una rampa ya agendada no cambia) -->
-  <el-dialog v-model="visible" :title="title" width="min(560px, 96vw)" class="hw_dialog" align-center
-    append-to-body>
+  <el-dialog v-model="visible" width="min(560px, 96vw)" class="hw_dialog" align-center append-to-body>
+    <template #header="{ titleId, titleClass }">
+      <span :id="titleId" :class="titleClass">{{ title }}</span>
+      <ManualHelp section="fx" />
+    </template>
     <div v-if="inst" class="fx_body">
       <!-- anticipación: cuánto antes del fin de la tirada arranca el efecto -->
       <div class="row">
@@ -58,6 +61,7 @@ import { computed, watch } from "vue"
 import Knob from "./hw/Knob.vue"
 import Lcd from "./hw/Lcd.vue"
 import LedButton from "./hw/LedButton.vue"
+import ManualHelp from "./ManualHelp.vue"
 import { store, save_trackGroups_debounced } from "../helpers/composable"
 import { TrackCtrl } from "../helpers/TrackCtrl"
 import { FX_TYPES, LEAD_OPTIONS, COND_OPTIONS, lead_beats } from "../helpers/fx"
