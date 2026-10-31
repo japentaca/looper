@@ -276,7 +276,7 @@
 
 import * as Tone from "tone"
 import { ElMessage } from "element-plus"
-import { ref, reactive, computed, watch, onBeforeUnmount } from "vue"
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from "vue"
 import {
   store, tags_by_id, audio_players, files_by_id, save_trackGroups, save_trackGroups_debounced,
   save_project_props_debounced, pick_weighted, parse_repeat, REPEAT_OPTIONS, move_item, parse_rest_len,
@@ -874,12 +874,15 @@ async function gesture_start() {
 
 // autostart: con ?autostart=1 en la URL se hace START solo, una vez por carga de página, cuando
 // terminan de cargar los audios (TrackCtrl.isReady). Una recarga posterior (subida, re-login) no rearranca.
+// En nextTick: en la vista pública isReady puede estar ya en true al montar y, con el AudioContext ya
+// corriendo (kiosko con --autoplay-policy=no-user-gesture-required), start() correría dentro del setup,
+// antes de declarar tag_starting / first_step y de bind_oneshot / bind_fx
 const autostart = url_autostart()
 let autostarted = false
 watch(() => TrackCtrl.isReady, (ready) => {
   if (!ready || !autostart || autostarted) return
   autostarted = true
-  request_start()
+  nextTick(request_start)
 }, { immediate: true })
 
 // PLAY del diálogo de carga (?play=1): el clic ya reanudó el AudioContext (es un gesto), acá solo se hace START
