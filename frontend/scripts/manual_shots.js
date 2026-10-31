@@ -595,8 +595,6 @@ const SHOTS = [
     id: "files_table",
     url: "/?autostart=1",
     login: true,
-    // más ancho: a 1440 la tabla no entra entera y la columna Actions queda fuera (scroll horizontal)
-    viewport: { width: 1600, height: 900 },
     steps: [wait_ready, wait_no_dialog, wait_playing, scroll_to(".sections .el-collapse-item", 1), sleep(7000)],
     clip: clip_around([[".sections .el-collapse-item", 1]], { pad: 0, height: 470 }),
     marks: [

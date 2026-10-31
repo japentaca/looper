@@ -28,11 +28,11 @@
 
   <h4>Vista Table</h4>
   <ManualShot src="/manual/files_table.webp" alt="Lista Files en la vista Table" :callouts="[
-    { n: 1, x: 18.7, y: 24.6, text: 'Las columnas con flechas ordenan la tabla (un clic, ascendente; otro, descendente).' },
-    { n: 2, x: 46.9, y: 24.6, text: 'Duración en segundos, beats y BPM.' },
-    { n: 3, x: 62.9, y: 24.6, text: 'Pista (Track Group) y Tags.' },
-    { n: 4, x: 90.5, y: 24.6, text: 'State: PLAYING mientras suena en el motor.' },
-    { n: 5, x: 91.2, y: 41.3, text: 'Escuchar, editar y borrar, como en los cartuchos.' },
+    { n: 1, x: 7.4, y: 24.6, text: 'Las columnas con flechas ordenan la tabla (un clic, ascendente; otro, descendente).' },
+    { n: 2, x: 39.5, y: 24.6, text: 'Duración en segundos, beats y BPM.' },
+    { n: 3, x: 57.8, y: 24.6, text: 'Pista (Track Group) y Tags.' },
+    { n: 4, x: 88.2, y: 24.6, text: 'State: PLAYING mientras suena en el motor.' },
+    { n: 5, x: 91.1, y: 41.3, text: 'Escuchar, editar y borrar, como en los cartuchos.' },
   ]" />
   <p>
     La tabla muestra lo mismo que los cartuchos, en columnas, y es cómoda para ordenar por BPM o por tonalidad. Los

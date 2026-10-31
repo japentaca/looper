@@ -78,7 +78,8 @@
     <div v-show="(fileListViewMode == 'Table')" @dragover="ondragover_table" @dragleave="ondragleave_table"
       @drop="ondrop_table">
       <el-table :data="shown_files" style="width: 100%" :row-class-name="row_class" @sort-change="on_sort_change">
-        <el-table-column sortable prop="original_name" label="Name" min-width="260" show-overflow-tooltip />
+        <!-- anchos: a 1440 px la tabla entra en su panel; más angosta, scroll horizontal con Actions fija a la derecha -->
+        <el-table-column sortable prop="original_name" label="Name" min-width="180" show-overflow-tooltip />
         <el-table-column sortable prop="duration_fixed" label="Duration" width="100" />
         <el-table-column sortable prop="beats" label="Beats" width="80">
           <template #default="scope">{{ scope.row.kind == 'shot' ? 'shot' : scope.row.beats }}</template>
@@ -128,7 +129,7 @@
           </template>
 
         </el-table-column>
-        <el-table-column label="Actions" width="120" align="right">
+        <el-table-column label="Actions" width="120" align="right" fixed="right">
           <template #default="scope">
             <span class="row_actions">
               <el-icon v-if="scope.row.isLoaded" :size="iconSize" class="icons" :class="{ armed: is_armed(scope.row) }"
