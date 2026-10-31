@@ -1,6 +1,6 @@
 <template>
   <div class="app">
-    <!-- barra superior: placa de marca, LED de estado, LCD del preview y sesión -->
+    <!-- barra superior: placa de marca, LED de estado, vúmetro, LCD del proyecto (o del preview) y sesión -->
     <header class="topbar">
       <div class="nameplate">
         <span class="logo">LOOPER</span>
@@ -35,27 +35,24 @@
 
       <!-- proyecto activo (LCD) y botones de los diálogos de proyectos y de importar del catálogo -->
       <!-- sin proyecto abierto (se canceló el aviso de memoria o la pregunta al entrar) el botón sigue, para abrir otro -->
+      <!-- mientras suena el preview de un archivo, el LCD lo muestra a él (como un display que muestra algo un momento)
+        y aparece su STOP; al parar vuelve el nombre del proyecto -->
       <div v-if="store.isLogged == true" class="project">
         <span class="silk">Project</span>
-        <Lcd small :digits="0">
-          <template v-if="store.project">
-            <span class="project_name" :title="store.project.name">{{ store.project.name }}</span>
-          </template>
+        <Lcd small :digits="0" class="project_lcd">
+          <span v-if="store.curr_file.isPreviewing" class="project_name previewing" :title="store.curr_file.original_name">
+            <b>Preview</b> {{ store.curr_file.original_name }}</span>
+          <span v-else-if="store.project" class="project_name" :title="store.project.name">{{ store.project.name }}</span>
           <span v-else class="project_name">NO PROJECT</span>
         </Lcd>
+        <LedButton v-if="store.curr_file.isPreviewing" size="small" text="STOP" title="Stop the preview"
+          @click="playerStop()" />
         <LedButton size="small" text="PROJECTS" @click="projectsVisible = true" />
         <LedButton size="small" text="IMPORT" :disabled="!store.project" @click="importVisible = true" />
         <!-- link a la vista pública del proyecto que, al cargar, ofrece PLAY (los ocultos por el admin dan 404) -->
         <LedButton size="small" text="LINK" :disabled="!store.project || !!store.project.hidden"
           :title="store.project?.hidden ? 'Oculto por el admin: el link no funciona' : 'Copiar el link para abrir y tocar este proyecto'"
           @click="copy_link" />
-      </div>
-
-      <div v-if="store.curr_file.isPreviewing" class="preview">
-        <Lcd small :digits="0">
-          <span class="preview_text"><b>Preview</b> {{ store.curr_file.original_name }}</span>
-        </Lcd>
-        <LedButton size="small" text="STOP" @click="playerStop()" />
       </div>
 
       <span class="spacer"></span>
@@ -349,14 +346,19 @@ onMounted(async () => {
 }
 
 .user {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   opacity: 0.8;
 }
 
 .project {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: auto minmax(96px, max-content);
   align-items: center;
   gap: 8px;
-  min-width: 0;
 }
 
 .project_name {
@@ -370,27 +372,56 @@ onMounted(async () => {
   letter-spacing: 0.5px;
 }
 
-.preview {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+.project_name.previewing {
+  max-width: 300px;
 }
 
-.preview_text {
-  max-width: 340px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  letter-spacing: 0.5px;
-}
-
-.preview_text b {
+.project_name b {
   margin-right: 6px;
   font-size: 9px;
   letter-spacing: 1.5px;
   opacity: 0.75;
+}
+
+/* barra superior angosta (a 1200 px se pisaba): solo cede el LCD del proyecto (el texto se corta con "…"), hasta el
+   mínimo de su columna en la grilla de .project, que no deja que se monte sobre los botones. Bajo 1600 px se esconde el
+   subtítulo de la placa (a 1440, con el preview en el LCD y ADMIN, no entraba) y bajo 1440 los rótulos Master y Project,
+   y se juntan los grupos */
+.topbar > * {
+  flex: none;
+}
+
+.topbar > .project {
+  flex: 0 1 auto;
+}
+
+.topbar > .spacer {
+  flex: 1;
+}
+
+.project_lcd {
+  min-width: 0;
+}
+
+@media (max-width: 1599px) {
+  .model {
+    display: none;
+  }
+}
+
+@media (max-width: 1439px) {
+  .topbar {
+    gap: 10px;
+  }
+
+  .master > .silk,
+  .project > .silk {
+    display: none;
+  }
+
+  .project {
+    grid-template-columns: minmax(96px, max-content);
+  }
 }
 
 .body {

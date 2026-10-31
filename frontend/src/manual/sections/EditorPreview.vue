@@ -19,8 +19,8 @@
       compás para entrar (ver SYNC, abajo), su LED titila; apretarlo ahí lo cancela.
     </li>
     <li>
-      Mientras suena, la barra de arriba de la app muestra <i>Preview</i> y el nombre del archivo, con su propio
-      <Ui>STOP</Ui>; en la pantalla de onda corre el cursor <Ui>PREVIEW</Ui> (ver
+      Mientras suena, el display <Ui>Project</Ui> de la barra de arriba muestra <i>Preview</i> y el nombre del
+      archivo, con su propio <Ui>STOP</Ui> (al parar vuelve el nombre del proyecto); en la pantalla de onda corre el cursor <Ui>PREVIEW</Ui> (ver
       <a href="#editor_region" @click.prevent="go('editor_region')">Región</a>).
     </li>
     <li>Cerrar el editor corta el preview. Suena uno solo por vez: dar PLAY a otro archivo corta el anterior.</li>

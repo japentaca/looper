@@ -9,7 +9,7 @@
   </p>
   <ManualShot src="/manual/overview.webp" alt="La pantalla principal de Looper con un proyecto sonando"
     caption="La pantalla principal, con el proyecto de demo sonando" :callouts="[
-      { n: 1, x: 17.9, y: 1.3, to: 'projects',
+      { n: 1, x: 8.4, y: 1.6, to: 'projects',
         text: 'Barra superior: el LED de estado (Ready cuando terminaron de cargar los audios), el vúmetro master, el proyecto abierto con PROJECTS, IMPORT y LINK, y tu cuenta.' },
       { n: 2, x: 15.1, y: 5.9, to: 'trg_tags',
         text: 'Pads de las pistas (Track Groups): se iluminan mientras su pista suena.' },

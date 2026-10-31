@@ -42,7 +42,7 @@ frontend/src/
   router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue), /manual (views/Manual.vue); scrollBehavior para las anclas
   views/             # vistas públicas sin sesión: Gallery.vue (galería), PublicProject.vue (proyecto público en modo lectura: store.read_only, nada se guarda), Manual.vue (manual de uso: índice lateral + todas las secciones en una página)
   manual/            # manual (docs/PLAN_MANUAL.md): sections.js (ids = anclas fijas, nivel, número, título), sections/*.vue (una sección por archivo), ManualShot (captura con callouts en %), Ui, Term, Kbd, Note, nav.js; sections.test.js (coherencia: glosario, anclas, capturas)
-  App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
+  App.vue            # layout: barra superior (placa, LED de estado, vúmetro, LCD del proyecto o del preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
     Files.vue        # lista de archivos (vista Box = cartuchos con LED, o Table; ambas con play/editar/borrar), drag&drop de TRG/Tag, filtro por tonalidad, switch SYNC; monta FileEditor (y le da PREV/NEXT sobre la lista como se ve) y confirma los borrados

@@ -882,7 +882,7 @@ const SHOTS = [
     steps: [block_saves, wait_ready, wait_no_dialog, wait_playing,
       with_module("toneLib", m => { m.set_preview_sync(true); m.set_preview_mode("context") }),
       open_editor("G_Bass_Loop_29.wav"), click_text("PLAY", "[data-shot] .dialog_footer"),
-      page => page.waitForFunction(() => document.querySelector(".topbar .preview")), sleep(4000)],
+      page => page.waitForFunction(() => document.querySelector(".topbar .previewing")), sleep(4000)],
     // una tira finita: sin números (los rótulos se explican en el texto)
     clip: clip_around([["[data-shot] .dialog_footer"]], { pad: 8 }),
   },

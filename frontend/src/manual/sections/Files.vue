@@ -61,8 +61,8 @@
 
   <h4>Escuchar un archivo: el preview</h4>
   <p>
-    El botón ▶ de un archivo lo hace sonar solo, aparte del motor (es el <i>preview</i>): en la barra de arriba
-    aparece su nombre con un <Ui>STOP</Ui>, y el mismo botón, ahora en pausa, lo detiene. Cómo suena depende de
+    El botón ▶ de un archivo lo hace sonar solo, aparte del motor (es el <i>preview</i>): el display del proyecto,
+    en la barra de arriba, muestra su nombre con un <Ui>STOP</Ui>, y el mismo botón, ahora en pausa, lo detiene. Cómo suena depende de
     <Ui>SYNC</Ui>:
   </p>
   <ul>
