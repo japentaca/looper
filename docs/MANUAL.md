@@ -138,7 +138,15 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
   `wait_tag_left(n)` (al Tag actual le quedan n beats), `wait_strip_playing(i)` (la tira i toca un loop),
   `strip_mute_solo(i, b)` (M o S de la tira i), `freeze_leds` (congela las animaciones CSS: los destellos de LED que
   arrancan después quedan encendidos; va con un `sleep` de más de un beat antes de capturar) y `block_saves` (contesta
-  "ok" a los guardados del proyecto sin que lleguen al backend: la toma puede mover perillas sin cambiar la demo). Para recortes
+  "ok" a los guardados del proyecto, de los archivos y a las subidas sin que lleguen al backend: la toma puede mover
+  perillas sin cambiar la demo; `page.saves_blocked = false` los vuelve a dejar pasar, para la limpieza). Para el editor
+  de archivos: `open_editor(nombre)` (lápiz de su fila en Files; el diálogo queda con `data-shot`), `as_owner(nombre)`
+  (marca el archivo como propio solo en la página, para mostrar los controles del dueño: el demo no es dueño de ningún
+  archivo; siempre con `block_saves`), `set_props(nombre, props)` (región, fade, transpose... sin guardar),
+  `wave_drag(a, b, manija?)` (arrastre sobre la onda entre dos fracciones del ancho: una selección, o una manija de la
+  región) y `add_file(nombre, pista, url)` / `remove_added` (suma un archivo del catálogo al proyecto por la API y lo
+  saca en `after`). Esos pasos usan `with_module(mod, fn)`, que importa `src/helpers/<mod>.js` desde el servidor de Vite
+  (la misma instancia que usa la app: `store`, etc.), así que solo andan contra `npm run dev`. Para recortes
   calculados en la página, `clip: clip_around([[selector, índice], ...], { pad, height })`. Para algo puntual se
   escribe la función en la misma toma.
 - Para la vista pública sonando se usa `?play=1` + `click_play`, no `?autostart=1`: con este último el START

@@ -24,6 +24,10 @@ const TERMS = [
     def: "Todos los archivos que subieron los usuarios de Looper y que se pueden usar. Desde el catálogo importás archivos a tus proyectos (propios o de otros) sin copiarlos: tu proyecto los usa tal como están." },
   { id: "bar", term: "Compás", alt: "bar",
     def: "Un grupo de beats: 4 en 4/4 (lo más común) o 3 en 3/4. Los loops vienen cortados a compás, y en la pantalla la posición se lee como compás.beat (por ejemplo 6.3 es el tercer beat del compás 6)." },
+  { id: "copy", term: "Copia editada", alt: "copy",
+    def: "Un archivo nuevo que sale del editor de archivos: el resultado de cortar, invertir o estirar otro, o una región recortada, guardado con SAVE AS COPY. El original no se toca. La copia es de quien la guarda (cuenta en su cuota) y recuerda de qué archivo deriva." },
+  { id: "seam", term: "Costura", alt: "seam",
+    def: "El punto donde un loop termina y vuelve a empezar. Si el final y el principio no empalman bien, se oye un click en cada vuelta; el editor la muestra ampliada en la lupa SEAM." },
   { id: "quota", term: "Cuota",
     def: "Cuántos minutos de audio podés tener subidos a Looper, sumando todos tus archivos de todos tus proyectos. Borrar un archivo tuyo libera su tiempo; importar del catálogo no gasta cuota." },
   { id: "rest", term: "Descanso", alt: "rest",
@@ -54,6 +58,8 @@ const TERMS = [
     def: "Cuánto se puede acelerar o frenar un loop para que encaje en el tempo del proyecto, en %. Los loops que necesitarían más que eso no se sortean. Acelerar un loop también lo hace más agudo (6 % es casi un semitono): por eso conviene no pasarse." },
   { id: "track_group", term: "Track Group", alt: "pista",
     def: "Una pista de Looper: un grupo de archivos que se turnan en el mismo lugar (por ejemplo todos los bajos). Todas las pistas suenan en paralelo y cada una toca un archivo por vez, elegido al azar entre los suyos que tengan el Tag activo." },
+  { id: "transpose", term: "Transposición", alt: "transpose",
+    def: "Subir o bajar el tono de un archivo, en semitonos, sin cambiar su velocidad. En Looper es un ajuste de cada proyecto (el archivo no cambia) y sirve para que los sonidos combinen en la misma tonalidad." },
 ]
 </script>
 

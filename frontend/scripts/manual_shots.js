@@ -226,12 +226,15 @@ const freeze_leds = async page => {
   await cdp.send("Animation.enable")
   await cdp.send("Animation.setPlaybackRate", { playbackRate: 0 })
 }
-// los guardados del proyecto (PUT/POST a /api/projects...) se contestan "ok" sin llegar al backend: la toma puede
-// mover perillas sin cambiar el proyecto de demo del sandbox (las demás tomas lo verían cambiado)
+// los guardados (PUT/POST a /api/projects..., /api/files... y /api/upload) se contestan "ok" sin llegar al backend:
+// la toma puede mover perillas sin cambiar el proyecto de demo del sandbox (las demás tomas lo verían cambiado).
+// page.saves_blocked = false los deja pasar otra vez (para la limpieza de una toma)
+const SAVE_URLS = ["/api/projects", "/api/files", "/api/upload"]
 const block_saves = async page => {
   await page.setRequestInterception(true)
+  page.saves_blocked = true
   page.on("request", r => {
-    if (["PUT", "POST"].includes(r.method()) && r.url().includes("/api/projects")) {
+    if (page.saves_blocked && ["PUT", "POST"].includes(r.method()) && SAVE_URLS.some(u => r.url().includes(u))) {
       r.respond({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": BASE,
         "Access-Control-Allow-Credentials": "true" }, body: JSON.stringify({ stat: true }) })
     } else r.continue()
@@ -247,6 +250,72 @@ const wait_strip_playing = i => page => page.waitForFunction(
 // clic en el botón `b` (0 = M, 1 = S) de la tira i
 const strip_mute_solo = (i, b) => page => page.evaluate((i, b) =>
   document.querySelectorAll(".strip")[i].querySelectorAll(".mute_solo button")[b].click(), i, b)
+
+// ---------- editor de archivos (FileEditor.vue) ----------
+// Los pasos que necesitan el estado de la app importan sus módulos desde el servidor de desarrollo de Vite (la misma
+// url que usa la app, así que es la misma instancia: store, edit_session...). Solo anda contra `npm run dev`.
+// fn(m) recibe el módulo `src/helpers/<mod>.js`; args van serializados
+const with_module = (mod, fn, ...args) => page => page.evaluate(new Function("mod", "args",
+  `return import("/src/helpers/" + mod + ".js").then(m => (${fn})(m, ...args))`), mod, args)
+// abre el editor del archivo `name` (lápiz de su fila en la vista Table de Files) y marca el diálogo con data-shot
+const open_editor = name => async page => {
+  await page.evaluate(name => {
+    let row = [...document.querySelectorAll(".el-table__row")].find(r => r.textContent.includes(name))
+    if (!row) throw new Error("no está en Files: " + name)
+    row.querySelector(".icons[title=Edit]").click()
+  }, name)
+  await wait_dialog(name)(page)
+  // la onda se dibuja cuando el buffer está cargado
+  await page.waitForFunction(() => !document.querySelector("[data-shot] .wave_screen .status"), { timeout: 30000 })
+  await sleep(500)()
+}
+// el demo no es dueño de ningún archivo (son del catálogo): para mostrar los controles del dueño (LOOP/SHOT, Beats,
+// Key, Anchor, SET) se marca `own` en el store, solo en esta página. Va con block_saves: nada llega al backend
+const as_owner = name => with_module("composable", (m, name) => {
+  m.store.files.find(f => f.original_name == name).own = true
+}, name)
+// cambia props del archivo en el proyecto (región, fade, transpose...) sin guardarlas (no pasa por save_file)
+const set_props = (name, props) => with_module("composable", (m, name, props) => {
+  Object.assign(m.store.files.find(f => f.original_name == name).props, props)
+}, name, props)
+// arrastra sobre la pantalla de onda del diálogo, de la fracción `a` a la `b` del ancho (a media altura, fuera de las
+// manijas: marca una selección). Con `handle` ("start" | "stop") arrastra esa manija hasta la fracción `b`
+const wave_drag = (a, b, handle = null) => async page => {
+  let box = await (await page.$("[data-shot] .wave_screen")).boundingBox()
+  let from = { x: box.x + a * box.width, y: box.y + box.height / 2 }
+  if (handle) {
+    let g = await (await page.$(`[data-shot] .wave_screen .handle.${handle} .grip`)).boundingBox()
+    from = { x: g.x + g.width / 2, y: g.y + g.height / 2 }
+  }
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  for (let k = 1; k <= 10; k++) {
+    await page.mouse.move(from.x + (box.x + b * box.width - from.x) * k / 10, from.y)
+  }
+  await page.mouse.up()
+  await sleep(300)()
+}
+// suma el archivo `name` del catálogo a la pista `track` del proyecto abierto (por la API) y recarga la app en `url`;
+// remove_added lo saca (en after). Para mostrar un archivo que la demo no tiene (un shot con altura definida)
+const add_file = (name, track, url) => async page => {
+  page.added_file = await with_module("api", async (api, name, track) => {
+    let { store } = await import("/src/helpers/composable.js")
+    let items = (await api.get_catalog({ q: name, per_page: 10 })).data.items
+    let f = items.find(it => it.original_name == name)
+    if (!f) throw new Error("no está en el catálogo: " + name)
+    let trg = store.track_groups.find(t => t.name == track)
+    let res = await api.save_project_files(store.project.id, { add: [{ id: f.id, track_group: trg.id }] })
+    if (!res.stat) throw new Error(res.text)
+    return { project: store.project.id, id: f.id }
+  }, name, track)(page)
+  await page.goto(BASE + url, { waitUntil: "networkidle2" })
+  await wait_ready(page)
+}
+const remove_added = async page => {
+  if (!page.added_file) return
+  page.saves_blocked = false
+  await with_module("api", (api, a) => api.save_project_files(a.project, { remove: [a.id] }), page.added_file)(page)
+}
 
 // ---------- tomas ----------
 // { id, url, login?, viewport?, steps?: [paso], selector? | clip?: { x, y, width, height } | paso que lo devuelve,
@@ -646,6 +715,142 @@ const SHOTS = [
       { n: 1, sel: "[data-shot] .target", at: "tr", dx: 0 },
       { n: 2, sel: "[data-shot] textarea", at: "tr", dx: -4, dy: -4 },
       { n: 3, sel: "[data-shot] .el-dialog__footer .el-button--danger", at: "tl", dx: -16, dy: -4 },
+    ],
+  },
+  // --- nivel 2: el editor (vista general, región, ediciones, tono) ---
+  // El diálogo mide 1120 px de ancho: viewport de 1300 (a 1200 se pisan los botones de la barra de arriba, que igual
+  // queda fuera del recorte). Todas con block_saves: lo que se mueve no se guarda
+  {
+    id: "editor",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // un bajo, con los controles del dueño (as_owner) y el motor andando (el cursor TRACK si su pista lo toca)
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, as_owner("G_Bass_Loop_29.wav"),
+      open_editor("G_Bass_Loop_29.wav"), sleep(2500)],
+    selector: "[data-shot]",
+    marks: [
+      { n: 1, sel: "[data-shot] .wave_screen", at: "tr", dx: -60 },
+      { n: 2, sel: "[data-shot] .region_bar", at: "tr", dx: -10 },
+      { n: 3, sel: "[data-shot] .edit_ops", at: "tr", dx: -10 },
+      // botones del dueño en los datos: LOOP, SHOT, DETECT, START, END
+      { n: 4, sel: "[data-shot] .edit_info .led_button", i: 1, at: "tr", dx: 14 },
+      { n: 5, sel: "[data-shot] .edit_info .timing_row", i: 0, at: "tr", dx: 16 },
+      { n: 6, sel: "[data-shot] .edit_info .led_button", i: 2, at: "tr", dx: 14 },
+      { n: 7, sel: "[data-shot] .edit_info .led_button", i: 4, at: "tr", dx: 14 },
+      { n: 8, sel: "[data-shot] .edit_plates .volume", at: "tl", dx: -26 },
+      { n: 9, sel: "[data-shot] .edit_plates .pitch", at: "tr", dx: 6 },
+      { n: 10, sel: "[data-shot] .edit_plates .repeat", at: "tr", dx: 6 },
+      { n: 11, sel: "[data-shot] .assign", at: "tr" },
+      { n: 12, sel: "[data-shot] .dialog_actions .led_button", i: 1, at: "tr", dx: 12, dy: -20 },
+      { n: 13, sel: "[data-shot] .dialog_actions .danger", at: "tr", dx: 20 },
+      { n: 14, sel: "[data-shot] .dialog_nav", at: "tl", dx: -30 },
+    ],
+  },
+  {
+    id: "editor_region",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // un loop de 32 beats recortado a los beats 8–24 arrastrando las manijas (con SNAP), fade de 8 ms y el preview
+    // sonando (cursor PREVIEW)
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, open_editor("G_Synth_Loop_01.wav"),
+      wave_drag(0, 0.25, "start"), wave_drag(1, 0.75, "stop"), set_props("G_Synth_Loop_01.wav", { fade: 8 }),
+      click_text("PLAY", "[data-shot] .dialog_footer"), sleep(2500)],
+    clip: clip_around([["[data-shot] .wave_screen"], ["[data-shot] .region_bar"]], { pad: 10 }),
+    marks: [
+      { n: 1, sel: "[data-shot] .wave_screen .caption", at: "tr", dx: 6 },
+      { n: 2, sel: "[data-shot] .wave_screen .handle.start .grip", dx: 20, dy: 4 },
+      { n: 3, sel: "[data-shot] .wave_screen .handle.stop .grip", dx: -20, dy: 4 },
+      { n: 4, sel: "[data-shot] .wave_screen .dim", i: 1, dy: -20 },
+      { n: 5, sel: "[data-shot] .wave_screen .legend", at: "tl", dx: -24 },
+      { n: 6, sel: "[data-shot] .region_bar .region_len", at: "tr", dx: 4 },
+      { n: 7, sel: "[data-shot] .region_bar .led_button", i: 0, at: "tr", dx: 10 },
+      { n: 8, sel: "[data-shot] .region_bar .hw_plate", i: 0, at: "tl", dx: -6 },
+      { n: 9, sel: "[data-shot] .region_bar .hw_plate", i: 1, at: "tl", dx: -6 },
+      { n: 10, sel: "[data-shot] .region_bar .loupe", i: 0, at: "tr", dx: 4 },
+      { n: 11, sel: "[data-shot] .region_bar .loupe", i: 1, at: "tr", dx: 4 },
+    ],
+  },
+  {
+    id: "editor_edits",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // selección de los beats 4–8 del bajo arrastrando sobre la onda (SNAP a los beats) y REVERSE: queda EDITED
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, open_editor("G_Bass_Loop_29.wav"),
+      wave_drag(0.26, 0.49), click_text("REVERSE", "[data-shot] .edit_ops"), sleep(800)],
+    clip: clip_around([["[data-shot] .wave_screen"], ["[data-shot] .edit_ops"]], { pad: 10 }),
+    marks: [
+      { n: 1, sel: "[data-shot] .wave_screen .selection", at: "tr", dx: -4 },
+      { n: 2, sel: "[data-shot] .edit_ops .ops_lcd", i: 0, at: "tr", dx: 4 },
+      { n: 3, sel: "[data-shot] .edit_ops .ops_lcd", i: 1, at: "tr", dx: 4 },
+      { n: 4, sel: "[data-shot] .edit_ops .group", i: 0, at: "tr", dx: 6 },
+      { n: 5, sel: "[data-shot] .edit_ops .hw_plate", i: 0, at: "tr", dx: 6 },
+      { n: 6, sel: "[data-shot] .edit_ops .hw_plate", i: 1, at: "tr", dx: 6 },
+      { n: 7, sel: "[data-shot] .edit_ops .group", i: 1, at: "tr", dx: 6 },
+      { n: 8, sel: "[data-shot] .edit_ops .group", i: 2, at: "tr", dx: 6 },
+    ],
+  },
+  {
+    id: "editor_save_copy",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // la misma edición y SAVE AS COPY: el cuadro que pide el nombre (no se guarda)
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, open_editor("G_Bass_Loop_29.wav"),
+      wave_drag(0.26, 0.49), click_text("REVERSE", "[data-shot] .edit_ops"), sleep(500),
+      click_text("SAVE AS COPY", "[data-shot] .edit_ops"),
+      page => page.waitForFunction(() => document.querySelector(".el-message-box")?.getClientRects().length),
+      sleep(700)],
+    selector: ".el-message-box",
+  },
+  {
+    id: "editor_pitch",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // el bajo como dueño: DETECT (sugiere Gm) y transpuesto +2 con KEY LOCK
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, as_owner("G_Bass_Loop_29.wav"),
+      open_editor("G_Bass_Loop_29.wav"), click_text("DETECT", "[data-shot]"),
+      page => page.waitForSelector("[data-shot] .det_text", { timeout: 30000 }),
+      set_props("G_Bass_Loop_29.wav", { transpose: 2, key_lock: true }), sleep(600)],
+    clip: clip_around([["[data-shot] .edit_left"], ["[data-shot] .edit_plates"]], { pad: 10 }),
+    marks: [
+      { n: 1, sel: "[data-shot] .key_select", at: "tl", dx: -26 },
+      { n: 2, sel: "[data-shot] .eff_key", at: "tl", dy: -20 },
+      { n: 3, sel: "[data-shot] .edit_info .led_button", i: 2, at: "tr", dx: 36 },
+      { n: 4, sel: "[data-shot] .det_text", at: "tr", dx: 24 },
+      { n: 5, sel: "[data-shot] .edit_info .led_button", i: 3, at: "tr", dx: 36 },
+      { n: 6, sel: "[data-shot] .edit_plates .pitch", at: "tr", dx: 4, dy: 40 },
+      { n: 7, sel: "[data-shot] .edit_plates .pitch .led_button", at: "tl", dx: -30, dy: -20 },
+    ],
+  },
+  {
+    id: "editor_tune",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // un bombo suelto (shot con altura: F#1) sumado a Impacts; DETECT y TUNE TO a G1, la tónica de los loops (G).
+    // El archivo se saca del proyecto al terminar
+    steps: [wait_ready, add_file("MB3_KICK_Electronic_01 One-Shot.wav", "Impacts", "/?autostart=1"), block_saves,
+      wait_no_dialog, wait_playing, open_editor("MB3_KICK_Electronic_01 One-Shot.wav"),
+      click_text("DETECT", "[data-shot]"),
+      page => page.waitForSelector("[data-shot] .tune_select", { timeout: 30000 }),
+      click("[data-shot] .tune_select"), sleep(500),
+      page => page.evaluate(() => [...document.querySelectorAll(".el-select-dropdown__item")]
+        .find(o => o.getClientRects().length && o.textContent.includes("· key")).click()),
+      sleep(400), click_text("TUNE TO", "[data-shot]"), sleep(800)],
+    clip: clip_around([["[data-shot] .wave_screen"], ["[data-shot] .edit_plates"]], { pad: 10 }),
+    after: [remove_added],
+    marks: [
+      { n: 1, sel: "[data-shot] .wave_screen .caption", at: "tr", dx: 6 },
+      { n: 2, sel: "[data-shot] .wave_screen .handle.start .grip", dx: 18, dy: 130 },
+      { n: 3, sel: "[data-shot] .region_bar .region_len", i: 1, at: "tr", dx: 4 },
+      { n: 4, sel: "[data-shot] .det_text", at: "tr", dx: 14 },
+      { n: 5, sel: "[data-shot] .tune_select", at: "tr", dx: 6, dy: -14 },
+      { n: 6, sel: "[data-shot] .edit_info .led_button", i: 1, at: "tr", dx: 14 },
+      { n: 7, sel: "[data-shot] .edit_plates .pitch .lcd", at: "tr", dx: 10 },
     ],
   },
 ]
