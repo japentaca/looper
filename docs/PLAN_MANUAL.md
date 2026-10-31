@@ -138,7 +138,7 @@ no lo que dicen los planes), agregar sus tomas a `manual_shots.js`, regenerarlas
   que suena (en `PublicBar.vue` es un link común). Los `?` de los diálogos también (`components/ManualHelp.vue`, con
   `manual_link(id)` de `helpers/utils.js`): editor → `#editor`, FX → `#fx`, Projects → `#projects`, Import → `#audio`.
 - **Sin visibilidad de proyectos:** la app no tiene ese ajuste (todos los proyectos son públicos, salvo los que oculta
-  la moderación), así que `projects` lo dice en vez de explicar una visibilidad.
+  la moderación; es intencional, lo confirmó el dueño), así que `projects` lo dice en vez de explicar una visibilidad.
 - **Sandbox anónimo:** además de copiar `storage/`, `backend/manual_sandbox.js` oculta los proyectos de los demás
   usuarios y los renombra `artist_<n>` (sin email real ni bio), así las capturas de la galería y del catálogo no
   muestran datos reales.
