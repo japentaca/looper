@@ -393,7 +393,8 @@ const seam_loupe = computed(() => {
 // --- atajos: G = SNAP, ← / → = mueve el último marcador tocado ---
 function on_key(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return
-  if (e.key == "g" || e.key == "G") {
+  // sin Shift (la "G" mayúscula sola es Bloq Mayús)
+  if ((e.key == "g" || e.key == "G") && !e.shiftKey) {
     if (!editor_key_ok(e)) return
     e.preventDefault()
     if (!e.repeat) toggle_snap()
