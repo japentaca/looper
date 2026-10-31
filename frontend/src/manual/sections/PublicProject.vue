@@ -20,7 +20,7 @@
     medida que llegan los archivos; uno amarillo gira encima para mostrar que sigue trabajando. Abajo están el nombre
     del proyecto, cuántos archivos van cargados y la RAM que ocupa.
   </p>
-  <ManualShot src="/manual/public_play.webp" :max_width="520"
+  <ManualShot src="/manual_shots/public_play.webp" :max_width="520"
     alt="Diálogo de carga terminado: anillo de LEDs completo en verde, 100 % y los botones CLOSE y PLAY"
     caption="Con un link de LINK, al terminar la carga el diálogo queda esperando el PLAY" />
   <ul>
@@ -38,7 +38,7 @@
   </Note>
 
   <h4>Qué ves y qué podés tocar</h4>
-  <ManualShot src="/manual/public_project.webp" alt="Vista de un proyecto público sonando, en modo lectura"
+  <ManualShot src="/manual_shots/public_project.webp" alt="Vista de un proyecto público sonando, en modo lectura"
     caption="El proyecto de demo sonando en modo lectura" :callouts="[
       { n: 1, x: 37.7, y: 1.1, text: 'Nombre del proyecto. READ ONLY: estás en modo lectura.' },
       { n: 2, x: 46.7, y: 2.7, text: 'Estado: Loading (amarillo, con los archivos cargados sobre el total) o Ready (verde).' },

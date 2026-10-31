@@ -1,6 +1,6 @@
 <template>
   <!-- captura del manual con marco de aparato y anotaciones numeradas encima (no quemadas en la imagen):
-    <ManualShot src="/manual/overview.webp" alt="..." :callouts="[{ n: 1, x: 12, y: 6, text: '...' }]" />
+    <ManualShot src="/manual_shots/overview.webp" alt="..." :callouts="[{ n: 1, x: 12, y: 6, text: '...' }]" />
     x / y en % del ancho y el alto de la imagen (el centro del número); con text, la leyenda se arma sola
     abajo; con to (id de una sección), la leyenda termina con un link a esa sección. El slot (opcional) agrega
     texto libre debajo de la leyenda. max_width (px) achica las capturas chicas (un diálogo) para que no se
@@ -36,7 +36,7 @@ import { useRouter } from "vue-router"
 import { go_anchor } from "./nav"
 
 const props = defineProps({
-  src: { type: String, default: "" }, // p. ej. "/manual/overview.webp" (frontend/public/manual/)
+  src: { type: String, default: "" }, // p. ej. "/manual_shots/overview.webp" (frontend/public/manual_shots/)
   alt: { type: String, required: true },
   // [{ n, x, y, text? }]: número, posición en % sobre la imagen y texto de la leyenda
   callouts: { type: Array, default: () => [] },

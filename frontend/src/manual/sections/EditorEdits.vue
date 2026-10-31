@@ -8,7 +8,7 @@
     sobre un borrador que vive en el navegador; para quedártelo, lo guardás con <Ui>SAVE AS COPY</Ui>. No están en un
     proyecto ajeno (modo lectura).
   </p>
-  <ManualShot src="/manual/editor_edits.webp"
+  <ManualShot src="/manual_shots/editor_edits.webp"
     alt="La pantalla de onda de un bajo con los beats 4 a 8 seleccionados e invertidos, y la barra de ediciones"
     caption="Los beats 4 a 8 seleccionados e invertidos con REVERSE: hay un cambio sin guardar" :callouts="[
       { n: 1, x: 48.2, y: 7.4, text: 'La selección: arrastrando sobre la onda.' },
@@ -103,7 +103,7 @@
   </p>
 
   <h4>Guardar: SAVE AS COPY y SAVE SEL AS COPY</h4>
-  <ManualShot src="/manual/editor_save_copy.webp" :max_width="420"
+  <ManualShot src="/manual_shots/editor_save_copy.webp" :max_width="420"
     alt="Cuadro Save as copy: dice que la copia reemplaza al archivo en el proyecto, su largo, y propone el nombre"
     caption="SAVE AS COPY pide el nombre de la copia" />
   <ul>

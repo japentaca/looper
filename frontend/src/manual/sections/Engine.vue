@@ -119,7 +119,7 @@
     Una pista que nunca para cansa. Con los controles de descanso de su tira, de vez en cuando se calla unos compases
     (un <Term t="rest">descanso</Term>), y la música respira:
   </p>
-  <ManualShot src="/manual/strips.webp" :max_width="420"
+  <ManualShot src="/manual_shots/strips.webp" :max_width="420"
     alt="Tiras Lead (modo loop) e Impacts (modo one-shot) con sus controles de descanso y de disparo" :callouts="[
       { n: 1, x: 6, y: 51.6,
         text: 'Rest: la chance de descansar al terminar cada loop (0 a 100 %). Again: la de encadenar otro descanso al terminar uno.' },

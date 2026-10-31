@@ -50,7 +50,7 @@
       <a href="#audio" @click.prevent="go('audio')">Traer audio</a>).
     </li>
   </ul>
-  <ManualShot src="/manual/report.webp" :max_width="460" alt="Diálogo Report file con el motivo escrito"
+  <ManualShot src="/manual_shots/report.webp" :max_width="460" alt="Diálogo Report file con el motivo escrito"
     caption="Denunciando un archivo del catálogo" :callouts="[
       { n: 1, x: 93, y: 29.3, text: 'Qué estás denunciando: un archivo (File) o un proyecto (Project).' },
       { n: 2, x: 92.2, y: 40.6, text: 'El motivo, obligatorio: hasta 500 caracteres.' },

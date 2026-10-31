@@ -7,7 +7,7 @@
     si hace falta, lo cortás y lo guardás como un archivo nuevo. Se abre desde <Ui>Files</Ui> con el lápiz del cartucho
     o de la fila, o con un clic en el nombre del archivo que está sonando en una tira del mixer.
   </p>
-  <ManualShot src="/manual/editor.webp" alt="El editor de archivos con un loop de bajo del proyecto de demo"
+  <ManualShot src="/manual_shots/editor.webp" alt="El editor de archivos con un loop de bajo del proyecto de demo"
     caption="Un loop de bajo, visto por quien lo subió (con los datos del archivo editables)" :callouts="[
       { n: 1, x: 91.7, y: 8.1, to: 'editor_region', text: 'La pantalla de onda, con la grilla de beats y la región.' },
       { n: 2, x: 96.2, y: 26.4, to: 'editor_region', text: 'La región: largo, SNAP, NUDGE, FADE y las lupas.' },

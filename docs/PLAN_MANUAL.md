@@ -26,7 +26,7 @@ las pruebas a mano en el navegador van al final.
 5. **Capturas:** generadas por un script (`frontend/scripts/manual_shots.js`, `puppeteer-core` como
    devDependency, usa el Chrome instalado) contra un **sandbox**: backend local con una copia de `storage/`
    fuera del repo y un usuario/proyecto de demo. Formato webp (calidad ~85), viewport fijo, en
-   `frontend/public/manual/`. Los números de las anotaciones **no** se queman en la imagen: son elementos
+   `frontend/public/manual_shots/`. Los números de las anotaciones **no** se queman en la imagen: son elementos
    HTML posicionados en % sobre la captura (estilo LED/pad de la app), con su leyenda abajo.
 6. **Acceso:** botón MANUAL en la barra superior de `App.vue` y en `PublicBar.vue`; además un `?` chico en
    los diálogos principales (editor de archivos, FX, Projects, Import) que abre `/manual#<sección>` en otra
@@ -79,7 +79,7 @@ frontend/src/manual/Ui.vue             # rótulo de la UI (serigrafía/LCD)
 frontend/src/manual/Term.vue           # término con link al glosario
 frontend/src/manual/Kbd.vue            # tecla
 frontend/src/manual/Note.vue           # nota / aviso con LED (tipo tip | warn)
-frontend/public/manual/*.webp          # capturas generadas
+frontend/public/manual_shots/*.webp          # capturas generadas
 frontend/scripts/manual_shots.js       # script de capturas (lista declarativa de tomas)
 docs/MANUAL.md                         # cómo mantener el manual: sandbox, demo, correr el script
 ```
@@ -147,5 +147,8 @@ no lo que dicen los planes), agregar sus tomas a `manual_shots.js`, regenerarlas
   captura, porque el script corre con autoplay permitido y el cartel no aparece.
 - **Chequeo automático:** `src/manual/sections.test.js` (en `npm test`) verifica los links al glosario y a las
   secciones y que las capturas, los webp y las tomas de `manual_shots.js` coincidan.
+- **Carpeta de las capturas:** `public/manual_shots/`, no `public/manual/`. En producción una carpeta `dist/manual/`
+  choca con la ruta `/manual`: nginx (`try_files $uri $uri/ ...`) la toma como directorio, redirige a `/manual/` y
+  da 403 (en desarrollo, con Vite, no se notaba). Ninguna carpeta de `public/` puede llamarse como una ruta de la app.
 - **Capturas de los diálogos:** las tomas de los diálogos con `?` (editor, FX, Projects, Import) se regeneraron
   después de agregarlo (con los arreglos de la barra superior, Files y el editor).

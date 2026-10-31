@@ -11,7 +11,7 @@
   </p>
 
   <h4>Agregar un FX a una pista</h4>
-  <ManualShot src="/manual/fx_pads.webp" :max_width="240"
+  <ManualShot src="/manual_shots/fx_pads.webp" :max_width="240"
     alt="Los seis pads de FX de la barra lateral: CUT, LOW-PASS, HIGH-PASS, FADE, ECHO THROW y REVERB THROW"
     caption="Los pads FX, al pie de la barra lateral" />
   <ol>
@@ -26,7 +26,7 @@
     Cada pista admite hasta cuatro FX, y se puede repetir un tipo (dos filtros con distinta anticipación, por ejemplo).
     Se guardan con el proyecto.
   </p>
-  <ManualShot src="/manual/fx_strips.webp" :max_width="420"
+  <ManualShot src="/manual_shots/fx_strips.webp" :max_width="420"
     alt="Parte de abajo de las tiras Bass y Lead: en Bass, los chips L (encendido), C y E y un zócalo vacío; en Lead, F y R y dos vacíos"
     caption="Bass con LOW-PASS (sonando), CUT y ECHO THROW; Lead con FADE y REVERB THROW" :callouts="[
       { n: 1, x: 3.5, y: 71.6, text: 'Un chip por FX, con su letra. Se enciende en amarillo mientras el efecto actúa.' },
@@ -59,7 +59,7 @@
   <p><Ui>STOP</Ui> y <Ui>RESET</Ui> devuelven todas las pistas a la normalidad en el momento.</p>
 
   <h4>Ajustar un FX</h4>
-  <ManualShot src="/manual/fx_dialog.webp" :max_width="560"
+  <ManualShot src="/manual_shots/fx_dialog.webp" :max_width="560"
     alt="Diálogo Low-pass · Bass: Lead 4M, When TAG CHANGE, Prob 75 %, Freq 300 Hz, Q 1, botones REMOVE y CLOSE"
     caption="Un LOW-PASS en Bass que, 4 compases antes de un cambio de Tag, se dispara 3 de cada 4 veces" :callouts="[
       { n: 1, x: 94.8, y: 20.2, text: 'Lead: cuánto antes del final arranca.' },

@@ -7,7 +7,7 @@
     <Term t="project">proyecto</Term>, fija el tempo y dice qué <Term t="tag">Tag</Term> está sonando y cuánto le
     falta. Todo lo que cambies acá se guarda con el proyecto (salvo en un proyecto ajeno, que se abre en modo lectura).
   </p>
-  <ManualShot src="/manual/transport.webp" alt="Panel Transport con el proyecto de demo sonando, a tres beats de un cambio de Tag"
+  <ManualShot src="/manual_shots/transport.webp" alt="Panel Transport con el proyecto de demo sonando, a tres beats de un cambio de Tag"
     caption="El proyecto de demo sonando: faltan 3 beats para que termine Breakdown y el LED CHANGE destella" :callouts="[
       { n: 1, x: 3, y: 11, text: 'START / STOP: arranca y para todo.' },
       { n: 2, x: 19.5, y: 18, text: 'RESET (New tag): cambia de Tag en el acto.' },
@@ -103,7 +103,7 @@
 
   <h4>Qué muestra cada tira</h4>
   <p>Mientras suena, cada tira del mixer cuenta qué está haciendo su pista:</p>
-  <ManualShot src="/manual/strips.webp" :max_width="420"
+  <ManualShot src="/manual_shots/strips.webp" :max_width="420"
     alt="Dos tiras del mixer: Lead tocando un loop de 32 beats e Impacts, una pista de one-shots"
     caption="Lead (loop) en el beat 11 de 32; Impacts (one-shot) tira el dado cada 4 compases" :callouts="[
       { n: 1, x: 10, y: 9.7, to: 'engine', text: 'LOOP o SHOT: el modo de la pista (loops encadenados o golpes sueltos).' },

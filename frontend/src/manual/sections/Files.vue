@@ -10,7 +10,7 @@
   </p>
 
   <h4>Vista Box: cartuchos</h4>
-  <ManualShot src="/manual/files_box.webp" alt="Lista Files en la vista Box, con los archivos del proyecto de demo como cartuchos"
+  <ManualShot src="/manual_shots/files_box.webp" alt="Lista Files en la vista Box, con los archivos del proyecto de demo como cartuchos"
     caption="La vista Box con el proyecto de demo sonando" :callouts="[
       { n: 1, x: 4.5, y: 8.5, text: 'Box / Table: cambia de vista.' },
       { n: 2, x: 11, y: 8.5, text: 'SYNC: cómo suena el preview (ver abajo).' },
@@ -27,7 +27,7 @@
   </p>
 
   <h4>Vista Table</h4>
-  <ManualShot src="/manual/files_table.webp" alt="Lista Files en la vista Table" :callouts="[
+  <ManualShot src="/manual_shots/files_table.webp" alt="Lista Files en la vista Table" :callouts="[
     { n: 1, x: 7.4, y: 24.6, text: 'Las columnas con flechas ordenan la tabla (un clic, ascendente; otro, descendente).' },
     { n: 2, x: 39.5, y: 24.6, text: 'Duración en segundos, beats y BPM.' },
     { n: 3, x: 57.8, y: 24.6, text: 'Pista (Track Group) y Tags.' },

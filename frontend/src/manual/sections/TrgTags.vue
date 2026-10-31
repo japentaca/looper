@@ -7,7 +7,7 @@
     izquierda, como pads de goma, y se asignan a los archivos arrastrando esos pads. Un archivo va en <b>una</b> pista
     y puede llevar <b>varios</b> Tags.
   </p>
-  <ManualShot src="/manual/trg_tags.webp" :max_width="260" alt="Barra de la izquierda con dos pads de pistas y dos de Tags"
+  <ManualShot src="/manual_shots/trg_tags.webp" :max_width="260" alt="Barra de la izquierda con dos pads de pistas y dos de Tags"
     :callouts="[
       { n: 1, x: 20.1, y: 18.8, text: 'Color de la pista: un clic en el cuadradito para elegirlo.' },
       { n: 2, x: 41, y: 20, text: 'Tacho: borra la pista o el Tag (aparece al pasar el mouse).' },
@@ -39,7 +39,7 @@
     <li>El <b>lápiz</b> (o un doble clic en el pad) abre su diálogo de edición.</li>
     <li>El <b>tacho</b> lo borra; si algún archivo lo tiene, Looper pregunta antes y se lo saca.</li>
   </ul>
-  <ManualShot src="/manual/tag_dialog.webp" :max_width="420" alt="Diálogo Edit tag del Tag Groove, con peso 16" :callouts="[
+  <ManualShot src="/manual_shots/tag_dialog.webp" :max_width="420" alt="Diálogo Edit tag del Tag Groove, con peso 16" :callouts="[
     { n: 1, x: 68.6, y: 29.1, text: 'Name: el nombre (Enter guarda).' },
     { n: 2, x: 21.9, y: 65.9, text: 'Color.' },
     { n: 3, x: 74.5, y: 72, to: 'engine',
@@ -60,7 +60,7 @@
     Arrastrá un pad y soltalo sobre un archivo de la lista <Ui>Files</Ui>, en cualquiera de sus dos vistas: sobre un
     cartucho (vista Box) o sobre una fila (vista Table). Mientras lo tenés encima, el archivo se resalta en amarillo.
   </p>
-  <ManualShot src="/manual/first_drag.webp" alt="El pad Bass arrastrado sobre un archivo sin pista ni Tags, que se resalta en amarillo"
+  <ManualShot src="/manual_shots/first_drag.webp" alt="El pad Bass arrastrado sobre un archivo sin pista ni Tags, que se resalta en amarillo"
     :callouts="[
       { n: 1, x: 18.4, y: 7.3, text: 'El pad que arrastrás.' },
       { n: 2, x: 98, y: 67.3, text: 'El archivo de destino, resaltado.' },

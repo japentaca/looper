@@ -6,7 +6,7 @@
     Para que los bajos, los sintes y hasta el bombo combinen, cada archivo puede sonar más agudo o más grave en este
     proyecto, sin cambiar su velocidad. Y si no sabés en qué tonalidad o nota está, Looper te lo sugiere escuchándolo.
   </p>
-  <ManualShot src="/manual/editor_pitch.webp"
+  <ManualShot src="/manual_shots/editor_pitch.webp"
     alt="Datos y placas del editor de un bajo en G: detectado Gm con SET Gm, transpuesto +2 con KEY LOCK encendido"
     caption="Un bajo transpuesto 2 semitonos (de G a A) con KEY LOCK; DETECT sugiere Gm" :callouts="[
       { n: 1, x: 10.6, y: 53.5, text: 'Key: la tonalidad del archivo (de catálogo; la cambia quien lo subió).' },

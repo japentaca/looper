@@ -11,7 +11,7 @@
 
   <h4>El diálogo PROJECTS</h4>
   <p>El botón <Ui>PROJECTS</Ui> de la barra muestra tus proyectos, cada uno como un cartucho:</p>
-  <ManualShot src="/manual/projects.webp" :max_width="760" alt="Diálogo Projects con los tres proyectos de la cuenta de demo"
+  <ManualShot src="/manual_shots/projects.webp" :max_width="760" alt="Diálogo Projects con los tres proyectos de la cuenta de demo"
     :callouts="[
       { n: 1, x: 90, y: 9, text: 'Nombre (hasta 64 caracteres) y CREATE (o Enter): crea un proyecto vacío y lo abre.' },
       { n: 2, x: 58, y: 33.5, text: 'El proyecto abierto: LED verde y LOADED.' },
@@ -55,7 +55,7 @@
     Cada vez que entrás a la app (al hacer login o al recargar la página), Looper te pregunta antes de cargar el
     último proyecto que usaste en ese navegador, así no carga audio que no vas a usar:
   </p>
-  <ManualShot src="/manual/open_project.webp" :max_width="440"
+  <ManualShot src="/manual_shots/open_project.webp" :max_width="440"
     alt="Diálogo Open project: pregunta si abrir Demo Psy Groove, con su RAM, archivos y fecha" />
   <ul>
     <li><Ui>OPEN</Ui> lo abre.</li>

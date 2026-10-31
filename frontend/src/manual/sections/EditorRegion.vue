@@ -7,7 +7,7 @@
     pedazo de un loop largo, sacar un silencio del principio o corregir un archivo que no empieza justo en el beat, sin
     tocar el audio: es un ajuste del proyecto, se guarda solo y en otro proyecto el mismo archivo puede sonar entero.
   </p>
-  <ManualShot src="/manual/editor_region.webp"
+  <ManualShot src="/manual_shots/editor_region.webp"
     alt="Pantalla de onda de un loop de 32 beats con la región recortada a los beats 8 a 24 y la barra de la región debajo"
     caption="Un loop de 32 beats recortado a los 16 del medio, con el preview sonando" :callouts="[
       { n: 1, x: 9.5, y: 13.8, text: 'Los beats del archivo (en un one-shot, el tempo de la grilla y el anchor).' },
@@ -97,7 +97,7 @@
   </ul>
 
   <h4>En un one-shot: la grilla del proyecto y el anchor</h4>
-  <ManualShot src="/manual/editor_tune.webp"
+  <ManualShot src="/manual_shots/editor_tune.webp"
     alt="El editor con un bombo suelto: grilla de trazos al tempo del proyecto, rótulo ANCHOR START y la nota detectada"
     caption="Un bombo suelto (one-shot): la grilla es la del proyecto y no hay NUDGE ni STRETCH" :callouts="[
       { n: 1, x: 19.5, y: 3.4, text: 'La grilla, de trazos, sigue al tempo del proyecto desde el anchor.' },

@@ -13,7 +13,7 @@
     <li>Completá los datos y tildá <Ui>Acepto la licencia</Ui> (sin eso, <Ui>REGISTER</Ui> no se habilita).</li>
     <li>Apretá <Ui>REGISTER</Ui>. El diálogo vuelve al login con el aviso de que tu solicitud quedó pendiente.</li>
   </ol>
-  <ManualShot src="/manual/register.webp" :max_width="460" alt="Diálogo Create account completo con datos de ejemplo"
+  <ManualShot src="/manual_shots/register.webp" :max_width="460" alt="Diálogo Create account completo con datos de ejemplo"
     caption="El registro, con datos de ejemplo" :callouts="[
       { n: 1, x: 92.2, y: 19.6,
         text: 'Public name: tu nombre en la galería y en el catálogo. De 3 a 32 caracteres (letras, números, espacio, punto, guion y guion bajo) y único.' },
@@ -38,7 +38,7 @@
   </p>
 
   <h4>Entrar y salir</h4>
-  <ManualShot src="/manual/login.webp" :max_width="380" alt="Diálogo Login vacío" :callouts="[
+  <ManualShot src="/manual_shots/login.webp" :max_width="380" alt="Diálogo Login vacío" :callouts="[
     { n: 1, x: 92.6, y: 78, text: 'Con tu email y tu clave, LOGIN (o Enter).' },
     { n: 2, x: 78.9, y: 93.7, text: 'Create an account lleva al registro.' },
   ]" />
@@ -62,7 +62,7 @@
 
   <h4>Tu cuenta: bio y clave</h4>
   <p>El botón <Ui>ACCOUNT</Ui> de la barra abre los datos de tu cuenta:</p>
-  <ManualShot src="/manual/account.webp" :max_width="440" alt="Diálogo Account de la cuenta de demo" :callouts="[
+  <ManualShot src="/manual_shots/account.webp" :max_width="440" alt="Diálogo Account de la cuenta de demo" :callouts="[
     { n: 1, x: 44, y: 10.6, text: 'Tu nombre público y tu email (no se cambian desde acá).' },
     { n: 2, x: 92.7, y: 17.8, text: 'Bio (public): editala y apretá SAVE BIO.' },
     { n: 3, x: 92.7, y: 42.9,

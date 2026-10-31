@@ -9,7 +9,7 @@
     la salida. Se ajustan en el panel <Ui>Transport</Ui>; cada pista decide cuánto les manda con sus knobs <Ui>Rev</Ui>
     y <Ui>Dly</Ui>. Compartirlos hace que todo suene en el mismo "lugar", y es más liviano que un efecto por pista.
   </p>
-  <ManualShot src="/manual/global_fx.webp" :max_width="760"
+  <ManualShot src="/manual_shots/global_fx.webp" :max_width="760"
     alt="Grupos Delay (PING 1/8., TYPE, TIME, Feedback, Level) y Reverb (ROOM XL, flechas, Level) del panel Transport"
     caption="El delay y la reverb del proyecto de demo" :callouts="[
       { n: 1, x: 4.8, y: 46.9, text: 'El tipo de delay y su tiempo.' },
@@ -91,7 +91,7 @@
   </Note>
 
   <h4>La dinámica del master: COMP</h4>
-  <ManualShot src="/manual/master_comp.webp" :max_width="640"
+  <ManualShot src="/manual_shots/master_comp.webp" :max_width="640"
     alt="Knob Master, botón COMP encendido (Dynamics), knob Glue y las bandas Low, Mid y High con sus LEDs; Low y Mid encendidos en amarillo"
     caption="COMP encendido, comprimiendo los graves y los medios (LEDs amarillos)" :callouts="[
       { n: 1, x: 7.5, y: 24.5, to: 'mixer', text: 'Master: el volumen de todo.' },

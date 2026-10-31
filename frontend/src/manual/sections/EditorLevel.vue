@@ -8,7 +8,7 @@
     son ajustes del proyecto: valen solo acá, se pueden cambiar en cualquier archivo (tuyo o importado) y se guardan
     solas al soltar el control.
   </p>
-  <ManualShot src="/manual/editor_level.webp" :max_width="620"
+  <ManualShot src="/manual_shots/editor_level.webp" :max_width="620"
     alt="Placas del editor de un loop de Lead: Volume en -8 dB, Loudness -28.8 LUFS y pico -8.0 dB, Weight 24 y Repeat de 1 a 4"
     caption="Un loop de Lead con el volumen bajado a −8 dB, peso 24 y de 1 a 4 vueltas por sorteo" :callouts="[
       { n: 1, x: 17.9, y: 20.9, text: 'Volume: el fader del archivo en este proyecto.' },

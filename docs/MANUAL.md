@@ -9,12 +9,12 @@ tomas.
 
 - **Los ids de las secciones son anclas fijas** (`/manual#<id>`): una vez publicados no se cambian (los usan los
   links y los `?` de los diálogos). Se puede cambiar el título, no el id.
-- Las capturas (`frontend/public/manual/<id>.webp`) se generan **solo** con `npm run manual_shots` contra el
+- Las capturas (`frontend/public/manual_shots/<id>.webp`) se generan **solo** con `npm run manual_shots` contra el
   sandbox, nunca con los datos reales: el sandbox es una copia de `storage/` fuera del repo y la cuenta que se
   ve es la de demo. Antes de commitear una captura, mirarla: no tiene que mostrar datos privados (emails,
   proyectos de otros usuarios que no sean públicos, etc.).
 - `npm test` incluye `src/manual/sections.test.js`: cada `<Term t>` existe en el glosario, cada link interno va a una
-  sección, cada captura citada existe y cada webp de `public/manual/` se usa y tiene su toma en `manual_shots.js` (sin
+  sección, cada captura citada existe y cada webp de `public/manual_shots/` se usa y tiene su toma en `manual_shots.js` (sin
   huérfanos). Si se saca una captura de una sección, borrar el webp y su toma.
 - Los números de las anotaciones no van quemados en la imagen: son `callouts` de `<ManualShot>` en % sobre la
   captura. Si una captura cambia de diseño, actualizar también sus posiciones (las imprime el script).
@@ -97,7 +97,7 @@ npm run manual_shots -- overview gallery   # solo esas
   vúmetros) y `--mute-audio` (suena sin salir por los parlantes).
 - Cada toma corre en un contexto aislado del navegador (cookies y `localStorage` propios); las que piden login
   entran como demo por la API.
-- Guarda `frontend/public/manual/<id>.webp` (calidad 85, viewport 1440×900 salvo que la toma diga otro,
+- Guarda `frontend/public/manual_shots/<id>.webp` (calidad 85, viewport 1440×900 salvo que la toma diga otro,
   `deviceScaleFactor` 1).
 - Para cada toma con `marks` imprime las posiciones de los números, listas para pegar en los `callouts`:
   `{ n: 3, x: 15.1, y: 32.3 },`.
@@ -113,7 +113,7 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
 
 ```js
 {
-  id: "overview",               // archivo: public/manual/overview.webp
+  id: "overview",               // archivo: public/manual_shots/overview.webp
   url: "/?autostart=1",         // ruta del frontend
   login: true,                  // entra como demo antes de abrir la url
   viewport: { width: 1440, height: 1600 }, // opcional (default 1440×900; deviceScaleFactor: 2 para tomas chicas)
@@ -162,5 +162,5 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
 - `<ManualShot>` también acepta `to` en cada callout (id de una sección: la leyenda termina con un link a esa
   sección) y `max_width` (px) para capturas chicas, como un diálogo, que no conviene estirar.
 - Después de sacarla: mirar el webp, ponerlo en su sección con
-  `<ManualShot src="/manual/<id>.webp" alt="..." :callouts="[...]" />` (las posiciones que imprimió el script,
+  `<ManualShot src="/manual_shots/<id>.webp" alt="..." :callouts="[...]" />` (las posiciones que imprimió el script,
   con su `text`) y revisar `/manual#<sección>` en el navegador.

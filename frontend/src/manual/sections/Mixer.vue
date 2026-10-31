@@ -7,7 +7,7 @@
     de los pads de la izquierda. Las tiras están siempre, aunque el transporte esté detenido o la pista no tenga
     archivos, así que podés dejar la mezcla lista antes de tocar.
   </p>
-  <ManualShot src="/manual/mixer.webp" alt="El mixer del proyecto de demo sonando, con la pista Perc en mute"
+  <ManualShot src="/manual_shots/mixer.webp" alt="El mixer del proyecto de demo sonando, con la pista Perc en mute"
     caption="El mixer del proyecto de demo, con Perc en mute (atenuada)" :callouts="[
       { n: 1, x: 13.8, y: 9.8, to: 'trg_tags', text: 'Nombre de la pista: de ahí se agarra la tira para arrastrarla.' },
       { n: 2, x: 20.5, y: 3.6, text: 'Beat: el LED verde destella con cada beat y el rojo con el primero de cada compás.' },
@@ -83,7 +83,7 @@
     a un 80 % del recorrido). Se guarda con el proyecto. Lo que sale se ve arriba, en la barra
     de la app:
   </p>
-  <ManualShot src="/manual/master_meter.webp" :max_width="440"
+  <ManualShot src="/manual_shots/master_meter.webp" :max_width="440"
     alt="Vúmetro master de la barra superior, con los dos canales y el LED LIM encendido en amarillo"
     caption="El vúmetro master (L y R) con el LED LIM encendido: el limitador está trabajando" />
   <ul>

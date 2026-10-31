@@ -1,5 +1,5 @@
 // Capturas del manual (/manual): abre Chrome con puppeteer-core contra el sandbox (backend con una copia de
-// storage/ y el usuario de demo, ver docs/MANUAL.md) y guarda cada toma en public/manual/<id>.webp.
+// storage/ y el usuario de demo, ver docs/MANUAL.md) y guarda cada toma en public/manual_shots/<id>.webp.
 //   npm run manual_shots                    # todas las tomas
 //   npm run manual_shots -- overview gallery  # solo esas
 // Supone el backend del sandbox (31200) y el frontend de desarrollo (31201) ya corriendo.
@@ -17,7 +17,7 @@ const CHROME = process.env.CHROME_PATH || "C:/Program Files/Google/Chrome/Applic
 const BASE = process.env.MANUAL_BASE || "http://localhost:31201"
 const BACKEND = process.env.MANUAL_BACKEND || "http://localhost:31200"
 const LOGIN = { email: process.env.MANUAL_EMAIL || "demo@example.com", password: process.env.MANUAL_PASSWORD || "demo-looper" }
-const OUT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/manual")
+const OUT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/manual_shots")
 const VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 1 }
 const QUALITY = 85
 // px desde la esquina del elemento hasta el centro del número (marks con at = "tl" | "tr" | "bl" | "br")
@@ -321,7 +321,7 @@ const remove_added = async page => {
 // { id, url, login?, viewport?, steps?: [paso], selector? | clip?: { x, y, width, height } | paso que lo devuelve,
 //   marks?: [{ n, sel, i?, at?, dx?, dy? }], after?: [paso] }
 // Sin selector ni clip se captura el viewport entero. after: pasos que corren al final aunque la toma falle
-// (limpieza, como borrar el proyecto del tutorial). El id es el nombre del archivo (public/manual/<id>.webp).
+// (limpieza, como borrar el proyecto del tutorial). El id es el nombre del archivo (public/manual_shots/<id>.webp).
 // marks: dónde va cada número de la captura. sel (con i = índice entre los que coinciden, default 0); at = "center"
 // (default) o una esquina "tl" | "tr" | "bl" | "br" (a MARK_INSET px de cada borde); dx / dy = corrimiento en px
 const SHOTS = [

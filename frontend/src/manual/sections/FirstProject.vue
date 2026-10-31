@@ -64,7 +64,7 @@
       En cada pad de Tag, hacé clic en el lápiz, poné el nombre (<i>Groove</i>, <i>Break</i>) y apretá <Ui>SAVE</Ui>.
     </li>
   </ol>
-  <ManualShot src="/manual/trg_tags.webp" :max_width="260" alt="Dos pads de pistas, Drums y Bass, y dos de Tags, Groove y Break"
+  <ManualShot src="/manual_shots/trg_tags.webp" :max_width="260" alt="Dos pads de pistas, Drums y Bass, y dos de Tags, Groove y Break"
     caption="Las dos pistas y los dos Tags del ejemplo" />
 
   <h4>5 · Asigná arrastrando</h4>
@@ -77,7 +77,7 @@
     <li>Arrastrá el pad <i>Groove</i> sobre los cuatro archivos.</li>
     <li>Arrastrá el pad <i>Break</i> solo sobre uno de los bajos: en esa sección la batería se va a callar.</li>
   </ol>
-  <ManualShot src="/manual/first_drag.webp" alt="El pad Bass arrastrado sobre un archivo sin pista ni Tags, que se resalta en amarillo"
+  <ManualShot src="/manual_shots/first_drag.webp" alt="El pad Bass arrastrado sobre un archivo sin pista ni Tags, que se resalta en amarillo"
     caption="Arrastrando el pad Bass sobre el último archivo (en la vista Box de Files)" :callouts="[
       { n: 1, x: 18.4, y: 7.3, text: 'El pad que arrastrás.' },
       { n: 2, x: 98, y: 67.3, text: 'El archivo de destino se resalta en amarillo: soltalo ahí.' },
@@ -94,7 +94,7 @@
     con un loop al azar que lo lleve. Los pads se encienden mientras suenan; cada tanto el Tag cambia y las pistas
     eligen otros loops.
   </p>
-  <ManualShot src="/manual/first_playing.webp" alt="El proyecto del tutorial sonando: pads encendidos, transporte y dos tiras en el mixer"
+  <ManualShot src="/manual_shots/first_playing.webp" alt="El proyecto del tutorial sonando: pads encendidos, transporte y dos tiras en el mixer"
     caption="El proyecto del ejemplo sonando" :callouts="[
       { n: 1, x: 41.2, y: 7.7, to: 'play', text: 'START / STOP y RESET (cambia de Tag en el acto).' },
       { n: 2, x: 56, y: 35.7, to: 'play', text: 'El Tag que suena y cuántos beats le quedan.' },

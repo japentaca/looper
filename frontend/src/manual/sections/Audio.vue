@@ -22,7 +22,7 @@
     <li>Revisá cada fila de la lista (tipo, beats, tonalidad; ver abajo) y corregí lo que haga falta.</li>
     <li>Apretá <Ui>UPLOAD</Ui>. Se suben de a uno: cada fila muestra el avance, después <Ui>MP3…</Ui> mientras se convierte y al final <Ui>OK</Ui>.</li>
   </ol>
-  <ManualShot src="/manual/upload.webp" alt="Panel Upload Files con cinco archivos elegidos, todavía sin subir"
+  <ManualShot src="/manual_shots/upload.webp" alt="Panel Upload Files con cinco archivos elegidos, todavía sin subir"
     caption="Cinco archivos elegidos, antes de apretar UPLOAD" :callouts="[
       { n: 1, x: 30.1, y: 7.5, text: 'Cuánto audio te queda en tu cuota.' },
       { n: 2, x: 98.6, y: 11.2, text: 'Soltá acá los archivos, o hacé clic en Select files.' },
@@ -84,7 +84,7 @@
     El catálogo son todos los archivos subidos a Looper, tuyos y de los demás. Importar no copia nada: tu proyecto usa
     el archivo tal como está. Con un proyecto abierto, apretá <Ui>IMPORT</Ui>:
   </p>
-  <ManualShot src="/manual/import.webp" :max_width="960" alt="Diálogo Import from catalog filtrado por Bass_Loop, con dos archivos elegidos"
+  <ManualShot src="/manual_shots/import.webp" :max_width="960" alt="Diálogo Import from catalog filtrado por Bass_Loop, con dos archivos elegidos"
     caption="Buscando bajos: dos elegidos para importar" :callouts="[
       { n: 1, x: 97, y: 11.2,
         text: 'Filtros: parte del nombre, creador, tipo, BPM (con su margen ±; = TEMPO usa el del proyecto), beats y tonalidad (+ atonal suma los atonales). SEARCH o Enter busca; CLEAR los borra.' },

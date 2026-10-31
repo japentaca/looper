@@ -36,7 +36,7 @@ backend/
   loop_period.js     # funciones puras de trim_loops.js: período de un loop (espectrograma por bloque), decisión, repeat (tests en loop_period.test.js, node:test)
   manual_sandbox.js  # sandbox de las capturas del manual: copia storage/ fuera del repo, .env propio, usuario y proyecto de demo (docs/MANUAL.md)
 frontend/scripts/
-  manual_shots.js    # capturas del manual (npm run manual_shots [-- ids]): puppeteer-core + Chrome instalado contra el sandbox → public/manual/<id>.webp (docs/MANUAL.md)
+  manual_shots.js    # capturas del manual (npm run manual_shots [-- ids]): puppeteer-core + Chrome instalado contra el sandbox → public/manual_shots/<id>.webp (docs/MANUAL.md)
 frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
   router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue), /manual (views/Manual.vue); scrollBehavior para las anclas

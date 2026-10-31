@@ -6,7 +6,7 @@
     entrás con el link <Ui>GALLERY</Ui> de la barra de arriba (o con el botón <Ui>GALLERY</Ui> desde la app, si ya
     tenés cuenta). Los más nuevos aparecen primero, de a 24 por página.
   </p>
-  <ManualShot src="/manual/gallery.webp" alt="La galería con tres proyectos de demo" :callouts="[
+  <ManualShot src="/manual_shots/gallery.webp" alt="La galería con tres proyectos de demo" :callouts="[
     { n: 1, x: 85.3, y: 11.2, text: 'Links de la barra: MANUAL (este manual) y OPEN APP (la app, para entrar con tu cuenta).' },
     { n: 2, x: 77.8, y: 41.6, text: 'El nombre del proyecto (cada tarjeta es uno). Hacé clic en cualquier parte de la tarjeta para abrirlo.' },
     { n: 3, x: 78.8, y: 54.9, text: 'Quién lo hizo y su tempo, en BPM.' },

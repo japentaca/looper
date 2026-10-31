@@ -8,7 +8,7 @@
     <a href="#files" @click.prevent="go('files')">Files</a>); en el editor tiene más opciones, para escucharlo suelto, a
     tempo o en el lugar que va a ocupar en la mezcla.
   </p>
-  <ManualShot src="/manual/editor_preview.webp" :max_width="1100"
+  <ManualShot src="/manual_shots/editor_preview.webp" :max_width="1100"
     alt="Pie del editor: STOP encendido, SYNC encendido, modo IN CONTEXT encendido, DELETE, PREV, 15 / 29, NEXT y CLOSE"
     caption="El pie del editor con el preview sonando en sync, en modo IN CONTEXT, mientras el motor toca" />
 

@@ -7,7 +7,7 @@
     representan las piezas del proyecto; en el centro, el transporte y el mixer, que es donde se toca; abajo, los
     archivos. Cada número te lleva a la sección que lo explica.
   </p>
-  <ManualShot src="/manual/overview.webp" alt="La pantalla principal de Looper con un proyecto sonando"
+  <ManualShot src="/manual_shots/overview.webp" alt="La pantalla principal de Looper con un proyecto sonando"
     caption="La pantalla principal, con el proyecto de demo sonando" :callouts="[
       { n: 1, x: 8.4, y: 1.6, to: 'projects',
         text: 'Barra superior: el LED de estado (Ready cuando terminaron de cargar los audios), el vúmetro master, el proyecto abierto con PROJECTS, IMPORT y LINK, y tu cuenta.' },
