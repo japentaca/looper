@@ -163,11 +163,14 @@ as_root systemctl is-active --quiet "$service" || { echo "ERROR: $service no que
 if command -v curl > /dev/null; then
   step "chequeo: $health_url"
   ok=0
+  # el backend tarda unos segundos en escuchar tras el restart: los intentos fallidos no muestran
+  # error (-s sin -S); si no responde en ~40 s, uno último lo muestra
   for _ in $(seq 1 20); do
-    if curl -fsS -o /dev/null --max-time 5 "$health_url"; then ok=1; break; fi
+    if curl -fs -o /dev/null --max-time 5 "$health_url"; then ok=1; break; fi
     sleep 2
   done
   if [ "$ok" -ne 1 ]; then
+    curl -fsS -o /dev/null --max-time 5 "$health_url" || true
     echo "ERROR: el backend no responde en $health_url; ver logs con: sudo -u $app_user pm2 logs looper --lines 50" >&2
     exit 1
   fi
