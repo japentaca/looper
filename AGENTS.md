@@ -34,6 +34,9 @@ backend/
   import_manifest.js # importación en lote de una librería (a mano, ver docs/LIBRERIAS.md)
   trim_loops.js      # acorta los loops que repiten el mismo patrón a su período real (export / analyze / cut / apply; docs/LIBRERIAS.md, sección 8)
   loop_period.js     # funciones puras de trim_loops.js: período de un loop (espectrograma por bloque), decisión, repeat (tests en loop_period.test.js, node:test)
+  manual_sandbox.js  # sandbox de las capturas del manual: copia storage/ fuera del repo, .env propio, usuario y proyecto de demo (docs/MANUAL.md)
+frontend/scripts/
+  manual_shots.js    # capturas del manual (npm run manual_shots [-- ids]): puppeteer-core + Chrome instalado contra el sandbox → public/manual/<id>.webp (docs/MANUAL.md)
 frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
   router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue), /manual (views/Manual.vue); scrollBehavior para las anclas
@@ -118,6 +121,8 @@ docs/                # documentación para humanos y LLMs (ver abajo)
   `import_manifest.js`, tonalidad, pistas y tags del proyecto). Seguirla cuando el dueño traiga una.
 - `docs/PLAN_MASTER.md` — diseño (ya implementado) de la dinámica del master en AudioWorklet: fundamentos
   del DSP, tests y desvíos. Lo vigente está en "Dinámica del master" de `ARCHITECTURE.md`.
+- `docs/MANUAL.md` — mantener el manual de uso (`/manual`): sandbox y datos de demo, capturas con
+  `npm run manual_shots`, cómo agregar una toma; el plan y el índice (ids = anclas fijas) en `docs/PLAN_MANUAL.md`.
 - `docs/KNOWN_ISSUES.md` — bugs y deuda técnica detectados. **Leer antes de tocar backend/routes
   o Tracks.vue**; muchos comportamientos raros ya están explicados ahí.
 

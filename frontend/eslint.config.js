@@ -26,6 +26,11 @@ export default [
       "vue/multi-word-component-names": "off",
     },
   },
+  // scripts de Node (scripts/manual_shots.js: capturas del manual)
+  {
+    files: ["scripts/**/*.js"],
+    languageOptions: { globals: { ...globals.node } },
+  },
   // AudioWorkletGlobalScope (sampleRate, currentTime, registerProcessor, AudioWorkletProcessor...)
   {
     files: ["**/*.worklet.js"],
