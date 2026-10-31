@@ -478,7 +478,7 @@ const SHOTS = [
       { n: 4, sel: ".queue .row.head .num", i: 1, dx: 30 },
       { n: 5, sel: ".queue .row.head .num", i: 2, dx: 24 },
       { n: 6, sel: ".queue .row.head .num", i: 3, dx: 36 },
-      { n: 7, sel: ".queue .warn", at: "tr", dx: 30 },
+      { n: 7, sel: ".queue .err", at: "tr", dx: 30 },
       { n: 8, sel: ".upload_btn", at: "tr", dx: 30 },
     ],
   },

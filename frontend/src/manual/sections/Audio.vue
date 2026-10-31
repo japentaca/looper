@@ -22,6 +22,13 @@
     <li>Revisá cada fila de la lista (tipo, beats, tonalidad; ver abajo) y corregí lo que haga falta.</li>
     <li>Apretá <Ui>UPLOAD</Ui>. Se suben de a uno: cada fila muestra el avance, después <Ui>MP3…</Ui> mientras se convierte y al final <Ui>OK</Ui>.</li>
   </ol>
+  <p>
+    Antes de subir, cada fila avisa en rojo lo que el servidor rechazaría (un archivo de más de 1 minuto, o un loop
+    cuyos beats dan un BPM fuera de 20 a 400): esos no se suben hasta que lo corrijas, y el número de
+    <Ui>UPLOAD</Ui> cuenta solo los que sí. En amarillo, avisos que no frenan la subida: que el navegador no pudo
+    leer el archivo, o que probablemente no entre en tu cuota. Si el servidor rechaza un archivo, el motivo queda en
+    su fila.
+  </p>
   <ManualShot src="/manual_shots/upload.webp" alt="Panel Upload Files con cinco archivos elegidos, todavía sin subir"
     caption="Cinco archivos elegidos, antes de apretar UPLOAD" :callouts="[
       { n: 1, x: 30.1, y: 7.5, text: 'Cuánto audio te queda en tu cuota.' },
@@ -33,7 +40,7 @@
       { n: 5, x: 85, y: 38.9,
         text: 'Key: la tonalidad, o atonal para baterías y ruidos. Si el nombre del archivo la trae, viene puesta (auto).' },
       { n: 6, x: 93.7, y: 38.9, to: 'editor', text: 'Anchor: solo para one-shots; si no sabés, dejá Start.' },
-      { n: 7, x: 30.5, y: 82.2, text: 'Un archivo de más de 1 minuto: el servidor lo va a rechazar. La ✕ de la derecha lo saca de la lista.' },
+      { n: 7, x: 63.8, y: 83, text: 'Un archivo de más de 1 minuto: no se va a subir (UPLOAD lo saltea). La ✕ de la derecha lo saca de la lista.' },
       { n: 8, x: 10.8, y: 98.3, text: 'UPLOAD sube los que están en la lista.' },
     ]" />
 

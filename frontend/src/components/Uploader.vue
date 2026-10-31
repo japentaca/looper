@@ -38,10 +38,14 @@
         <small class="meta">
           {{ fmt_mb(item.size) }}<template v-if="item.duration != null"> · {{ fmt_seconds(item.duration) }}</template>
         </small>
-        <small v-if="item.duration != null && item.duration > MAX_SECONDS_FILE + 0.1" class="warn">
-          dura más de 1 minuto: el servidor lo va a rechazar
+        <small v-if="item_problem(item)" class="err">No se va a subir: {{ item_problem(item) }}</small>
+        <small v-else-if="item.error" class="err">No se subió: {{ item.error }}</small>
+        <small v-if="item.unreadable" class="warn">
+          El navegador no pudo leerlo (duración y beats sin sugerencia): lo revisa el servidor al subirlo
         </small>
-        <small v-if="item.error" class="err">{{ item.error }}</small>
+        <small v-if="over_quota.has(item.uid)" class="warn">
+          Probablemente no entre en tu cuota (te quedan {{ fmt_seconds(quota_left) }} para lo que está en la lista)
+        </small>
       </span>
       <el-select v-model="item.kind" class="num" size="small" :disabled="busy || item.status == 'done'">
         <el-option label="Loop" value="loop" />
@@ -83,7 +87,7 @@
   </div>
 
   <el-button class="upload_btn" type="success" v-if="pending_items.length > 0" :loading="busy"
-    :disabled="quota_left <= 0" @click="doUpload">UPLOAD ({{ pending_items.length }})</el-button>
+    :disabled="quota_left <= 0 || sendable_items.length == 0" @click="doUpload">UPLOAD ({{ sendable_items.length }})</el-button>
 </template>
 
 <script setup>
@@ -96,26 +100,42 @@ import { detect_beats } from '../helpers/bpm_detect'
 import { suggest_key, KEY_OPTIONS } from '../helpers/music_key'
 import { ElMessage } from 'element-plus'
 
-// mismos valores que el backend (routes/api.js): UPLOAD_MAX_MB, formatos y duración máxima
+// mismos valores que el backend (routes/api.js): UPLOAD_MAX_MB, formatos, duración máxima y rango de BPM
 const MAX_UPLOAD_MB = 80
 const MAX_SECONDS_FILE = 60
+const BPM_MIN = 20
+const BPM_MAX = 400
 const EXTENSIONS = ["mp3", "wav", "ogg", "flac", "m4a", "aiff", "aif"]
 const ACCEPT = EXTENSIONS.map(e => "." + e).join(",")
 const FORMATS_TEXT = "mp3 / wav / ogg / flac / m4a / aiff"
 
 const uploader = ref(null)
 // archivos elegidos: { uid, raw, name, size, duration, kind, beats, beats_auto, detected, music_key, key_auto,
-// anchor, status, progress, error }
+// anchor, status, progress, error, unreadable }
 // beats_auto = los beats que sugirió la app (si beats sigue igual, el usuario no los tocó);
 // detected = { beats, bpm, confidence } de detect_beats; music_key = tonalidad ("" = sin dato) y key_auto
 // la que sugirió el nombre (suggest_key); anchor = "start" | "end" (anclaje de los disparos one-shot)
-// status: "ready" | "uploading" | "done" | "error"
+// status: "ready" | "uploading" | "done" | "error"; unreadable = el navegador no pudo leer su duración
 const items = ref([])
 const busy = ref(false)
 
 const quota = computed(() => store.u_info?.quota ?? null)
 const quota_left = computed(() => quota.value ? quota.value.max_seconds - quota.value.used_seconds : Infinity)
 const pending_items = computed(() => items.value.filter(i => i.status == "ready" || i.status == "error"))
+// los que se mandan con UPLOAD: los pendientes sin un problema que el backend rechazaría (item_problem)
+const sendable_items = computed(() => pending_items.value.filter(i => !item_problem(i)))
+// uid de los que, en el orden de subida, ya no entrarían en la cuota que queda (con la duración que
+// estimó el navegador: es un aviso, la cuenta exacta la hace el backend)
+const over_quota = computed(() => {
+  let left = quota_left.value
+  let out = new Set()
+  for (let i of sendable_items.value) {
+    if (i.duration == null) continue
+    left -= i.duration
+    if (left < 0) out.add(i.uid)
+  }
+  return out
+})
 
 function fmt_seconds(s) {
   s = Math.max(0, Math.floor(s))
@@ -141,6 +161,7 @@ function onFileChosen(upload_file_item) {
   if (!raw) return
   let name = raw.name
   if (!EXTENSIONS.includes(extension(name))) return reject(`${name}: formato no aceptado (${FORMATS_TEXT})`)
+  if (raw.size == 0) return reject(`${name} está vacío (0 bytes)`)
   if (raw.size > 1024 * 1024 * MAX_UPLOAD_MB) return reject(`${name} supera los ${MAX_UPLOAD_MB} MB`)
   if (store.files.some(f => f.original_name == name)) return reject(`${name}: ya subiste un archivo con ese nombre`)
   if (items.value.some(i => i.name == name && i.status != "done")) return reject(`${name} ya está en la lista`)
@@ -149,7 +170,7 @@ function onFileChosen(upload_file_item) {
   items.value.push({
     uid: upload_file_item.uid, raw: raw, name: name, size: raw.size, duration: null,
     kind: "loop", beats: null, beats_auto: null, detected: null, music_key: key, key_auto: key, anchor: "start",
-    status: "ready", progress: 0, error: ""
+    status: "ready", progress: 0, error: "", unreadable: false
   })
   // la reactividad pasa por el elemento del array (no por el objeto suelto)
   read_duration(items.value[items.value.length - 1])
@@ -162,12 +183,15 @@ function read_duration(item) {
   let url = URL.createObjectURL(item.raw)
   let audio = new Audio()
   let done = () => {
+    // sin onerror: soltar el src no tiene que marcarlo como ilegible
+    audio.onerror = null
     URL.revokeObjectURL(url)
     audio.removeAttribute("src")
   }
   audio.preload = "metadata"
   audio.onloadedmetadata = () => {
-    if (Number.isFinite(audio.duration)) {
+    if (!Number.isFinite(audio.duration)) item.unreadable = true
+    else {
       item.duration = audio.duration
       // sugerencia de tipo y beats con el tempo del proyecto (si el usuario todavía no cargó beats);
       // si parece un loop, después se intenta detectar los beats en el audio
@@ -179,7 +203,10 @@ function read_duration(item) {
     }
     done()
   }
-  audio.onerror = done
+  audio.onerror = () => {
+    item.unreadable = true
+    done()
+  }
   audio.src = url
 }
 
@@ -209,6 +236,20 @@ function item_bpm(item) {
   return String(Math.round(item.beats * 60 / item.duration * 10) / 10)
 }
 
+// motivo por el que un archivo no se manda (el backend lo rechazaría) o "": se muestra en su fila y
+// UPLOAD lo saltea hasta que se corrija. Con la duración que estimó el navegador (sin ella, no se juzga)
+function item_problem(item) {
+  if (item.duration != null && item.duration > MAX_SECONDS_FILE + 0.1) {
+    return `dura ${item.duration.toFixed(1)} s y el máximo es 1 minuto; recortalo antes de subirlo`
+  }
+  let bpm = item.kind == "loop" ? Number(item_bpm(item)) : 0
+  if (bpm && (bpm < BPM_MIN || bpm > BPM_MAX)) {
+    return `con ${item.beats} beats queda en ${bpm} BPM y tiene que estar entre ${BPM_MIN} y ${BPM_MAX}; ` +
+      "corregí los beats o, si es un golpe suelto, elegí Shot"
+  }
+  return ""
+}
+
 function removeItem(item) {
   items.value = items.value.filter(i => i !== item)
 }
@@ -218,8 +259,9 @@ async function doUpload() {
   if (busy.value) return
   busy.value = true
   let ok = 0
+  let failed = []
   try {
-    for (let item of pending_items.value) {
+    for (let item of sendable_items.value.slice()) {
       item.status = "uploading"
       item.progress = 0
       item.error = ""
@@ -235,24 +277,26 @@ async function doUpload() {
           if (quota.value && res.data?.duration) quota.value.used_seconds += Number(res.data.duration)
         } else {
           item.status = "error"
-          item.error = res?.text || "No se pudo subir"
+          item.error = res?.text || "el servidor no dijo por qué"
+          failed.push(item)
         }
       } catch (e) {
         item.status = "error"
         item.error = error_text(e)
+        failed.push(item)
       }
     }
   } finally {
     busy.value = false
   }
-  let failed = items.value.filter(i => i.status == "error").length
   // los subidos salen de la lista; los rechazados quedan con su error para corregir o quitar
   items.value = items.value.filter(i => i.status != "done")
   if (ok > 0) {
     ElMessage({ type: 'success', message: ok == 1 ? "Archivo subido" : `${ok} archivos subidos` })
     store_get_user_info()
   }
-  if (failed > 0) reject(failed == 1 ? "Un archivo no se pudo subir" : `${failed} archivos no se pudieron subir`)
+  if (failed.length == 1) reject(`${failed[0].name} no se pudo subir: ${failed[0].error}`)
+  else if (failed.length > 1) reject(`${failed.length} archivos no se pudieron subir: el motivo está en cada fila`)
 }
 </script>
 
@@ -322,6 +366,7 @@ async function doUpload() {
 
 .err {
   color: var(--danger);
+  font-weight: 600;
 }
 
 .num {

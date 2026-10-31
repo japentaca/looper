@@ -194,6 +194,15 @@ export function report(data) {
 }
 
 0// texto de error de un request rechazado (status no 2xx o sin respuesta), para mostrarlo al usuario
+// texto para el usuario de un error de request: el `text` del backend o, si la respuesta no lo trae
+// (nginx, Cloudflare, timeout), uno según el status
+const GATEWAY_STATUS = [502, 503, 504, 520, 521, 522, 523, 524]
 export function error_text(e) {
-  return e?.response?.data?.text || (e?.response ? "Error del servidor" : "No hay conexión con el servidor")
+  let r = e?.response
+  if (r?.data?.text) return r.data.text == "Sin sesión" ? "Se cerró tu sesión: volvé a entrar con LOGIN" : r.data.text
+  if (r?.status == 413) return "El archivo es demasiado grande para el servidor"
+  if (GATEWAY_STATUS.includes(r?.status)) return "El servidor no responde (puede estar reiniciándose): probá de nuevo en un rato"
+  if (r) return `Error del servidor (HTTP ${r.status})`
+  if (e?.code == "ECONNABORTED") return "El servidor tardó demasiado en responder: probá de nuevo"
+  return "No hay conexión con el servidor"
 }
