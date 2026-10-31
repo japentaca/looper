@@ -853,6 +853,148 @@ const SHOTS = [
       { n: 7, sel: "[data-shot] .edit_plates .pitch .lcd", at: "tr", dx: 10 },
     ],
   },
+  // --- nivel 2: volumen y loudness, preview, FX de transición, efectos globales ---
+  {
+    id: "editor_level",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000 },
+    // un loop de Lead con su volumen de la demo (-8 dB), peso 24 y Repeat de 1 a 4 vueltas (sin guardar)
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing, open_editor("G_Synth_Loop_01.wav"),
+      set_props("G_Synth_Loop_01.wav", { weight: 24, repeat: [1, 4] }), sleep(600)],
+    clip: clip_around([["[data-shot] .edit_plates"]], { pad: 10 }),
+    marks: [
+      { n: 1, sel: "[data-shot] .edit_plates .volume .fader", at: "tr", dx: 30 },
+      { n: 2, sel: "[data-shot] .edit_plates .volume .lcd", at: "tr", dx: 10, dy: -14 },
+      { n: 3, sel: "[data-shot] .edit_plates .loudness .lcd", i: 0, at: "tr", dx: 10, dy: -14 },
+      { n: 4, sel: "[data-shot] .edit_plates .loudness .lcd", i: 1, at: "tr", dx: 10, dy: -14 },
+      { n: 5, sel: "[data-shot] .edit_plates .loudness .led_button", at: "tl", dx: -26, dy: 6 },
+      { n: 6, sel: "[data-shot] .edit_plates .weight", at: "tr", dx: 4 },
+      { n: 7, sel: "[data-shot] .edit_plates .repeat", at: "br", dx: 4 },
+    ],
+  },
+  {
+    id: "editor_preview",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1300, height: 1000, deviceScaleFactor: 2 },
+    // el pie del editor con el preview sonando en sync (IN CONTEXT) y el motor andando
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing,
+      with_module("toneLib", m => { m.set_preview_sync(true); m.set_preview_mode("context") }),
+      open_editor("G_Bass_Loop_29.wav"), click_text("PLAY", "[data-shot] .dialog_footer"),
+      page => page.waitForFunction(() => document.querySelector(".topbar .preview")), sleep(4000)],
+    // una tira finita: sin números (los rótulos se explican en el texto)
+    clip: clip_around([["[data-shot] .dialog_footer"]], { pad: 8 }),
+  },
+  {
+    id: "fx_pads",
+    url: "/?autostart=1",
+    login: true,
+    // alta: los pads de FX van al final de la sidebar
+    viewport: { width: 1440, height: 1800, deviceScaleFactor: 2 },
+    steps: [wait_ready, wait_no_dialog, sleep(300)],
+    clip: clip_around([[".sidebar .side_title", 2], [".sidebar .pads", 2]], { pad: 8 }),
+  },
+  {
+    id: "fx_strips",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1440, height: 1300, deviceScaleFactor: 2 },
+    // FX en Bass (LOW-PASS de 8M: se dispara al empezar casi cada tirada, así su chip está encendido) y en Lead; sin
+    // guardar. Se espera que el chip del LOW-PASS se encienda
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing,
+      with_module("composable", async m => {
+        let fx = await import("/src/helpers/fx.js")
+        let put = (name, list) => {
+          let trg = m.store.track_groups.find(t => t.name == name)
+          trg.props.fx = []
+          for (let spec of list) trg.props.fx.push({ ...fx.new_fx(spec.type, trg.props.fx), ...spec })
+        }
+        put("Bass", [{ type: "lpf", lead: "8m" }, { type: "cut", cond: "tag" }, { type: "echo", prob: 0.5 }])
+        put("Lead", [{ type: "fade", cond: "tag" }, { type: "verb", prob: 0.5 }])
+      }),
+      page => page.waitForFunction(() => document.querySelectorAll(".strip")[3]?.querySelector(".fx_chip.on"),
+        { timeout: 120000 }),
+      sleep(1500)],
+    // la parte de abajo de las dos tiras: Vol, Pan / Rev / Dly, zócalos de FX y M / S
+    clip: page => page.evaluate(() => {
+      let s = document.querySelectorAll(".strip")
+      let a = s[3].getBoundingClientRect()
+      let b = s[4].getBoundingClientRect()
+      let top = s[3].querySelector(".fader").getBoundingClientRect().top - 8
+      return { x: Math.round(a.left - 6), y: Math.round(top), width: Math.round(b.right - a.left + 12),
+        height: Math.round(b.bottom - top + 6) }
+    }),
+    marks: [
+      { n: 1, sel: ".strips > .strip:nth-child(4) .fx_chip", i: 0, at: "tl", dx: -42 },
+      { n: 2, sel: ".strips > .strip:nth-child(5) .fx_chip", i: 0, at: "tl", dx: -32 },
+      { n: 3, sel: ".strips > .strip:nth-child(5) .fx_chip.empty", i: 1, at: "tr", dx: 16 },
+    ],
+  },
+  {
+    id: "fx_dialog",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1100, height: 800 },
+    // el LOW-PASS de Bass (como en fx_strips), abierto con un clic en su chip
+    steps: [block_saves, wait_ready, wait_no_dialog,
+      with_module("composable", async m => {
+        let fx = await import("/src/helpers/fx.js")
+        let trg = m.store.track_groups.find(t => t.name == "Bass")
+        trg.props.fx = [{ ...fx.new_fx("lpf", []), lead: "4m", cond: "tag", prob: 0.75 }]
+      }),
+      sleep(300), page => page.evaluate(() => document.querySelectorAll(".strip")[3].querySelector(".fx_chip").click()),
+      wait_dialog("Low-pass · Bass")],
+    selector: "[data-shot]",
+    marks: [
+      { n: 1, sel: "[data-shot] .row", i: 0, at: "tr", dx: 4 },
+      { n: 2, sel: "[data-shot] .row", i: 1, at: "tr", dx: 4 },
+      { n: 3, sel: "[data-shot] .plates .hw_plate", i: 0, at: "tr", dx: 4 },
+      { n: 4, sel: "[data-shot] .plates .hw_plate", i: 1, at: "tr", dx: 4 },
+      { n: 5, sel: "[data-shot] .plates .hw_plate", i: 2, at: "tr", dx: 4 },
+      { n: 6, sel: "[data-shot] .footer .el-button", i: 0, at: "tr", dx: 32 },
+    ],
+  },
+  {
+    id: "global_fx",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1440, height: 900, deviceScaleFactor: 2 },
+    steps: [wait_ready, wait_no_dialog, wait_playing, sleep(500)],
+    clip: clip_around([[".g_delay"], [".g_reverb"]], { pad: 8 }),
+    marks: [
+      { n: 1, sel: ".g_delay .lcd", at: "tl", dx: -30 },
+      { n: 2, sel: ".g_delay .led_button", i: 0, at: "bl", dx: -32 },
+      { n: 3, sel: ".g_delay .knob", i: 0, at: "tr", dx: 10 },
+      { n: 4, sel: ".g_delay .knob", i: 1, at: "tr", dx: 10 },
+      { n: 5, sel: ".g_reverb .lcd", at: "tl", dx: -26 },
+      { n: 6, sel: ".g_reverb .led_button", i: 1, at: "br", dx: 22 },
+      { n: 7, sel: ".g_reverb .knob", at: "tr", dx: 10 },
+    ],
+  },
+  {
+    id: "master_comp",
+    url: "/?autostart=1",
+    login: true,
+    viewport: { width: 1440, height: 900, deviceScaleFactor: 2 },
+    // GLUE más alto y el master en 0 dB (sin guardar), para que los LEDs de las bandas trabajen: cuando se enciende
+    // uno, los medidores se congelan (sin más requestAnimationFrame)
+    steps: [block_saves, wait_ready, wait_no_dialog, wait_playing,
+      with_module("TrackCtrl", m => { m.TrackCtrl.comp.amount = 0.85; m.TrackCtrl.master = 0 }),
+      sleep(3000), page => page.waitForFunction(() => {
+        if (!document.querySelector(".g_comp .led.lit:not(.green)")) return false
+        window.requestAnimationFrame = () => 0
+        return true
+      }, { timeout: 60000, polling: 10 }), sleep(300)],
+    clip: clip_around([[".g_master"], [".g_comp"]], { pad: 8 }),
+    marks: [
+      { n: 1, sel: ".g_master .knob", at: "tl", dx: -16 },
+      { n: 2, sel: ".g_comp .led_button", at: "bl", dx: -18 },
+      { n: 3, sel: ".g_comp .comp_ctrls .knob", i: 0, at: "br", dx: 10 },
+      { n: 4, sel: ".g_comp .comp_band .led", i: 0, dx: -26 },
+      { n: 5, sel: ".g_comp .comp_band", i: 2, at: "br", dx: 18 },
+    ],
+  },
 ]
 
 async function login(page) {
