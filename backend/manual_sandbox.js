@@ -71,6 +71,9 @@ const EXTRA_PROJECTS = [
 // en la galería del sandbox solo se ven los proyectos del demo: los demás quedan ocultos (hidden = 1, como si los
 // hubiera ocultado el admin), para que las capturas no muestren proyectos ni nombres de otros usuarios
 const HIDE_OTHER_PROJECTS = true
+// los demás usuarios quedan anónimos en la copia (nombre artist_<n>, email artist_<n>@example.com, sin bio): el
+// catálogo (IMPORT) muestra el creador de cada archivo, y en las capturas no tienen que verse nombres reales
+const ANONYMIZE_OTHER_USERS = true
 const TRG_DEFAULT_PROPS = { volume: 0, pan: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false,
   density: 0, bars: 1, reverb: null, delay: null, fx: [] }
 
@@ -178,6 +181,14 @@ async function make_demo(knex) {
   if (HIDE_OTHER_PROJECTS) {
     let n = await knex("projects").whereNot({ user_id }).update({ hidden: 1 })
     console.log(`Ocultos en la galería del sandbox: ${n} proyectos de otros usuarios`)
+  }
+  if (ANONYMIZE_OTHER_USERS) {
+    let others = await knex("users").whereNot({ id: user_id }).orderBy("ts").select("id")
+    for (let [i, u] of others.entries()) {
+      await knex("users").where({ id: u.id }).update({ name: `artist_${i + 1}`, email: `artist_${i + 1}@example.com`,
+        bio: null })
+    }
+    console.log(`Anónimos en el sandbox: ${others.length} usuarios (artist_<n>)`)
   }
   if (missing.size) console.log("Archivos que no están en el catálogo (salteados):", [...missing].join(", "))
 }

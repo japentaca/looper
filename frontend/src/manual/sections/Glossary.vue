@@ -24,6 +24,8 @@ const TERMS = [
     def: "Todos los archivos que subieron los usuarios de Looper y que se pueden usar. Desde el catálogo importás archivos a tus proyectos (propios o de otros) sin copiarlos: tu proyecto los usa tal como están." },
   { id: "bar", term: "Compás", alt: "bar",
     def: "Un grupo de beats: 4 en 4/4 (lo más común) o 3 en 3/4. Los loops vienen cortados a compás, y en la pantalla la posición se lee como compás.beat (por ejemplo 6.3 es el tercer beat del compás 6)." },
+  { id: "quota", term: "Cuota",
+    def: "Cuántos minutos de audio podés tener subidos a Looper, sumando todos tus archivos de todos tus proyectos. Borrar un archivo tuyo libera su tiempo; importar del catálogo no gasta cuota." },
   { id: "rest", term: "Descanso", alt: "rest",
     def: "Un rato en que una pista se queda callada a propósito: al terminar un loop, con cierta probabilidad, la pista descansa algunos compases antes de sortear el siguiente. Le da aire a la música." },
   { id: "loop", term: "Loop",

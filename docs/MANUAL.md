@@ -59,6 +59,11 @@ dependencias del backend.
   así que `/?autostart=1` sigue abriendo Demo Psy Groove (la galería, en cambio, muestra primero los nuevos).
 - En la copia, los proyectos de los demás usuarios quedan ocultos (`hidden = 1`, `HIDE_OTHER_PROJECTS`): la
   galería del sandbox solo muestra los del demo, sin nombres ni proyectos reales.
+- En la copia, los demás usuarios quedan anónimos (`ANONYMIZE_OTHER_USERS`): nombre `artist_<n>`, email
+  `artist_<n>@example.com` y sin bio. El catálogo (diálogo IMPORT) muestra el creador de cada archivo.
+- El proyecto del tutorial (*My first project*: pistas Drums y Bass, Tags Groove y Break, cuatro loops) no está en
+  la base: lo crean por la API las tomas que lo usan (`tutorial_project` en `manual_shots.js`) y lo borran al
+  terminar (`after: [delete_tutorial]`), así la galería y la lista de proyectos no cambian.
 
 ## 2. Levantar backend y frontend contra el sandbox
 
@@ -111,7 +116,8 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
   viewport: { width: 1440, height: 1600 }, // opcional (default 1440×900)
   steps: [wait_ready, wait_no_dialog, wait_playing, sleep(9000)], // pasos previos, en orden
   // selector: ".el-dialog",    // opcional: captura solo ese elemento
-  // clip: { x, y, width, height }, // opcional: recorte del viewport
+  // clip: { x, y, width, height }, // opcional: recorte del viewport (o un paso que lo devuelve: clip_around)
+  // after: [delete_tutorial],  // opcional: pasos de limpieza, corren aunque la toma falle
   marks: [                      // opcional: dónde van los números (las posiciones se imprimen)
     { n: 1, sel: ".topbar .nameplate", at: "tr" },
     { n: 2, sel: ".sidebar .side_title", i: 1, at: "tr", dx: -24 },
@@ -124,7 +130,13 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
   corre), `wait_no_dialog` (no hay diálogos de Element Plus abiertos), `goto_public(nombre, query)` (abre
   `/p/<id><query>` del proyecto de demo con ese nombre: el id cambia en cada sandbox), `wait_play_armed` y
   `click_play` (diálogo de carga armado con PLAY, link `?play=1`), `wait_public_ready` (LED de la vista pública
-  en *Ready*). Para algo puntual se escribe la función en la misma toma.
+  en *Ready*), `click_text(texto, scope)` (botón visible por su texto), `wait_dialog(título)` (espera el diálogo
+  de Element Plus con ese título y lo marca con `data-shot`: la toma usa `selector: "[data-shot]"`), `open_last`
+  (contesta OPEN a la pregunta de entrada y espera la carga), `scroll_to(sel, i)`, `files_box` (vista Box de Files),
+  `tutorial_project({ unassigned, query })`, `choose_upload_files` (elige wav sintéticos en Upload Files, sin
+  subirlos) y `fake_drag(pad, i)` (un pad "arrastrado" sobre un cartucho de Files, a mitad de camino). Para recortes
+  calculados en la página, `clip: clip_around([[selector, índice], ...], { pad, height })`. Para algo puntual se
+  escribe la función en la misma toma.
 - Para la vista pública sonando se usa `?play=1` + `click_play`, no `?autostart=1`: con este último el START
   inmediato falla en la vista pública (ver `docs/KNOWN_ISSUES.md`).
 - **Marks:** `sel` (selector CSS; `i` = cuál de los que coinciden, default 0), `at` = `center` (default) o una
