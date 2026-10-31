@@ -1,7 +1,7 @@
 <template>
   <!-- sección "Atajos de teclado" (id y título en ../sections.js): tabla única de atajos, agrupados por contexto.
     Sacados del código: components/FileEditor.vue (on_editor_key), RegionEditor.vue y EditOps.vue (on_key), reglas de
-    foco en helpers/utils.js (editor_key_ok, SPACE_TAKERS, ARROW_TAKERS), controles de components/hw/ (Knob, Fader,
+    foco en helpers/utils.js (editor_key_ok, SPACE_TAKERS, ARROW_TAKERS, PAGE_TAKERS), controles de components/hw/ (Knob, Fader,
     RangePads, ToggleSwitch) y los @keyup.enter de los diálogos. Si se agrega o cambia un atajo, actualizar esta tabla
     y la sección que lo explica -->
   <p>
@@ -36,7 +36,8 @@
     <p>
       Solo con el editor abierto y sin otro cuadro encima (una confirmación, por ejemplo). Mientras escribís en un campo,
       como <Ui>Beats</Ui>, las teclas escriben. Y si el foco quedó en un botón o un control porque recién lo tocaste,
-      <Kbd>Espacio</Kbd> aprieta ese botón y las flechas mueven ese control: hacé clic en un lugar vacío del editor y
+      <Kbd>Espacio</Kbd> aprieta ese botón, y las flechas (y en una perilla, <Kbd>RePág</Kbd> / <Kbd>AvPág</Kbd>) mueven
+      ese control: hacé clic en un lugar vacío del editor y
       vuelven a ser atajos.
     </p>
   </Note>

@@ -250,7 +250,7 @@ import EditOps from "./EditOps.vue"
 import ManualHelp from "./ManualHelp.vue"
 import { edit, edit_open, edit_close, confirm_discard, set_selection } from "../helpers/edit_session"
 import { TrackCtrl, calculate_timing } from "../helpers/TrackCtrl"
-import { editor_key_ok, SPACE_TAKERS } from "../helpers/utils"
+import { editor_key_ok, SPACE_TAKERS, PAGE_TAKERS } from "../helpers/utils"
 import { update_file, error_text } from "../helpers/api"
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { KEY_OPTIONS, key_label } from "../helpers/music_key"
@@ -558,7 +558,7 @@ function on_editor_key(e) {
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return
   if ((e.key == "PageUp" || e.key == "PageDown") && !e.shiftKey) {
-    if (!editor_key_ok(e)) return
+    if (!editor_key_ok(e, PAGE_TAKERS)) return
     e.preventDefault()
     let dir = e.key == "PageUp" ? -1 : 1
     if (!e.repeat && can_nav(dir)) emit("nav", dir)

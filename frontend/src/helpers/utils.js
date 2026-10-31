@@ -47,10 +47,12 @@ export function use_msg(type = "success") {
 // Solo con el editor abierto y el foco en el editor (o en ninguna parte); nunca con otro diálogo encima
 // (confirmación de borrado, etc.) ni con el foco en un campo de texto (input, select...). `takers` = controles
 // que usan esa tecla y no se la roban: Espacio no en botones ni controles hw (Knob, Fader, RangePads,
-// ToggleSwitch, que lo usan para activarse); las flechas no en los controles hw (las letras, en ninguno)
+// ToggleSwitch, que lo usan para activarse); las flechas no en los controles hw; RePág / AvPág no en las perillas y
+// faders (role="slider": Knob mueve diez pasos); las letras, en ninguno
 const TEXT_FIELDS = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .el-select'
 export const SPACE_TAKERS = 'button, a[href], [role="slider"], [role="switch"], [role="button"]'
 export const ARROW_TAKERS = '[role="slider"], [role="switch"], [role="radio"], [role="radiogroup"]'
+export const PAGE_TAKERS = '[role="slider"]'
 export function editor_key_ok(e, takers = null) {
   let t = e.target instanceof Element ? e.target : document.body
   let dlg = document.querySelector(".editor_dialog")
