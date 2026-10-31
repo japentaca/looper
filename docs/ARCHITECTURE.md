@@ -33,6 +33,7 @@ que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
 | `/` | `App.vue` (la app de siempre: proyectos, edición, motor) | la de siempre (login) |
 | `/p/:id` | `views/PublicProject.vue`: proyecto público en **modo lectura** (tarea 4.3, ver "Modo lectura" en Frontend): START/STOP, tempo y mixer local, nada se guarda (404 → "Project not found") | no (con sesión, igual es modo lectura) |
 | `/gallery` | `views/Gallery.vue` (grilla en `components/GalleryGrid.vue`, compartida con el diálogo): `GET /api/public/projects` paginado, cada tarjeta enlaza a `/p/:id` | no |
+| `/manual` | `views/Manual.vue`: manual de uso en una sola página, con índice lateral y anclas (`/manual#<id>`, ids fijos en `manual/sections.js`; una sección por archivo en `manual/sections/`). `scrollBehavior` del router lleva al ancla (`#g_<término>` sin ancla propia cae en `#glossary`). Plan en `docs/PLAN_MANUAL.md` | no |
 | cualquier otra | redirige a `/` | |
 
 - `?autostart=1` se conserva: `Tracks.vue` y `composable.js` lo leen de `window.location.search`,
@@ -41,6 +42,8 @@ que solo tiene el `<router-view>`; las rutas están en `src/router.js`:
   motor de la app no se mezclen con los de una vista pública. El botón GALLERY de la app abre la
   galería en un diálogo (`GalleryDialog.vue`); abrir un proyecto desde ahí es una navegación completa a
   `/p/:id` en la misma pestaña (corta lo que suena). Entre galería y proyecto público, `router-link`.
+  El botón MANUAL de la app abre `/manual` en otra pestaña (para no cortar lo que suena); `PublicBar`
+  lo enlaza con `router-link`.
 - `App.vue` se importa de forma estática (la app carga como antes); las vistas públicas se cargan
   con `import()` (chunks aparte).
 - `base` de Vite queda por defecto (`/`): el build se sirve en la raíz de `looper.jape.com.ar` y los

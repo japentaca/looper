@@ -36,8 +36,9 @@ backend/
   loop_period.js     # funciones puras de trim_loops.js: período de un loop (espectrograma por bloque), decisión, repeat (tests en loop_period.test.js, node:test)
 frontend/src/
   main.js            # monta Root.vue (solo <router-view>) con Element Plus y el router
-  router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue)
-  views/             # vistas públicas sin sesión: Gallery.vue (galería), PublicProject.vue (proyecto público en modo lectura: store.read_only, nada se guarda)
+  router.js          # rutas: / (App.vue), /p/:id (views/PublicProject.vue), /gallery (views/Gallery.vue), /manual (views/Manual.vue); scrollBehavior para las anclas
+  views/             # vistas públicas sin sesión: Gallery.vue (galería), PublicProject.vue (proyecto público en modo lectura: store.read_only, nada se guarda), Manual.vue (manual de uso: índice lateral + todas las secciones en una página)
+  manual/            # manual (docs/PLAN_MANUAL.md): sections.js (ids = anclas fijas, nivel, número, título), sections/*.vue (una sección por archivo), ManualShot (captura con callouts en %), Ui, Term, Kbd, Note, nav.js
   App.vue            # layout: barra superior (placa, LED de estado, LCD de preview, sesión), sidebar de pads + Tracks + Uploader + Files
   components/
     Tracks.vue       # ⚠ MOTOR DE REPRODUCCIÓN (scheduling con Tone.Transport, selección aleatoria)
@@ -59,7 +60,7 @@ frontend/src/
     OpenProject.vue  # pregunta al entrar (recarga o login) si se abre el último proyecto, otro o ninguno
     ImportFiles.vue  # diálogo de importar del catálogo al proyecto activo (filtros, preview, memoria; no lista lo que ya está en el proyecto)
     ReportDialog.vue # diálogo de denuncia (POST /report) de un archivo o proyecto; solo con sesión
-    PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería y a la app)
+    PublicBar.vue    # barra superior de las vistas públicas (placa, links a galería, manual y app)
     LoadingDialog.vue # diálogo de carga de un proyecto (anillo de LEDs con el avance); con el link ?play=1 queda armado con PLAY (el gesto para sonar)
     Admin.vue        # diálogo de admin de usuarios (solo role = admin): admitir/rechazar, bloquear, reset, cuota
     hw/              # controles de "aparato físico" en SVG/CSS: Knob (prop disabled: atenuado y sin respuesta), Fader, Lcd, ToggleSwitch, LedButton, Led, LedMeter, GrLed (LED de reducción de ganancia), StepLeds, RangePads (rango [min, max] sobre una lista de valores)

@@ -62,6 +62,8 @@
       <span v-if="store.isLogged == true" class="silk user">{{ store.u_info.name }}</span>
       <!-- galería pública en un diálogo (abrir un proyecto navega a /p/<id> en esta pestaña) -->
       <LedButton size="small" text="GALLERY" @click="galleryVisible = true" />
+      <!-- manual de uso (/manual) en otra pestaña, para no cortar lo que suena -->
+      <LedButton size="small" text="MANUAL" title="Manual de uso (otra pestaña)" @click="open_manual" />
       <LedButton v-if="store.isLogged == false" size="small" text="LOGIN" @click="store.loginVisible = true" />
       <LedButton v-if="is_admin" size="small" text="ADMIN" @click="adminVisible = true" />
       <LedButton v-if="store.isLogged == true" size="small" text="ACCOUNT" @click="accountVisible = true" />
@@ -213,6 +215,11 @@ async function copy_link() {
   } catch {
     ElMessageBox.alert(link, "Project link", { confirmButtonText: "OK" }).catch(() => { })
   }
+}
+
+// manual de uso: otra pestaña (navegar en esta recargaría la app y cortaría lo que suena)
+function open_manual() {
+  window.open("/manual", "_blank", "noopener")
 }
 
 const activeCollapsable = ref('2')

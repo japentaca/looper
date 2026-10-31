@@ -1,5 +1,5 @@
 <template>
-  <!-- barra superior de las vistas públicas (galería y proyecto público): placa de marca y links -->
+  <!-- barra superior de las vistas públicas (galería, proyecto público y manual): placa de marca y links -->
   <!-- los links a la app son <a href> (recarga completa, ver router.js); entre vistas públicas, router-link -->
   <header class="pub_bar">
     <a class="nameplate" href="/" title="Looper">
@@ -9,6 +9,7 @@
     <slot />
     <span class="spacer"></span>
     <router-link v-if="gallery_link" class="silk link" to="/gallery">GALLERY</router-link>
+    <router-link v-if="manual_link" class="silk link" to="/manual">MANUAL</router-link>
     <a class="silk link" href="/">OPEN APP</a>
   </header>
 </template>
@@ -17,6 +18,8 @@
 defineProps({
   // muestra el link a la galería (no hace falta estando en la galería)
   gallery_link: { type: Boolean, default: true },
+  // muestra el link al manual (no hace falta estando en el manual)
+  manual_link: { type: Boolean, default: true },
 })
 </script>
 
@@ -74,5 +77,18 @@ defineProps({
 
 .link:hover {
   color: var(--accent);
+}
+
+/* celular: la barra se parte en renglones en vez de desbordar a lo ancho */
+@media (max-width: 600px) {
+  .pub_bar {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 8px 16px;
+  }
+
+  .model {
+    display: none;
+  }
 }
 </style>
