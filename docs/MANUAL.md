@@ -53,6 +53,12 @@ dependencias del backend.
   Tags: **Groove 4/4**, **Triplet** y **Breakdown** (sin batería). En total 29 archivos. La lista está al
   principio de `backend/manual_sandbox.js` (`TAGS`, `TRACKS`, `PROJECT_PROPS`), por nombre de archivo: si alguno
   no está en la base, se saltea con un aviso.
+- Dos proyectos más del demo, para que la galería y la lista de proyectos no tengan uno solo
+  (`EXTRA_PROJECTS`): **Triplet Night** (140 BPM, solo el Tag Triplet) y **Breakdown Sketch** (136 BPM, solo
+  Breakdown), armados con las mismas pistas y archivos. Tienen un `ts` más nuevo: la app abre primero el más viejo,
+  así que `/?autostart=1` sigue abriendo Demo Psy Groove (la galería, en cambio, muestra primero los nuevos).
+- En la copia, los proyectos de los demás usuarios quedan ocultos (`hidden = 1`, `HIDE_OTHER_PROJECTS`): la
+  galería del sandbox solo muestra los del demo, sin nombres ni proyectos reales.
 
 ## 2. Levantar backend y frontend contra el sandbox
 
@@ -115,13 +121,19 @@ Las tomas son una lista declarativa (`SHOTS`) en `frontend/scripts/manual_shots.
 
 - **Pasos:** funciones `async (page) => ...` de puppeteer. Hay helpers: `sleep(ms)`, `click(selector)`,
   `wait_ready` (LED de estado en *Ready*: terminaron de cargar los audios), `wait_playing` (el transporte
-  corre), `wait_no_dialog` (no hay diálogos de Element Plus abiertos). Para algo puntual se escribe la función
-  en la misma toma.
+  corre), `wait_no_dialog` (no hay diálogos de Element Plus abiertos), `goto_public(nombre, query)` (abre
+  `/p/<id><query>` del proyecto de demo con ese nombre: el id cambia en cada sandbox), `wait_play_armed` y
+  `click_play` (diálogo de carga armado con PLAY, link `?play=1`), `wait_public_ready` (LED de la vista pública
+  en *Ready*). Para algo puntual se escribe la función en la misma toma.
+- Para la vista pública sonando se usa `?play=1` + `click_play`, no `?autostart=1`: con este último el START
+  inmediato falla en la vista pública (ver `docs/KNOWN_ISSUES.md`).
 - **Marks:** `sel` (selector CSS; `i` = cuál de los que coinciden, default 0), `at` = `center` (default) o una
   esquina `tl` | `tr` | `bl` | `br` (a 16 px de los bordes), `dx` / `dy` = corrimiento en px. Elegir lugares
   que no tapen lo que se explica y que no queden pegados entre sí (en celular la captura se achica y los
   números no).
-- `/?autostart=1` abre el proyecto del demo sin la pregunta de entrada y hace START solo.
+- `/?autostart=1` abre el proyecto del demo (Demo Psy Groove) sin la pregunta de entrada y hace START solo.
+- `<ManualShot>` también acepta `to` en cada callout (id de una sección: la leyenda termina con un link a esa
+  sección) y `max_width` (px) para capturas chicas, como un diálogo, que no conviene estirar.
 - Después de sacarla: mirar el webp, ponerlo en su sección con
   `<ManualShot src="/manual/<id>.webp" alt="..." :callouts="[...]" />` (las posiciones que imprimió el script,
   con su `text`) y revisar `/manual#<sección>` en el navegador.

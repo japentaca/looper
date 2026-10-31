@@ -115,6 +115,14 @@ Severidad: 🔴 seguridad o pérdida de datos · 🟠 bug funcional · 🟡 deud
   no lo corta RESET. "Derived from" muestra el nombre del original aunque esté oculto por el admin.
 - 🟡 Un loop que queda fuera de tolerancia mientras suena (por mover el tempo o la tolerancia) termina
   su vuelta con el `playbackRate` nuevo; recién en el próximo sorteo deja de elegirse.
+- 🟠 `/p/<id>?autostart=1` con el AudioContext ya corriendo (Chrome con `--autoplay-policy=no-user-gesture-required`,
+  como indica `docs/INSTALACION.md`): en la vista pública `Tracks.vue` se monta con `isReady` ya en `true`, el watcher
+  `immediate` del autostart llama a `request_start()` y, como el contexto está `running`, `start()` corre todavía
+  dentro del `setup`, antes de `let tag_starting` (y `first_step`): "Cannot access 'tag_starting' before
+  initialization". El transporte queda en STOP (botón encendido) pero el motor no avanza (posición 1.1, Tag con
+  `remaining_beats` = duración + 1). Visto en oct 2026 al sacar las capturas del manual (headless con esa política);
+  con `?play=1` + PLAY no pasa. Sin corregir: probablemente alcanza con declarar esas variables antes del watcher o
+  diferir el START (`nextTick`).
 
 ## Frontend — corridas largas (instalación)
 

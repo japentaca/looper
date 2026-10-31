@@ -36,6 +36,25 @@ const wait_playing = page => page.waitForFunction(
 const wait_no_dialog = page => page.waitForFunction(
   () => ![...document.querySelectorAll(".el-overlay")].some(e => getComputedStyle(e).display != "none"), { timeout: 60000 })
 
+// abre la vista pública (/p/<id>) del proyecto de demo `name` (el id cambia en cada sandbox: se busca en la galería)
+const goto_public = (name, query = "") => async page => {
+  let id = await page.evaluate(async (backend, name) => {
+    let r = await fetch(backend + "/api/public/projects?per_page=100")
+    return (await r.json()).data.items.find(p => p.name == name)?.id
+  }, BACKEND, name)
+  if (!id) throw new Error(`no está el proyecto público "${name}" (¿se corrió manual_sandbox.js?)`)
+  await page.goto(BASE + "/p/" + id + query, { waitUntil: "networkidle2" })
+}
+// diálogo de carga armado con PLAY (link ?play=1): ya cargó todo y espera el clic
+const wait_play_armed = page => page.waitForFunction(
+  () => [...document.querySelectorAll(".loading_dialog")].some(e => e.textContent.includes("PLAY")), { timeout: 120000 })
+// PLAY del diálogo de carga armado
+const click_play = page => page.evaluate(() => [...document.querySelectorAll(".loading_dialog button")]
+  .find(b => b.textContent.includes("PLAY")).click())
+// la vista pública terminó de cargar los audios (LED de estado en "Ready")
+const wait_public_ready = page => page.waitForFunction(
+  () => document.querySelector(".pub_bar .status")?.textContent.includes("Ready"), { timeout: 120000 })
+
 // ---------- tomas ----------
 // { id, url, login?, viewport?, steps?: [paso], selector? | clip?: { x, y, width, height },
 //   marks?: [{ n, sel, i?, at?, dx?, dy? }] }
@@ -59,6 +78,47 @@ const SHOTS = [
       { n: 6, sel: ".tracks_panel .tracks_list", at: "tr", dx: -24 },
       { n: 7, sel: ".sections .el-collapse-item__header", i: 0 },
       { n: 8, sel: ".sections .el-collapse-item__header", i: 1, dx: 260 },
+    ],
+  },
+  {
+    id: "gallery",
+    url: "/gallery", // sin sesión: lo que ve un visitante
+    viewport: { width: 1100, height: 900 },
+    steps: [page => page.waitForSelector(".grid .card"), sleep(500)],
+    clip: { x: 0, y: 0, width: 1100, height: 250 },
+    marks: [
+      { n: 1, sel: ".pub_bar .link", i: 0, dx: -46 },
+      // a la derecha de la última tarjeta (hay lugar libre): no tapan el texto
+      { n: 2, sel: ".grid .card .lcd", i: 2, at: "tr", dx: 50, dy: -8 },
+      { n: 3, sel: ".grid .card .meta", i: 4, at: "tr", dx: 60, dy: -14 },
+      { n: 4, sel: ".grid .card .meta", i: 5, at: "tr", dx: 60, dy: 6 },
+    ],
+  },
+  {
+    id: "public_play",
+    url: "/gallery",
+    viewport: { width: 1100, height: 760 },
+    steps: [goto_public("Demo Psy Groove", "?play=1"), wait_play_armed, sleep(800)],
+    clip: { x: 300, y: 170, width: 500, height: 420 },
+  },
+  {
+    id: "public_project",
+    url: "/gallery",
+    viewport: { width: 1100, height: 1160 },
+    // con ?play=1 y el PLAY del diálogo de carga (como un visitante con el link LINK). Con ?autostart=1 Tracks.vue
+    // se monta con isReady ya en true y el START inmediato falla (tag_starting antes de declararse)
+    steps: [goto_public("Demo Psy Groove", "?play=1"), wait_play_armed, click_play, wait_public_ready, wait_playing,
+      wait_no_dialog, sleep(9000)],
+    marks: [
+      { n: 1, sel: ".pub_bar .lcd", at: "tr", dx: 8, dy: -10 },
+      { n: 2, sel: ".pub_bar .status", at: "tr", dx: 36, dy: -6 },
+      { n: 3, sel: ".info", at: "tr" },
+      { n: 4, sel: ".g_transport", at: "tr", dx: 14 },
+      { n: 5, sel: ".g_tempo", at: "tr", dx: 4 },
+      { n: 6, sel: ".g_tag", at: "tr", dx: 4 },
+      { n: 7, sel: ".g_master", at: "tr", dx: 4 },
+      { n: 8, sel: ".strip .fader", i: 0, at: "tr", dx: 14 },
+      { n: 9, sel: ".strip .mute_solo", i: 0, at: "br", dx: 18, dy: 4 },
     ],
   },
 ]

@@ -43,7 +43,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, provide, ref } from "vue"
 import { useRouter } from "vue-router"
 import PublicBar from "../components/PublicBar.vue"
 import Led from "../components/hw/Led.vue"
@@ -51,6 +51,8 @@ import { LEVELS, SECTIONS } from "../manual/sections"
 import { go_anchor } from "../manual/nav"
 
 const router = useRouter()
+// para los links "→ sección" de las leyendas de las capturas (ManualShot.vue)
+provide("manual_sections", SECTIONS)
 
 // secciones agrupadas por nivel, en el orden de sections.js
 const groups = computed(() => LEVELS.map(lv => ({ ...lv, sections: SECTIONS.filter(s => s.level === lv.id) })))

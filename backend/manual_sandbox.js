@@ -59,6 +59,18 @@ const PROJECT_PROPS = {
   master: -6,
   comp: { on: true, amount: 0.5, low: 1, mid: 0, high: 1 },
 }
+// otros proyectos del demo (galería y lista de proyectos): pistas de TRACKS por nombre, con sus archivos que tengan
+// alguno de los tags del proyecto (y solo esos tags). Se crean con un ts más nuevo: la app abre primero el más viejo,
+// así /?autostart=1 sigue abriendo PROJECT_NAME
+const EXTRA_PROJECTS = [
+  { name: "Triplet Night", tags: "T", tracks: ["Kick", "Drums", "Bass", "Lead"],
+    props: { tempo: 140, tag_range: [6, 7] } },
+  { name: "Breakdown Sketch", tags: "B", tracks: ["Bass", "Lead", "Impacts"],
+    props: { tempo: 136, tag_range: [6, 6], comp: { on: false, amount: 0.5, low: 0, mid: 0, high: 0 } } },
+]
+// en la galería del sandbox solo se ven los proyectos del demo: los demás quedan ocultos (hidden = 1, como si los
+// hubiera ocultado el admin), para que las capturas no muestren proyectos ni nombres de otros usuarios
+const HIDE_OTHER_PROJECTS = true
 const TRG_DEFAULT_PROPS = { volume: 0, pan: 0, rest: 0, rest_len: [4, 4], mode: "loop", on_tag_change: false,
   density: 0, bars: 1, reverb: null, delay: null, fx: [] }
 
@@ -151,38 +163,59 @@ async function make_demo(knex) {
     id: user_id, email: DEMO_EMAIL, name: DEMO_NAME, password: bcrypt.hashSync(DEMO_PASSWORD, 10), ts,
     bytes_used: 0, status: "active", role: "user", bio: DEMO_BIO,
   })
+  let missing = new Set()
+  let count = await make_project(knex, user_id, PROJECT_NAME, PROJECT_PROPS, ts, "GTB", TRACKS, missing)
+  console.log(`Usuario ${DEMO_NAME} (${DEMO_EMAIL}), proyecto "${PROJECT_NAME}": ${TRACKS.length} pistas, ` +
+    `${TAGS.length} tags, ${count} archivos`)
+  let later = new Date(Date.now() + 60000)
+  for (let x of EXTRA_PROJECTS) {
+    later = new Date(later.getTime() + 60000)
+    let tracks = TRACKS.filter(t => x.tracks.includes(t.name))
+    let n = await make_project(knex, user_id, x.name, { ...PROJECT_PROPS, ...x.props }, later.toISOString().slice(0, 19),
+      x.tags, tracks, missing)
+    console.log(`Proyecto "${x.name}": ${tracks.length} pistas, ${n} archivos`)
+  }
+  if (HIDE_OTHER_PROJECTS) {
+    let n = await knex("projects").whereNot({ user_id }).update({ hidden: 1 })
+    console.log(`Ocultos en la galería del sandbox: ${n} proyectos de otros usuarios`)
+  }
+  if (missing.size) console.log("Archivos que no están en el catálogo (salteados):", [...missing].join(", "))
+}
+
+// un proyecto del demo: tags (claves de TAGS en tag_keys) y pistas; de cada pista, los archivos con alguno de esos
+// tags (y solo esos). Devuelve cuántos archivos quedaron
+async function make_project(knex, user_id, name, props, ts, tag_keys, tracks, missing) {
   let project_id = uuid()
-  await knex("projects").insert({ id: project_id, user_id, name: PROJECT_NAME, hidden: 0,
-    props: JSON.stringify(PROJECT_PROPS), ts })
+  await knex("projects").insert({ id: project_id, user_id, name, hidden: 0, props: JSON.stringify(props), ts })
 
   let tag_ids = {}
-  for (let t of TAGS) {
+  for (let t of TAGS.filter(t => tag_keys.includes(t.key))) {
     tag_ids[t.key] = uuid()
     await knex("user_tags").insert({ id: tag_ids[t.key], user_id, project_id, name: t.name, color: t.color,
       weight: t.weight })
   }
 
-  let count = 0, missing = []
-  for (let tr of TRACKS) {
+  let count = 0
+  for (let tr of tracks) {
     let trg_id = uuid()
     await knex("user_track_groups").insert({ id: trg_id, user_id, project_id, name: tr.name, color: tr.color,
       props: JSON.stringify({ ...TRG_DEFAULT_PROPS, ...tr.props }) })
-    for (let [name, tags, extra] of tr.files) {
+    for (let [file_name, tags, extra] of tr.files) {
+      let keys = [...tags].filter(k => tag_ids[k])
+      if (!keys.length) continue
       // del catálogo: disponible (no oculto); si hay varios con el mismo nombre, el más viejo
-      let f = await knex("files").where({ original_name: name, hidden: 0 }).orderBy("ts").first("id")
+      let f = await knex("files").where({ original_name: file_name, hidden: 0 }).orderBy("ts").first("id")
       if (!f) {
-        missing.push(name)
+        missing.add(file_name)
         continue
       }
       await knex("project_files").insert({ id: uuid(), project_id, file_id: f.id, track_group: trg_id,
-        tags: JSON.stringify([...tags].map(k => tag_ids[k])),
+        tags: JSON.stringify(keys.map(k => tag_ids[k])),
         props: JSON.stringify({ volume: -6, weight: 16, ...extra }) })
       count++
     }
   }
-  console.log(`Usuario ${DEMO_NAME} (${DEMO_EMAIL}), proyecto "${PROJECT_NAME}": ${TRACKS.length} pistas, ` +
-    `${TAGS.length} tags, ${count} archivos`)
-  if (missing.length) console.log("Archivos que no están en el catálogo (salteados):", missing.join(", "))
+  return count
 }
 
 await main()

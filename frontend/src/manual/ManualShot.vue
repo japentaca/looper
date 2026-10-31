@@ -2,8 +2,10 @@
   <!-- captura del manual con marco de aparato y anotaciones numeradas encima (no quemadas en la imagen):
     <ManualShot src="/manual/overview.webp" alt="..." :callouts="[{ n: 1, x: 12, y: 6, text: '...' }]" />
     x / y en % del ancho y el alto de la imagen (el centro del número); con text, la leyenda se arma sola
-    abajo; el slot (opcional) agrega texto libre debajo de la leyenda. Sin src se ve un marco vacío -->
-  <figure class="shot">
+    abajo; con to (id de una sección), la leyenda termina con un link a esa sección. El slot (opcional) agrega
+    texto libre debajo de la leyenda. max_width (px) achica las capturas chicas (un diálogo) para que no se
+    estiren. Sin src se ve un marco vacío -->
+  <figure class="shot" :style="max_width ? { maxWidth: max_width + 'px' } : null">
     <div class="hw_panel frame">
       <div class="screen" :class="{ missing: !src }">
         <img v-if="src" :src="src" :alt="alt" loading="lazy" decoding="async" />
@@ -19,7 +21,8 @@
       <ol v-if="legend.length" class="legend">
         <li v-for="c in legend" :key="c.n">
           <span class="badge">{{ c.n }}</span>
-          <span>{{ c.text }}</span>
+          <span>{{ c.text }}<template v-if="c.to && section_label(c.to)"> <a class="go" :href="'#' + c.to"
+                @click.prevent="go_anchor(router, c.to)">→ {{ section_label(c.to) }}</a></template></span>
         </li>
       </ol>
       <slot />
@@ -28,7 +31,9 @@
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, inject } from "vue"
+import { useRouter } from "vue-router"
+import { go_anchor } from "./nav"
 
 const props = defineProps({
   src: { type: String, default: "" }, // p. ej. "/manual/overview.webp" (frontend/public/manual/)
@@ -36,9 +41,17 @@ const props = defineProps({
   // [{ n, x, y, text? }]: número, posición en % sobre la imagen y texto de la leyenda
   callouts: { type: Array, default: () => [] },
   caption: { type: String, default: "" },
+  max_width: { type: Number, default: 0 },
 })
 
+const router = useRouter()
 const legend = computed(() => props.callouts.filter(c => c.text))
+// secciones del manual (las da Manual.vue con provide; acá no se importa sections.js para no armar un ciclo)
+const sections = inject("manual_sections", [])
+function section_label(id) {
+  let s = sections.find(s => s.id === id)
+  return s ? (s.num !== null ? s.num + " · " : "") + s.title : ""
+}
 </script>
 
 <style scoped>
@@ -128,6 +141,12 @@ figcaption {
   color: var(--text);
 }
 
+.go {
+  margin-left: 6px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .legend .badge {
   width: 18px;
   height: 18px;
@@ -164,7 +183,8 @@ figcaption {
   }
 
   figcaption,
-  .legend li {
+  .legend li,
+  .go {
     color: #111;
   }
 }
