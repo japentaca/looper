@@ -8,7 +8,7 @@
 
     <div v-loading="loading" class="grid">
       <div v-for="p in items" :key="p.id" class="card_wrap">
-        <component :is="reload ? 'a' : RouterLink" class="card hw_panel" v-bind="link_props(p)">
+        <component :is="reload ? 'a' : RouterLink" class="card hw_panel" v-bind="link_props(p)" @click="track_open(p)">
           <Lcd small :digits="0">
             <span class="card_name" :title="p.name">{{ p.name }}</span>
           </Lcd>
@@ -73,6 +73,12 @@ async function load(p = 1) {
   } finally {
     loading.value = false
   }
+}
+
+// analítica (Umami): proyecto abierto desde la galería (/gallery o el diálogo GALLERY de la app).
+// El tracker manda con keepalive, así que sobrevive a la navegación completa de `reload`.
+function track_open(p) {
+  window.umami?.track("galeria_abrir", { proyecto: p.name, desde: props.reload ? "app" : "galeria" })
 }
 
 function link_props(p) {

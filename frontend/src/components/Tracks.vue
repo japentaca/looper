@@ -783,6 +783,8 @@ watch(() => store.files.map(f => f.id).join(","), () => {
 })
 
 function start() {
+  // analítica (Umami): cada START, con el proyecto y si es la vista pública (modo lectura)
+  window.umami?.track("play", { proyecto: store.project?.name || "", publico: store.read_only ? "si" : "no" })
 
   Tone.start()
   //Tone.setContext(new Tone.Context({ latencyHint: "playback" }))
